@@ -11,6 +11,7 @@ import {
   Banknote,
   Cross,
   ShowerHead,
+  Clock,
 } from "lucide-react-native";
 import { cn } from "@/lib/cn";
 import { useThemeColors } from "@/theme";
@@ -40,6 +41,8 @@ export default function POIFilterBar({ routeId }: POIFilterBarProps) {
   const pois = usePoiStore((s) => s.pois[routeId]);
   const enabledCategories = usePoiStore((s) => s.enabledCategories);
   const toggleCategory = usePoiStore((s) => s.toggleCategory);
+  const showOpenOnly = usePoiStore((s) => s.showOpenOnly);
+  const toggleShowOpenOnly = usePoiStore((s) => s.toggleShowOpenOnly);
 
   const enabledSet = useMemo(
     () => new Set(enabledCategories),
@@ -63,6 +66,31 @@ export default function POIFilterBar({ routeId }: POIFilterBarProps) {
       showsHorizontalScrollIndicator={false}
       contentContainerStyle={{ paddingHorizontal: 12, gap: 8, paddingVertical: 8 }}
     >
+      {/* Open Now filter */}
+      <TouchableOpacity
+        className={cn(
+          "flex-row items-center px-3 min-h-[48px] rounded-full",
+          showOpenOnly
+            ? "bg-muted border border-border"
+            : "border border-transparent",
+        )}
+        onPress={toggleShowOpenOnly}
+        accessibilityLabel={showOpenOnly ? "Show all POIs" : "Show only open POIs"}
+      >
+        <Clock
+          size={13}
+          color={showOpenOnly ? colors.positive : colors.textTertiary}
+        />
+        <Text
+          className={cn(
+            "ml-1 text-[12px] font-barlow-medium",
+            showOpenOnly ? "text-foreground" : "text-muted-foreground",
+          )}
+        >
+          Open now
+        </Text>
+      </TouchableOpacity>
+
       {POI_CATEGORIES.map((cat) => {
         const isEnabled = enabledSet.has(cat.key);
         const count = categoryCounts[cat.key] ?? 0;
@@ -72,7 +100,7 @@ export default function POIFilterBar({ routeId }: POIFilterBarProps) {
           <TouchableOpacity
             key={cat.key}
             className={cn(
-              "flex-row items-center px-3 h-[32px] rounded-full",
+              "flex-row items-center px-3 min-h-[48px] rounded-full",
               isEnabled
                 ? "bg-muted border border-border"
                 : "border border-transparent",

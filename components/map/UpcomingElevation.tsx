@@ -4,7 +4,7 @@ import { Text } from "@/components/ui/text";
 import ElevationProfile from "@/components/elevation/ElevationProfile";
 import { extractRouteSlice } from "@/utils/geo";
 import { LOOK_BACK_RATIO } from "@/constants";
-import type { RoutePoint, UnitSystem } from "@/types";
+import type { RoutePoint, UnitSystem, POI } from "@/types";
 
 /** Max look-back distance in meters (cap for "remaining" mode) */
 const MAX_LOOK_BACK_M = 5_000;
@@ -17,6 +17,10 @@ interface UpcomingElevationProps {
   units: UnitSystem;
   width: number;
   height: number;
+  /** POIs to display on the elevation chart */
+  pois?: POI[];
+  /** Called when a POI marker is tapped */
+  onPOIPress?: (poi: POI) => void;
 }
 
 export default function UpcomingElevation({
@@ -26,10 +30,12 @@ export default function UpcomingElevation({
   units,
   width,
   height,
+  pois,
+  onPOIPress,
 }: UpcomingElevationProps) {
-  const { slicedPoints, currentIdxInSlice, offsetMeters } = useMemo(() => {
+  const { slicedPoints, currentIdxInSlice, offsetMeters, sliceEndDist } = useMemo(() => {
     if (points.length < 2)
-      return { slicedPoints: [] as RoutePoint[], currentIdxInSlice: 0, offsetMeters: 0 };
+      return { slicedPoints: [] as RoutePoint[], currentIdxInSlice: 0, offsetMeters: 0, sliceEndDist: 0 };
 
     const currentDist = points[currentPointIndex].distanceFromStartMeters;
     const totalDist = points[points.length - 1].distanceFromStartMeters;
@@ -56,8 +62,23 @@ export default function UpcomingElevation({
     const sliced = extractRouteSlice(points, startIdx, totalSliceM);
     const idxInSlice = currentPointIndex - startIdx;
 
-    return { slicedPoints: sliced, currentIdxInSlice: idxInSlice, offsetMeters: sliceOffsetMeters };
+    return {
+      slicedPoints: sliced,
+      currentIdxInSlice: idxInSlice,
+      offsetMeters: sliceOffsetMeters,
+      sliceEndDist: sliceOffsetMeters + totalSliceM,
+    };
   }, [points, currentPointIndex, lookAhead]);
+
+  // Filter POIs to visible slice range
+  const visiblePOIs = useMemo(() => {
+    if (!pois) return undefined;
+    return pois.filter(
+      (p) =>
+        p.distanceAlongRouteMeters >= offsetMeters &&
+        p.distanceAlongRouteMeters <= sliceEndDist,
+    );
+  }, [pois, offsetMeters, sliceEndDist]);
 
   if (slicedPoints.length <= 1) {
     return (
@@ -78,6 +99,8 @@ export default function UpcomingElevation({
       currentPointIndex={currentIdxInSlice}
       showLegend={false}
       distanceOffsetMeters={offsetMeters}
+      pois={visiblePOIs}
+      onPOIPress={onPOIPress}
     />
   );
 }

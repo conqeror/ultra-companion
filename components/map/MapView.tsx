@@ -1,5 +1,5 @@
 import React, { useRef, useCallback, useEffect, useState, useMemo } from "react";
-import { View, useWindowDimensions } from "react-native";
+import { View, AppState, useWindowDimensions } from "react-native";
 import Mapbox, {
   Camera,
   UserTrackingMode,
@@ -14,8 +14,7 @@ import { usePanelStore } from "@/store/panelStore";
 import { useThemeColors } from "@/theme";
 import { MAP_STYLE_URLS } from "@/types";
 import type { RoutePoint } from "@/types";
-import { DEFAULT_ZOOM, BOTTOM_PANEL_HEIGHT_RATIO } from "@/constants";
-import { requestLocationPermission, watchPosition } from "@/services/gps";
+import { DEFAULT_ZOOM, BOTTOM_PANEL_HEIGHT_RATIO, GPS_STALE_THRESHOLD_MS } from "@/constants";
 import MapControls from "./MapControls";
 import RouteLayer from "./RouteLayer";
 import POILayer from "./POILayer";
@@ -25,6 +24,7 @@ import BottomPanel from "./BottomPanel";
 import { snapToRoute } from "@/services/routeSnapping";
 import { computeBounds } from "@/utils/geo";
 import { usePoiStore } from "@/store/poiStore";
+import { useEtaStore } from "@/store/etaStore";
 
 // Initialize Mapbox with access token from app config
 try {
@@ -44,8 +44,9 @@ export default function MapScreen() {
   const [initialCameraSet, setInitialCameraSet] = useState(false);
   const { height: screenHeight } = useWindowDimensions();
 
-  const { followUser, userPosition, setFollowUser, setUserPosition } =
-    useMapStore();
+  const { followUser, userPosition, setFollowUser } = useMapStore();
+  const refreshPosition = useMapStore((s) => s.refreshPosition);
+  const isRefreshing = useMapStore((s) => s.isRefreshing);
 
   const mapStyle = useSettingsStore((s) => s.mapStyle);
   const panelMode = usePanelStore((s) => s.panelMode);
@@ -57,6 +58,7 @@ export default function MapScreen() {
   const loadRoutes = useRouteStore((s) => s.loadRoutes);
   const setSnappedPosition = useRouteStore((s) => s.setSnappedPosition);
   const loadPOIs = usePoiStore((s) => s.loadPOIs);
+  const computeETAForRoute = useEtaStore((s) => s.computeETAForRoute);
 
   // Active route and its points
   const activeRoute = useMemo(() => routes.find((r) => r.isActive) ?? null, [routes]);
@@ -75,12 +77,18 @@ export default function MapScreen() {
     loadRoutes();
   }, [loadRoutes]);
 
-  // Load POIs when active route changes
+  // Load POIs and compute ETA when active route changes
   useEffect(() => {
     if (activeRoute) {
       loadPOIs(activeRoute.id);
     }
   }, [activeRoute?.id, loadPOIs]);
+
+  useEffect(() => {
+    if (activeRoute && activeRoutePoints?.length) {
+      computeETAForRoute(activeRoute.id, activeRoutePoints);
+    }
+  }, [activeRoute?.id, activeRoutePoints, computeETAForRoute]);
 
   // Set initial camera once routes are loaded
   useEffect(() => {
@@ -101,7 +109,7 @@ export default function MapScreen() {
     }
   }, [activeRouteBounds, initialCameraSet]);
 
-  // Snap eagerly when routes load (don't wait for next GPS movement)
+  // Snap eagerly when routes load (don't wait for next GPS refresh)
   useEffect(() => {
     if (!activeRoute || !activeRoutePoints?.length) return;
     const pos = useMapStore.getState().userPosition;
@@ -110,38 +118,55 @@ export default function MapScreen() {
     setSnappedPosition(snapped);
   }, [activeRoute, activeRoutePoints, setSnappedPosition]);
 
-  useEffect(() => {
-    let watcher: { remove: () => void } | null = null;
-
-    (async () => {
-      const granted = await requestLocationPermission();
-      if (!granted) return;
-
-      watcher = watchPosition((position) => {
-        setUserPosition(position);
-        if (!hasGpsFix) setHasGpsFix(true);
-
-        // Snap to active route
-        const activeRoute = useRouteStore.getState().routes.find((r) => r.isActive);
-        if (activeRoute) {
-          const points = useRouteStore.getState().visibleRoutePoints[activeRoute.id];
-          if (points?.length) {
-            const snapped = snapToRoute(
-              position.latitude,
-              position.longitude,
-              activeRoute.id,
-              points,
-            );
-            setSnappedPosition(snapped);
-          }
+  // Snap to route after each position refresh
+  const snapAfterRefresh = useCallback(
+    (position: { latitude: number; longitude: number }) => {
+      const active = useRouteStore.getState().routes.find((r) => r.isActive);
+      if (active) {
+        const points = useRouteStore.getState().visibleRoutePoints[active.id];
+        if (points?.length) {
+          const snapped = snapToRoute(position.latitude, position.longitude, active.id, points);
+          setSnappedPosition(snapped);
         }
-      });
-    })();
+      }
+    },
+    [setSnappedPosition],
+  );
 
-    return () => {
-      watcher?.remove();
-    };
-  }, [setUserPosition]);
+  // On-demand GPS: fetch position on mount
+  useEffect(() => {
+    (async () => {
+      const position = await refreshPosition();
+      if (position) {
+        if (!hasGpsFix) setHasGpsFix(true);
+        snapAfterRefresh(position);
+      }
+    })();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-refresh on app focus if position is stale
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", async (state) => {
+      if (state !== "active") return;
+      const pos = useMapStore.getState().userPosition;
+      if (!pos || Date.now() - pos.timestamp >= GPS_STALE_THRESHOLD_MS) {
+        const position = await refreshPosition();
+        if (position) {
+          if (!hasGpsFix) setHasGpsFix(true);
+          snapAfterRefresh(position);
+        }
+      }
+    });
+    return () => subscription.remove();
+  }, [refreshPosition, snapAfterRefresh, hasGpsFix]);
+
+  const handleRefreshPosition = useCallback(async () => {
+    const position = await refreshPosition();
+    if (position) {
+      if (!hasGpsFix) setHasGpsFix(true);
+      snapAfterRefresh(position);
+    }
+  }, [refreshPosition, snapAfterRefresh, hasGpsFix]);
 
   const handleCenterUser = useCallback(() => {
     setFollowUser(true);
@@ -214,11 +239,15 @@ export default function MapScreen() {
         />
       </MapboxMapView>
 
-      <MapControls onCenterUser={handleCenterUser} followUser={followUser} />
+      <MapControls
+        onCenterUser={handleCenterUser}
+        followUser={followUser}
+        onRefreshPosition={handleRefreshPosition}
+        isRefreshing={isRefreshing}
+      />
       <BottomPanel activeRoutePoints={activeRoutePoints} />
       <POIDetailSheet />
       {activeRoute && <POIListView routeId={activeRoute.id} />}
     </View>
   );
 }
-

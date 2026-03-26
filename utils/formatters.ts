@@ -18,3 +18,26 @@ export function formatElevation(meters: number, units: UnitSystem): string {
   }
   return `${Math.round(meters)} m`;
 }
+
+export function formatDuration(seconds: number): string {
+  if (seconds < 0) return "0m";
+  const totalMin = Math.round(seconds / 60);
+  if (totalMin < 60) return `${totalMin}m`;
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  return m > 0 ? `${h}h ${m}m` : `${h}h`;
+}
+
+export function formatETA(date: Date): string {
+  const h = date.getHours().toString().padStart(2, "0");
+  const m = date.getMinutes().toString().padStart(2, "0");
+  return h + ":" + m;
+}
+
+export function formatTimeAgo(timestampMs: number): string {
+  const ageMs = Date.now() - timestampMs;
+  const minutes = Math.floor(ageMs / 60_000);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ago`;
+}

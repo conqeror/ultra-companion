@@ -1,11 +1,13 @@
 import React, { useMemo } from "react";
 import { View } from "react-native";
-import Svg, { Path, Circle, Defs, LinearGradient, Stop, Line } from "react-native-svg";
+import Svg, { Path, Circle, Defs, LinearGradient, Stop, Line, G, Rect, Text as SvgText } from "react-native-svg";
 import { Text } from "@/components/ui/text";
 import { useThemeColors, gradientColor } from "@/theme";
 import { ELEVATION_STOPS } from "@/theme/elevation";
 import { formatDistance, formatElevation } from "@/utils/formatters";
-import type { RoutePoint, UnitSystem } from "@/types";
+import { getOpeningHoursStatus } from "@/services/openingHoursParser";
+import { categoryColor, categoryLetter, ohStatusColorKey } from "@/constants/poiHelpers";
+import type { RoutePoint, UnitSystem, POI } from "@/types";
 
 interface ElevationProfileProps {
   points: RoutePoint[];
@@ -16,10 +18,18 @@ interface ElevationProfileProps {
   showLegend?: boolean;
   /** Offset added to X-axis labels so they show absolute route distance */
   distanceOffsetMeters?: number;
+  /** POIs to render as markers on the chart */
+  pois?: POI[];
+  /** Called when a POI marker is tapped */
+  onPOIPress?: (poi: POI) => void;
 }
 
 const PADDING = { top: 16, right: 16, bottom: 28, left: 48 };
 const SAMPLE_INTERVAL_M = 100;
+const POI_MARKER_RADIUS = 6;
+const POI_MARKER_OFFSET_Y = -14;
+const POI_COLLISION_MIN_PX = 12;
+const POI_COLLISION_STEP_PX = 16;
 
 /** Resample route points at fixed distance intervals */
 function resampleAtInterval(
@@ -61,6 +71,35 @@ function resampleAtInterval(
   return result;
 }
 
+/** Interpolate elevation at a given distance using evenly-spaced resampled data (O(1)) */
+function interpolateElevation(
+  samples: { distance: number; elevation: number }[],
+  distance: number,
+): number {
+  if (samples.length === 0) return 0;
+  const first = samples[0].distance;
+  const last = samples[samples.length - 1].distance;
+  if (distance <= first) return samples[0].elevation;
+  if (distance >= last) return samples[samples.length - 1].elevation;
+
+  const i = Math.min(
+    Math.floor(((distance - first) / (last - first)) * (samples.length - 1)),
+    samples.length - 2,
+  );
+  const segDist = samples[i + 1].distance - samples[i].distance;
+  const t = segDist > 0 ? (distance - samples[i].distance) / segDist : 0;
+  return samples[i].elevation + t * (samples[i + 1].elevation - samples[i].elevation);
+}
+
+interface POIMarkerPos {
+  poi: POI;
+  x: number;
+  y: number;
+  color: string;
+  letter: string;
+  ohRingColor: string | null;
+}
+
 export default function ElevationProfile({
   points,
   units,
@@ -69,12 +108,14 @@ export default function ElevationProfile({
   currentPointIndex,
   showLegend = true,
   distanceOffsetMeters = 0,
+  pois,
+  onPOIPress,
 }: ElevationProfileProps) {
   const colors = useThemeColors();
   const chartWidth = width - PADDING.left - PADDING.right;
   const chartHeight = height - PADDING.top - PADDING.bottom;
 
-  const { linePath, fillPath, gradientStops, minElev, maxElev, totalDist, xScale, yScale } =
+  const { linePath, fillPath, gradientStops, minElev, maxElev, totalDist, xScale, yScale, samples } =
     useMemo(() => {
       if (points.length === 0) {
         return {
@@ -86,11 +127,12 @@ export default function ElevationProfile({
           totalDist: 0,
           xScale: (_d: number) => 0,
           yScale: (_e: number) => 0,
+          samples: [] as { distance: number; elevation: number }[],
         };
       }
 
-      const samples = resampleAtInterval(points, SAMPLE_INTERVAL_M);
-      if (samples.length < 2) {
+      const smp = resampleAtInterval(points, SAMPLE_INTERVAL_M);
+      if (smp.length < 2) {
         return {
           linePath: "",
           fillPath: "",
@@ -100,17 +142,18 @@ export default function ElevationProfile({
           totalDist: 0,
           xScale: (_d: number) => 0,
           yScale: (_e: number) => 0,
+          samples: smp,
         };
       }
 
-      const elevs = samples.map((s) => s.elevation);
+      const elevs = smp.map((s) => s.elevation);
       const minE = Math.min(...elevs);
       const maxE = Math.max(...elevs);
       const elevRange = maxE - minE || 100;
       const pad = elevRange * 0.1;
       const yMin = minE - pad;
       const yMax = maxE + pad;
-      const totalD = samples[samples.length - 1].distance;
+      const totalD = smp[smp.length - 1].distance;
 
       const xs = (d: number) =>
         PADDING.left + (totalD > 0 ? (d / totalD) * chartWidth : 0);
@@ -119,26 +162,26 @@ export default function ElevationProfile({
 
       // Compute gradient at each sample point
       const grads: number[] = [];
-      for (let i = 0; i < samples.length; i++) {
+      for (let i = 0; i < smp.length; i++) {
         if (i === 0) {
-          const dist = samples[1].distance - samples[0].distance;
-          const elevDiff = samples[1].elevation - samples[0].elevation;
+          const dist = smp[1].distance - smp[0].distance;
+          const elevDiff = smp[1].elevation - smp[0].elevation;
           grads.push(dist > 0 ? (elevDiff / dist) * 100 : 0);
-        } else if (i === samples.length - 1) {
-          const dist = samples[i].distance - samples[i - 1].distance;
-          const elevDiff = samples[i].elevation - samples[i - 1].elevation;
+        } else if (i === smp.length - 1) {
+          const dist = smp[i].distance - smp[i - 1].distance;
+          const elevDiff = smp[i].elevation - smp[i - 1].elevation;
           grads.push(dist > 0 ? (elevDiff / dist) * 100 : 0);
         } else {
-          const dist = samples[i + 1].distance - samples[i - 1].distance;
-          const elevDiff = samples[i + 1].elevation - samples[i - 1].elevation;
+          const dist = smp[i + 1].distance - smp[i - 1].distance;
+          const elevDiff = smp[i + 1].elevation - smp[i - 1].elevation;
           grads.push(dist > 0 ? (elevDiff / dist) * 100 : 0);
         }
       }
 
       // Build gradient stops
       const stops: { offset: string; color: string }[] = [];
-      for (let i = 0; i < samples.length; i++) {
-        const fraction = totalD > 0 ? samples[i].distance / totalD : 0;
+      for (let i = 0; i < smp.length; i++) {
+        const fraction = totalD > 0 ? smp[i].distance / totalD : 0;
         stops.push({
           offset: fraction.toFixed(4),
           color: gradientColor(grads[i]),
@@ -147,9 +190,9 @@ export default function ElevationProfile({
 
       // Build line path
       let lineD = "";
-      for (let i = 0; i < samples.length; i++) {
-        const x = xs(samples[i].distance);
-        const y = ys(samples[i].elevation);
+      for (let i = 0; i < smp.length; i++) {
+        const x = xs(smp[i].distance);
+        const y = ys(smp[i].elevation);
         lineD += i === 0 ? `M${x},${y}` : ` L${x},${y}`;
       }
 
@@ -168,6 +211,7 @@ export default function ElevationProfile({
         totalDist: totalD,
         xScale: xs,
         yScale: ys,
+        samples: smp,
       };
     }, [points, chartWidth, chartHeight]);
 
@@ -180,6 +224,51 @@ export default function ElevationProfile({
       y: yScale(p.elevationMeters ?? 0),
     };
   }, [currentPointIndex, points, xScale, yScale]);
+
+  // Compute POI marker positions with collision avoidance
+  const poiMarkers = useMemo(() => {
+    if (!pois || pois.length === 0 || samples.length === 0 || totalDist === 0) return [];
+
+    const markers: POIMarkerPos[] = [];
+
+    for (const poi of pois) {
+      // Convert POI's absolute distanceAlongRouteMeters to local chart distance
+      const localDist = poi.distanceAlongRouteMeters - distanceOffsetMeters;
+      if (localDist < 0 || localDist > totalDist) continue;
+
+      const x = xScale(localDist);
+      const elev = interpolateElevation(samples, localDist);
+      const baseY = yScale(elev) + POI_MARKER_OFFSET_Y;
+
+      const ohTag = poi.tags?.opening_hours;
+      const ohKey = ohTag ? ohStatusColorKey(getOpeningHoursStatus(ohTag)) : null;
+      const ohRingColor = ohKey ? colors[ohKey] : null;
+
+      markers.push({
+        poi,
+        x,
+        y: baseY,
+        color: categoryColor(poi.category),
+        letter: categoryLetter(poi.category),
+        ohRingColor,
+      });
+    }
+
+    // Simple collision avoidance: if markers overlap horizontally, offset upward
+    markers.sort((a, b) => a.x - b.x);
+    for (let i = 1; i < markers.length; i++) {
+      if (markers[i].x - markers[i - 1].x < POI_COLLISION_MIN_PX) {
+        markers[i].y = markers[i - 1].y - POI_COLLISION_STEP_PX;
+      }
+    }
+
+    // Clamp to chart area
+    for (const m of markers) {
+      m.y = Math.max(PADDING.top + POI_MARKER_RADIUS + 2, m.y);
+    }
+
+    return markers;
+  }, [pois, samples, totalDist, distanceOffsetMeters, xScale, yScale, colors]);
 
   if (points.length === 0) {
     return (
@@ -258,6 +347,54 @@ export default function ElevationProfile({
             <Circle cx={currentPos.x} cy={currentPos.y} r={5} fill={colors.accent} />
           </>
         )}
+
+        {/* POI markers */}
+        {poiMarkers.map((m) => (
+          <G
+            key={m.poi.id}
+            onPress={onPOIPress ? () => onPOIPress(m.poi) : undefined}
+          >
+            {/* Opening hours ring */}
+            {m.ohRingColor && (
+              <Circle
+                cx={m.x}
+                cy={m.y}
+                r={POI_MARKER_RADIUS + 2.5}
+                fill="none"
+                stroke={m.ohRingColor}
+                strokeWidth={2}
+              />
+            )}
+            {/* Category circle */}
+            <Circle
+              cx={m.x}
+              cy={m.y}
+              r={POI_MARKER_RADIUS}
+              fill={m.color}
+            />
+            {/* Category letter */}
+            <SvgText
+              x={m.x}
+              y={m.y + 3.5}
+              fontSize={9}
+              fontWeight="bold"
+              fill="white"
+              textAnchor="middle"
+            >
+              {m.letter}
+            </SvgText>
+            {/* Invisible touch target */}
+            {onPOIPress && (
+              <Rect
+                x={m.x - 24}
+                y={m.y - 24}
+                width={48}
+                height={48}
+                fill="transparent"
+              />
+            )}
+          </G>
+        ))}
       </Svg>
 
       {/* Y-axis labels */}

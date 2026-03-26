@@ -1,12 +1,14 @@
 import type { POI, RoutePoint } from "@/types";
 import { fetchAllPOIs } from "./overpassClient";
 import { mapOverpassToPOIs } from "./poiClassifier";
+import { batchLookupElevations, coordKey } from "./elevationLookup";
 import { computePOIRouteAssociation } from "@/utils/geo";
 import { insertPOIs, deletePOIsForRoute } from "@/db/database";
+import { POI_MAX_ELEVATION_DIFF_M } from "@/constants";
 
 /**
- * Full POI fetch pipeline: fetch from Overpass → classify → associate with route → store.
- * Returns the number of POIs stored.
+ * Full POI fetch pipeline: fetch from Overpass → classify → associate with route →
+ * elevation filter → store. Returns the number of POIs stored.
  */
 export async function fetchAndStorePOIs(
   routeId: string,
@@ -29,7 +31,11 @@ export async function fetchAndStorePOIs(
   const classified = mapOverpassToPOIs(elements);
 
   // 3. Compute route associations and filter by corridor
-  const pois: POI[] = [];
+  const candidates: {
+    poi: POI;
+    nearestIndex: number;
+  }[] = [];
+
   for (const c of classified) {
     const assoc = computePOIRouteAssociation(
       c.latitude,
@@ -40,25 +46,76 @@ export async function fetchAndStorePOIs(
     // Skip POIs outside the corridor (Overpass around is approximate for ways)
     if (assoc.distanceFromRouteMeters > corridorWidthM) continue;
 
-    pois.push({
-      id: `${routeId}_${c.osmId}`,
-      osmId: c.osmId,
-      name: c.name,
-      category: c.category,
-      latitude: c.latitude,
-      longitude: c.longitude,
-      tags: c.tags,
-      distanceFromRouteMeters: assoc.distanceFromRouteMeters,
-      distanceAlongRouteMeters: assoc.distanceAlongRouteMeters,
-      nearestRouteId: routeId,
+    candidates.push({
+      poi: {
+        id: `${routeId}_${c.osmId}`,
+        osmId: c.osmId,
+        name: c.name,
+        category: c.category,
+        latitude: c.latitude,
+        longitude: c.longitude,
+        tags: c.tags,
+        distanceFromRouteMeters: assoc.distanceFromRouteMeters,
+        distanceAlongRouteMeters: assoc.distanceAlongRouteMeters,
+        nearestRouteId: routeId,
+      },
+      nearestIndex: assoc.nearestIndex,
     });
   }
 
-  // 4. Store: delete old, insert new
+  // 4. Elevation filter: discard POIs too far above/below the route
+  onProgress?.("Checking elevations", 0, 1);
+  const pois = await filterByElevation(candidates, routePoints);
+
+  // 5. Store: delete old, insert new
   onProgress?.("Storing", 0, 1);
   await deletePOIsForRoute(routeId);
   await insertPOIs(pois);
   onProgress?.("Done", 1, 1);
 
   return pois.length;
+}
+
+/**
+ * Filter out POIs whose elevation differs from the route by more than the threshold.
+ * Uses Open-Elevation API for POI elevations. Falls back to no filtering on API failure.
+ */
+async function filterByElevation(
+  candidates: { poi: POI; nearestIndex: number }[],
+  routePoints: RoutePoint[],
+): Promise<POI[]> {
+  if (candidates.length === 0) return [];
+
+  // Check if route has elevation data at all
+  const hasRouteElevation = routePoints.some((p) => p.elevationMeters != null);
+  if (!hasRouteElevation) return candidates.map((c) => c.poi);
+
+  // Batch-query POI elevations
+  const coords = candidates.map((c) => ({
+    latitude: c.poi.latitude,
+    longitude: c.poi.longitude,
+  }));
+
+  const elevations = await batchLookupElevations(coords);
+
+  // If lookup returned nothing, skip filtering (best-effort)
+  if (elevations.size === 0) return candidates.map((c) => c.poi);
+
+  const result: POI[] = [];
+  for (const { poi, nearestIndex } of candidates) {
+    const poiElev = elevations.get(coordKey(poi.latitude, poi.longitude));
+    const routeElev = routePoints[nearestIndex]?.elevationMeters;
+
+    // If we can't determine either elevation, keep the POI
+    if (poiElev == null || routeElev == null) {
+      result.push(poi);
+      continue;
+    }
+
+    if (Math.abs(poiElev - routeElev) <= POI_MAX_ELEVATION_DIFF_M) {
+      result.push(poi);
+    }
+  }
+
+  return result;
 }

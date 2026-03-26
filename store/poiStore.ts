@@ -4,6 +4,7 @@ import type { POI, POICategory, POIFetchStatus, RoutePoint } from "@/types";
 import { DEFAULT_CORRIDOR_WIDTH_M, POI_CATEGORIES } from "@/constants";
 import { getPOIsForRoute } from "@/db/database";
 import { fetchAndStorePOIs } from "@/services/poiFetcher";
+import { getOpeningHoursStatus } from "@/services/openingHoursParser";
 
 let storage: MMKV | null = null;
 
@@ -19,6 +20,15 @@ function readString(key: string): string | undefined {
     return getStorage().getString(key);
   } catch {
     return undefined;
+  }
+}
+
+function parseStarredIds(raw: string | undefined): Set<string> {
+  if (!raw) return new Set();
+  try {
+    return new Set(JSON.parse(raw) as string[]);
+  } catch {
+    return new Set();
   }
 }
 
@@ -38,6 +48,8 @@ interface POIState {
   // Filter state (persisted)
   enabledCategories: POICategory[];
   corridorWidthM: number;
+  showOpenOnly: boolean;
+  starredPOIIds: Set<string>;
 
   // Fetch state
   fetchStatus: Record<string, POIFetchStatus>;
@@ -54,6 +66,10 @@ interface POIState {
   toggleCategory: (category: POICategory) => void;
   setCorridorWidth: (widthM: number) => void;
   setAllCategories: (enabled: boolean) => void;
+  toggleShowOpenOnly: () => void;
+  toggleStarred: (poiId: string) => void;
+  isStarred: (poiId: string) => boolean;
+  getStarredPOIs: (routeId: string) => POI[];
   clearPOIs: (routeId: string) => Promise<void>;
   setSelectedPOI: (poi: POI | null) => void;
   setShowPOIList: (show: boolean) => void;
@@ -70,6 +86,8 @@ export const usePoiStore = create<POIState>((set, get) => ({
   pois: {},
   enabledCategories: parseCategories(readString("enabledCategories")),
   corridorWidthM: Number(readString("corridorWidthM")) || DEFAULT_CORRIDOR_WIDTH_M,
+  showOpenOnly: readString("showOpenOnly") === "true",
+  starredPOIIds: parseStarredIds(readString("starredPOIIds")),
   fetchStatus: {},
   fetchProgress: null,
   fetchError: null,
@@ -138,6 +156,33 @@ export const usePoiStore = create<POIState>((set, get) => ({
     set({ enabledCategories: next });
   },
 
+  toggleShowOpenOnly: () => {
+    const next = !get().showOpenOnly;
+    try { getStorage().set("showOpenOnly", String(next)); } catch {}
+    set({ showOpenOnly: next });
+  },
+
+  toggleStarred: (poiId) => {
+    const current = get().starredPOIIds;
+    const next = new Set(current);
+    if (next.has(poiId)) {
+      next.delete(poiId);
+    } else {
+      next.add(poiId);
+    }
+    try { getStorage().set("starredPOIIds", JSON.stringify([...next])); } catch {}
+    set({ starredPOIIds: next });
+  },
+
+  isStarred: (poiId) => get().starredPOIIds.has(poiId),
+
+  getStarredPOIs: (routeId) => {
+    const state = get();
+    const all = state.pois[routeId];
+    if (!all) return [];
+    return all.filter((p) => state.starredPOIIds.has(p.id));
+  },
+
   clearPOIs: async (routeId) => {
     const { deletePOIsForRoute } = await import("@/db/database");
     await deletePOIsForRoute(routeId);
@@ -158,7 +203,14 @@ export const usePoiStore = create<POIState>((set, get) => ({
     const all = state.pois[routeId];
     if (!all) return [];
     const enabled = new Set(state.enabledCategories);
-    return all.filter((p) => enabled.has(p.category));
+    return all.filter((p) => {
+      if (!enabled.has(p.category)) return false;
+      if (state.showOpenOnly && p.tags?.opening_hours) {
+        const status = getOpeningHoursStatus(p.tags.opening_hours);
+        if (status && !status.isOpen) return false;
+      }
+      return true;
+    });
   },
 
   getNextPOIPerCategory: (routeId, currentDistAlongRoute) => {

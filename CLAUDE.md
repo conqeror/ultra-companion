@@ -60,11 +60,12 @@ Detailed specs live in `docs/` — read these before starting any implementation
 - [x] Phase 1: Map + GPS foundation
 - [x] Phase 2: Route import (GPX/KML) + elevation profile
 - [x] Phase 3: POI search along route
-- [ ] Phase 4: ETA + POIs on elevation + opening hours + offline
+- [x] Phase 4a: GPS rework, opening hours, ETA calculator, POIs on elevation
+- [ ] Phase 4b: Offline support (tile download, storage management)
 - [ ] Phase 5: Weather
 
 ## Current Phase
 
-Phase 4 — not started.
+Phase 4b — not started.
 
 When starting a phase, read `docs/implementation-plan.md` for the detailed steps.

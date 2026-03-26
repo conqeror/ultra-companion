@@ -1,18 +1,22 @@
 import React from "react";
 import { View, TouchableOpacity, useWindowDimensions } from "react-native";
 import { Text } from "@/components/ui/text";
-import { Locate, LocateFixed, Mountain, ArrowRightFromLine, MoveHorizontal, List } from "lucide-react-native";
+import { Locate, LocateFixed, Mountain, ArrowRightFromLine, MoveHorizontal, List, RefreshCw } from "lucide-react-native";
+import Animated, { useAnimatedStyle, withRepeat, withTiming, Easing } from "react-native-reanimated";
 import { cn } from "@/lib/cn";
 import { useThemeColors } from "@/theme";
 import { usePanelStore } from "@/store/panelStore";
 import { usePoiStore } from "@/store/poiStore";
 import { useRouteStore } from "@/store/routeStore";
 import { BOTTOM_PANEL_HEIGHT_RATIO } from "@/constants";
+import PositionAgeIndicator from "./PositionAgeIndicator";
 import type { PanelMode } from "@/types";
 
 interface MapControlsProps {
   onCenterUser: () => void;
   followUser: boolean;
+  onRefreshPosition: () => void;
+  isRefreshing: boolean;
 }
 
 function PanelIcon({ mode, color }: { mode: PanelMode; color: string }) {
@@ -32,9 +36,31 @@ function PanelIcon({ mode, color }: { mode: PanelMode; color: string }) {
   }
 }
 
+function SpinningRefreshIcon({ color }: { color: string }) {
+  const spinStyle = useAnimatedStyle(() => ({
+    transform: [
+      {
+        rotateZ: `${withRepeat(
+          withTiming(360, { duration: 1000, easing: Easing.linear }),
+          -1,
+          false,
+        )}deg`,
+      },
+    ],
+  }));
+
+  return (
+    <Animated.View style={spinStyle}>
+      <RefreshCw size={22} color={color} />
+    </Animated.View>
+  );
+}
+
 export default function MapControls({
   onCenterUser,
   followUser,
+  onRefreshPosition,
+  isRefreshing,
 }: MapControlsProps) {
   const colors = useThemeColors();
   const panelMode = usePanelStore((s) => s.panelMode);
@@ -55,8 +81,8 @@ export default function MapControls({
 
   return (
     <>
-      {/* Location control — top-right */}
-      <View className="absolute right-4 top-[120px]">
+      {/* Location + refresh controls — top-right */}
+      <View className="absolute right-4 top-[120px] items-center">
         <TouchableOpacity
           className={cn(
             "w-[52px] h-[52px] rounded-xl items-center justify-center shadow-md",
@@ -71,6 +97,21 @@ export default function MapControls({
             <Locate size={24} color={locateColor} />
           )}
         </TouchableOpacity>
+
+        <TouchableOpacity
+          className="w-[52px] h-[52px] rounded-xl items-center justify-center shadow-md bg-card/95 border border-border-subtle mt-3"
+          onPress={onRefreshPosition}
+          disabled={isRefreshing}
+          accessibilityLabel="Refresh GPS position"
+        >
+          {isRefreshing ? (
+            <SpinningRefreshIcon color={colors.accent} />
+          ) : (
+            <RefreshCw size={22} color={colors.textPrimary} />
+          )}
+        </TouchableOpacity>
+
+        <PositionAgeIndicator />
       </View>
 
       {/* POI list button — bottom-left, above panel/tab bar */}

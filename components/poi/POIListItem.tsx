@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { View, TouchableOpacity } from "react-native";
 import { Text } from "@/components/ui/text";
 import {
@@ -12,10 +12,15 @@ import {
   Cross,
   ShowerHead,
 } from "lucide-react-native";
+import { Star } from "lucide-react-native";
 import { useThemeColors } from "@/theme";
 import { useSettingsStore } from "@/store/settingsStore";
+import { usePoiStore } from "@/store/poiStore";
 import { POI_CATEGORIES } from "@/constants";
-import { formatDistance } from "@/utils/formatters";
+import { ohStatusColorKey } from "@/constants/poiHelpers";
+import { formatDistance, formatDuration } from "@/utils/formatters";
+import { getOpeningHoursStatus } from "@/services/openingHoursParser";
+import { useEtaStore } from "@/store/etaStore";
 import type { POI } from "@/types";
 
 const ICON_MAP: Record<string, React.ComponentType<any>> = {
@@ -47,10 +52,25 @@ export default function POIListItem({
   const catMeta = POI_CATEGORIES.find((c) => c.key === poi.category);
   const IconComp = catMeta ? ICON_MAP[catMeta.iconName] : null;
 
+  const isStarred = usePoiStore((s) => s.starredPOIIds.has(poi.id));
+  const getETAToPOI = useEtaStore((s) => s.getETAToPOI);
+
   const distAhead =
     currentDistAlongRoute != null
       ? poi.distanceAlongRouteMeters - currentDistAlongRoute
       : null;
+
+  const etaResult = useMemo(() => getETAToPOI(poi), [poi, getETAToPOI]);
+
+  const ohStatus = useMemo(() => {
+    const tag = poi.tags?.opening_hours;
+    return tag ? getOpeningHoursStatus(tag) : null;
+  }, [poi.tags?.opening_hours]);
+
+  const ohColor = useMemo(() => {
+    const key = ohStatusColorKey(ohStatus);
+    return key ? colors[key] : undefined;
+  }, [ohStatus, colors]);
 
   return (
     <TouchableOpacity
@@ -68,15 +88,36 @@ export default function POIListItem({
       </View>
 
       <View className="flex-1 ml-3">
-        <Text
-          className="text-[15px] font-barlow-medium text-foreground"
-          numberOfLines={1}
-        >
-          {poi.name ?? catMeta?.label ?? "Unnamed"}
-        </Text>
-        <Text className="text-[12px] text-muted-foreground font-barlow mt-1">
-          {Math.round(poi.distanceFromRouteMeters)} m off route
-        </Text>
+        <View className="flex-row items-center">
+          {isStarred && (
+            <Star size={12} color={colors.warning} fill={colors.warning} style={{ marginRight: 4 }} />
+          )}
+          <Text
+            className="text-[15px] font-barlow-medium text-foreground flex-shrink"
+            numberOfLines={1}
+          >
+            {poi.name ?? catMeta?.label ?? "Unnamed"}
+          </Text>
+        </View>
+        <View className="flex-row items-center mt-1">
+          <Text className="text-[12px] text-muted-foreground font-barlow">
+            {Math.round(poi.distanceFromRouteMeters)} m off route
+          </Text>
+          {ohStatus && (
+            <View className="flex-row items-center ml-2">
+              <View
+                className="w-[6px] h-[6px] rounded-full"
+                style={{ backgroundColor: ohColor }}
+              />
+              <Text
+                className="ml-1 text-[12px] font-barlow-medium"
+                style={{ color: ohColor }}
+              >
+                {ohStatus.label}
+              </Text>
+            </View>
+          )}
+        </View>
       </View>
 
       <View className="items-end ml-2">
@@ -89,11 +130,15 @@ export default function POIListItem({
               : `-${formatDistance(Math.abs(distAhead), units)}`}
           </Text>
         )}
-        {distAhead != null && (
+        {etaResult && etaResult.ridingTimeSeconds > 0 ? (
+          <Text className="text-[11px] text-muted-foreground font-barlow-sc-medium">
+            ~{formatDuration(etaResult.ridingTimeSeconds)}
+          </Text>
+        ) : distAhead != null ? (
           <Text className="text-[11px] text-muted-foreground font-barlow">
             {distAhead >= 0 ? "ahead" : "behind"}
           </Text>
-        )}
+        ) : null}
       </View>
     </TouchableOpacity>
   );

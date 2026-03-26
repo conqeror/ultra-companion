@@ -6,7 +6,7 @@ import Animated, {
   Easing,
 } from "react-native-reanimated";
 import { Text } from "@/components/ui/text";
-import { X, MapPin, Clock, Phone } from "lucide-react-native";
+import { X, MapPin, Clock, Phone, Star } from "lucide-react-native";
 import {
   Droplets,
   ShoppingCart,
@@ -23,7 +23,10 @@ import { useSettingsStore } from "@/store/settingsStore";
 import { useRouteStore } from "@/store/routeStore";
 import { usePoiStore } from "@/store/poiStore";
 import { POI_CATEGORIES } from "@/constants";
-import { formatDistance } from "@/utils/formatters";
+import { ohStatusColorKey } from "@/constants/poiHelpers";
+import { formatDistance, formatDuration, formatETA } from "@/utils/formatters";
+import { getOpeningHoursStatus, isOpenAt } from "@/services/openingHoursParser";
+import { useEtaStore } from "@/store/etaStore";
 
 const ICON_MAP: Record<string, React.ComponentType<any>> = {
   Droplets,
@@ -37,34 +40,15 @@ const ICON_MAP: Record<string, React.ComponentType<any>> = {
   ShowerHead,
 };
 
-function parseOpeningHours(value: string): string {
-  try {
-    // Dynamic import to avoid crash if package has issues
-    const OpeningHours = require("opening_hours");
-    const oh = new OpeningHours(value);
-    const isOpen = oh.getState();
-    const nextChange = oh.getNextChange();
-
-    let status = isOpen ? "Open" : "Closed";
-    if (nextChange) {
-      const time = nextChange.toLocaleTimeString([], {
-        hour: "2-digit",
-        minute: "2-digit",
-      });
-      status += isOpen ? ` · closes ${time}` : ` · opens ${time}`;
-    }
-    return status;
-  } catch {
-    return value;
-  }
-}
-
 export default function POIDetailSheet() {
   const colors = useThemeColors();
   const units = useSettingsStore((s) => s.units);
   const snappedPosition = useRouteStore((s) => s.snappedPosition);
   const selectedPOI = usePoiStore((s) => s.selectedPOI);
   const setSelectedPOI = usePoiStore((s) => s.setSelectedPOI);
+  const toggleStarred = usePoiStore((s) => s.toggleStarred);
+  const starredPOIIds = usePoiStore((s) => s.starredPOIIds);
+  const isStarred = selectedPOI ? starredPOIIds.has(selectedPOI.id) : false;
 
   const isVisible = selectedPOI != null;
 
@@ -86,11 +70,35 @@ export default function POIDetailSheet() {
     );
   }, [selectedPOI, snappedPosition]);
 
+  const getETAToPOI = useEtaStore((s) => s.getETAToPOI);
+
+  const etaResult = useMemo(
+    () => (selectedPOI ? getETAToPOI(selectedPOI) : null),
+    [selectedPOI, getETAToPOI],
+  );
+
   const openingHoursRaw = selectedPOI?.tags?.opening_hours;
-  const openingHoursDisplay = useMemo(
-    () => (openingHoursRaw ? parseOpeningHours(openingHoursRaw) : null),
+  const ohStatus = useMemo(
+    () => (openingHoursRaw ? getOpeningHoursStatus(openingHoursRaw) : null),
     [openingHoursRaw],
   );
+
+  const ohColor = useMemo(() => {
+    const key = ohStatusColorKey(ohStatus);
+    return key ? colors[key] : colors.textSecondary;
+  }, [ohStatus, colors]);
+
+  const ohText = useMemo(() => {
+    if (!ohStatus) return null;
+    if (ohStatus.detail === "24/7") return "Open 24/7";
+    if (ohStatus.detail) return `${ohStatus.label} · ${ohStatus.detail}`;
+    return ohStatus.label;
+  }, [ohStatus]);
+
+  const etaOpenStatus = useMemo(() => {
+    if (!etaResult || !openingHoursRaw) return null;
+    return isOpenAt(openingHoursRaw, etaResult.eta);
+  }, [etaResult, openingHoursRaw]);
 
   const address = useMemo(() => {
     if (!selectedPOI) return null;
@@ -152,14 +160,27 @@ export default function POIDetailSheet() {
           </View>
         </View>
 
-        {/* Close button */}
-        <TouchableOpacity
-          className="w-[48px] h-[48px] items-center justify-center -mr-2 -mt-2"
-          onPress={() => setSelectedPOI(null)}
-          accessibilityLabel="Close"
-        >
-          <X size={22} color={colors.textSecondary} />
-        </TouchableOpacity>
+        {/* Star + Close buttons */}
+        <View className="flex-row items-center -mt-2 -mr-2">
+          <TouchableOpacity
+            className="w-[48px] h-[48px] items-center justify-center"
+            onPress={() => toggleStarred(selectedPOI.id)}
+            accessibilityLabel={isStarred ? "Unstar POI" : "Star POI"}
+          >
+            <Star
+              size={22}
+              color={isStarred ? colors.warning : colors.textTertiary}
+              fill={isStarred ? colors.warning : "none"}
+            />
+          </TouchableOpacity>
+          <TouchableOpacity
+            className="w-[48px] h-[48px] items-center justify-center"
+            onPress={() => setSelectedPOI(null)}
+            accessibilityLabel="Close"
+          >
+            <X size={22} color={colors.textSecondary} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <ScrollView className="px-4 pb-4">
@@ -178,21 +199,40 @@ export default function POIDetailSheet() {
           )}
         </View>
 
-        {/* Opening hours */}
-        {openingHoursDisplay && (
+        {/* ETA */}
+        {etaResult && etaResult.ridingTimeSeconds > 0 && (
           <View className="flex-row items-center mt-3">
-            <Clock size={15} color={colors.textSecondary} />
+            <Clock size={15} color={colors.accent} />
+            <Text className="ml-2 text-[14px] font-barlow-sc-semibold text-foreground">
+              ~{formatDuration(etaResult.ridingTimeSeconds)} riding
+            </Text>
+            <Text className="ml-2 text-[14px] font-barlow-medium text-muted-foreground">
+              ETA {formatETA(etaResult.eta)}
+            </Text>
+          </View>
+        )}
+
+        {/* ETA-based opening hours prediction */}
+        {etaResult && etaOpenStatus !== null && (
+          <View className="mt-1 ml-6">
+            <Text
+              className="text-[13px] font-barlow"
+              style={{ color: etaOpenStatus ? colors.positive : colors.destructive }}
+            >
+              {etaOpenStatus ? "Open when you arrive" : "Closed at ETA"}
+            </Text>
+          </View>
+        )}
+
+        {/* Opening hours */}
+        {ohText && (
+          <View className="flex-row items-center mt-3">
+            <Clock size={15} color={ohColor} />
             <Text
               className="ml-2 text-[14px] font-barlow"
-              style={{
-                color: openingHoursDisplay.startsWith("Open")
-                  ? colors.positive
-                  : openingHoursDisplay.startsWith("Closed")
-                    ? colors.destructive
-                    : colors.textSecondary,
-              }}
+              style={{ color: ohColor }}
             >
-              {openingHoursDisplay}
+              {ohText}
             </Text>
           </View>
         )}

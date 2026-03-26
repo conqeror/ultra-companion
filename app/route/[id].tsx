@@ -49,6 +49,9 @@ export default function RouteDetailScreen() {
   const poiCount = usePoiStore((s) => id ? (s.pois[id]?.length ?? 0) : 0);
   const corridorWidthM = usePoiStore((s) => s.corridorWidthM);
   const setCorridorWidth = usePoiStore((s) => s.setCorridorWidth);
+  const getStarredPOIs = usePoiStore((s) => s.getStarredPOIs);
+  const starredPOIIds = usePoiStore((s) => s.starredPOIIds);
+  const setSelectedPOI = usePoiStore((s) => s.setSelectedPOI);
 
   useEffect(() => {
     if (!id) return;
@@ -72,6 +75,11 @@ export default function RouteDetailScreen() {
     if (currentPointIndex == null || !route) return null;
     return computeElevationProgress(route.points, currentPointIndex);
   }, [currentPointIndex, route]);
+
+  const chartPOIs = useMemo(() => {
+    if (!id) return [];
+    return getStarredPOIs(id);
+  }, [id, getStarredPOIs, starredPOIIds]);
 
   const bounds = useMemo(() => {
     if (!route?.points.length) return null;
@@ -174,6 +182,8 @@ export default function RouteDetailScreen() {
             width={chartWidth}
             height={chartHeight}
             currentPointIndex={currentPointIndex}
+            pois={chartPOIs}
+            onPOIPress={setSelectedPOI}
           />
         </View>
 

@@ -13,37 +13,6 @@ export async function getCurrentPosition(): Promise<UserPosition | null> {
   return locationToPosition(location);
 }
 
-export function watchPosition(
-  onUpdate: (position: UserPosition) => void,
-  onError?: (error: Error) => void,
-): { remove: () => void } {
-  let subscription: Location.LocationSubscription | null = null;
-
-  Location.watchPositionAsync(
-    {
-      accuracy: Location.Accuracy.High,
-      distanceInterval: 10, // meters — balance between accuracy and battery
-      timeInterval: 5000, // 5 seconds minimum between updates
-    },
-    (location) => {
-      const position = locationToPosition(location);
-      if (position) onUpdate(position);
-    },
-  )
-    .then((sub) => {
-      subscription = sub;
-    })
-    .catch((err) => {
-      onError?.(err instanceof Error ? err : new Error(String(err)));
-    });
-
-  return {
-    remove: () => {
-      subscription?.remove();
-    },
-  };
-}
-
 function locationToPosition(
   location: Location.LocationObject,
 ): UserPosition | null {

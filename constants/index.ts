@@ -65,3 +65,29 @@ export const MIN_CORRIDOR_WIDTH_M = 500;
 export const OVERPASS_API_URL = "https://overpass-api.de/api/interpreter";
 export const OVERPASS_SEGMENT_LENGTH_M = 50_000;
 export const OVERPASS_RETRY_DELAYS = [2000, 5000, 15000];
+
+/** Max elevation difference between POI and route at nearest point (meters) */
+export const POI_MAX_ELEVATION_DIFF_M = 25;
+
+// --- Phase 4: GPS & ETA ---
+
+/** Position older than this triggers auto-refresh on app focus */
+export const GPS_STALE_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes
+
+/** Position age label becomes visible after this threshold */
+export const POSITION_AGE_VISIBLE_THRESHOLD_MS = 2 * 60 * 1000; // 2 minutes
+
+/** Gravitational acceleration m/s² */
+export const G = 9.80665;
+
+import type { PowerModelConfig } from "@/types";
+
+export const DEFAULT_POWER_CONFIG: PowerModelConfig = {
+  powerWatts: 200,
+  totalMassKg: 120,
+  cda: 0.4,
+  crr: 0.005,
+  airDensity: 1.225,
+  maxDescentSpeedKmh: 60,
+  drivetrainEfficiency: 0.97,
+};

@@ -97,6 +97,33 @@ export interface POICategoryMeta {
 
 export type POIFetchStatus = "idle" | "fetching" | "done" | "error";
 
+// --- Phase 4: Opening Hours ---
+
+export interface OpeningHoursStatus {
+  isOpen: boolean;
+  label: string; // "Open", "Closed"
+  detail: string | null; // "closes 20:00", "opens 07:00"
+  closingSoon: boolean; // closing within 60 min
+}
+
+// --- Phase 4: ETA ---
+
+export interface PowerModelConfig {
+  powerWatts: number;
+  totalMassKg: number;
+  cda: number;
+  crr: number;
+  airDensity: number;
+  maxDescentSpeedKmh: number;
+  drivetrainEfficiency: number;
+}
+
+export interface ETAResult {
+  distanceMeters: number;
+  ridingTimeSeconds: number;
+  eta: Date;
+}
+
 export interface ParsedRoute {
   name: string;
   points: RoutePoint[];
