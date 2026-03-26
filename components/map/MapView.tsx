@@ -25,6 +25,8 @@ import { snapToRoute } from "@/services/routeSnapping";
 import { computeBounds } from "@/utils/geo";
 import { usePoiStore } from "@/store/poiStore";
 import { useEtaStore } from "@/store/etaStore";
+import { useWeatherStore } from "@/store/weatherStore";
+import { useOfflineStore } from "@/store/offlineStore";
 
 // Initialize Mapbox with access token from app config
 try {
@@ -56,9 +58,13 @@ export default function MapScreen() {
   const routes = useRouteStore((s) => s.routes);
   const visibleRoutePoints = useRouteStore((s) => s.visibleRoutePoints);
   const loadRoutes = useRouteStore((s) => s.loadRoutes);
+  const snappedPosition = useRouteStore((s) => s.snappedPosition);
   const setSnappedPosition = useRouteStore((s) => s.setSnappedPosition);
   const loadPOIs = usePoiStore((s) => s.loadPOIs);
   const computeETAForRoute = useEtaStore((s) => s.computeETAForRoute);
+  const cumulativeTime = useEtaStore((s) => s.cumulativeTime);
+  const fetchWeather = useWeatherStore((s) => s.fetchWeather);
+  const isConnected = useOfflineStore((s) => s.isConnected);
 
   // Active route and its points
   const activeRoute = useMemo(() => routes.find((r) => r.isActive) ?? null, [routes]);
@@ -89,6 +95,13 @@ export default function MapScreen() {
       computeETAForRoute(activeRoute.id, activeRoutePoints);
     }
   }, [activeRoute?.id, activeRoutePoints, computeETAForRoute]);
+
+  // Fetch weather when active route + snapped position + ETA are available (and online)
+  useEffect(() => {
+    if (activeRoute && activeRoutePoints?.length && snappedPosition && cumulativeTime && isConnected) {
+      fetchWeather(activeRoute.id, activeRoutePoints, snappedPosition.pointIndex, cumulativeTime);
+    }
+  }, [activeRoute?.id, snappedPosition?.pointIndex, isConnected, cumulativeTime, fetchWeather]);
 
   // Set initial camera once routes are loaded
   useEffect(() => {

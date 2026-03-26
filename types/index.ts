@@ -60,7 +60,8 @@ export type PanelMode =
   | "upcoming-10"
   | "upcoming-20"
   | "remaining"
-  | "full";
+  | "full"
+  | "weather";
 
 // --- Phase 3: POI types ---
 
@@ -131,6 +132,41 @@ export interface ParsedRoute {
   totalAscentMeters: number;
   totalDescentMeters: number;
 }
+
+// --- Phase 5: Weather ---
+
+export interface WeatherPoint {
+  /** Hours from now (0 = current hour) */
+  hourOffset: number;
+  /** ISO 8601 time string */
+  time: string;
+  /** Temperature in °C */
+  temperatureC: number;
+  /** Precipitation in mm/h */
+  precipitationMm: number;
+  /** Probability of precipitation 0–100 */
+  precipitationProbability: number;
+  /** Wind speed in km/h */
+  windSpeedKmh: number;
+  /** Wind direction in degrees (0 = N, 90 = E, 180 = S, 270 = W) */
+  windDirectionDeg: number;
+  /** Wind gust speed in km/h */
+  windGustKmh: number;
+  /** WMO weather code (0–99) */
+  weatherCode: number;
+  /** Latitude of the waypoint this forecast is for */
+  latitude: number;
+  /** Longitude of the waypoint this forecast is for */
+  longitude: number;
+  /** Distance along route from current position (meters) */
+  distanceAlongRouteM: number;
+  /** Bearing of route at this point (degrees, for wind relative direction) */
+  routeBearingDeg: number | null;
+}
+
+export type WindRelative = "headwind" | "tailwind" | "crosswind-left" | "crosswind-right";
+
+export type WeatherFetchStatus = "idle" | "fetching" | "done" | "error";
 
 // --- Phase 4b: Offline ---
 

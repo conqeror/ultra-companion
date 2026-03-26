@@ -17,6 +17,7 @@ import { computeElevationProgress, computeSliceAscent } from "@/utils/geo";
 import { formatDistance, formatElevation, formatDuration, formatETA } from "@/utils/formatters";
 import UpcomingElevation from "./UpcomingElevation";
 import ElevationProfile from "@/components/elevation/ElevationProfile";
+import WeatherPanel from "./WeatherPanel";
 import type { RoutePoint, PanelMode, POI } from "@/types";
 
 const MAX_SNAP_DISTANCE_M = 500;
@@ -141,6 +142,7 @@ export default function BottomPanel({ activeRoutePoints }: BottomPanelProps) {
 
   if (!isVisible) return null;
 
+  const isWeatherMode = panelMode === "weather";
   const lookAhead = lookAheadForMode(panelMode);
   const isElevationMode = lookAhead !== null;
 
@@ -156,6 +158,18 @@ export default function BottomPanel({ activeRoutePoints }: BottomPanelProps) {
             Import and activate a route
           </Text>
         </View>
+      </Animated.View>
+    );
+  }
+
+  // Weather mode: render directly without needing snap
+  if (isWeatherMode) {
+    return (
+      <Animated.View
+        className={PANEL_CLASS}
+        style={[{ height: panelHeight }, animatedStyle]}
+      >
+        <WeatherPanel height={panelHeight} />
       </Animated.View>
     );
   }

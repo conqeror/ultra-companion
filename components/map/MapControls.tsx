@@ -1,7 +1,7 @@
 import React from "react";
 import { View, TouchableOpacity, useWindowDimensions } from "react-native";
 import { Text } from "@/components/ui/text";
-import { Locate, LocateFixed, Mountain, ArrowRightFromLine, MoveHorizontal, List, RefreshCw } from "lucide-react-native";
+import { Locate, LocateFixed, Mountain, ArrowRightFromLine, MoveHorizontal, List, RefreshCw, CloudSun } from "lucide-react-native";
 import Animated, { useAnimatedStyle, withRepeat, withTiming, Easing } from "react-native-reanimated";
 import { cn } from "@/lib/cn";
 import { useThemeColors } from "@/theme";
@@ -34,6 +34,8 @@ function PanelIcon({ mode, color }: { mode: PanelMode; color: string }) {
       return <ArrowRightFromLine size={22} color={color} />;
     case "full":
       return <MoveHorizontal size={20} color={color} />;
+    case "weather":
+      return <CloudSun size={22} color={color} />;
   }
 }
 
