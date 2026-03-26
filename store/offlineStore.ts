@@ -49,17 +49,14 @@ interface OfflineState {
 
   // Actions
   startDownload: (routeId: string, points: RoutePoint[], mapStyle: MapStyle) => Promise<void>;
-  cancelDownload: (routeId: string) => Promise<void>;
   deleteOfflineData: (routeId: string) => Promise<void>;
   refreshAllStatuses: () => Promise<void>;
   initConnectivityListener: () => () => void;
-  markPOIsSynced: (routeId: string) => void;
 
   // Helpers
   getRouteInfo: (routeId: string) => OfflineRouteInfo;
   isRouteOfflineReady: (routeId: string) => boolean;
   getTotalStorageBytes: () => number;
-  getEstimate: (points: RoutePoint[]) => number;
 }
 
 export const useOfflineStore = create<OfflineState>((set, get) => ({
@@ -84,13 +81,10 @@ export const useOfflineStore = create<OfflineState>((set, get) => ({
     return total;
   },
 
-  getEstimate: (points) => {
-    return estimateDownloadSize(points);
-  },
-
   startDownload: async (routeId, points, mapStyle) => {
-    const estimated = get().getEstimate(points);
+    const estimated = estimateDownloadSize(points);
 
+    // Persist-and-set helper for non-progress updates
     const updateInfo = (partial: Partial<OfflineRouteInfo>) => {
       set((s) => {
         const updated = {
@@ -118,19 +112,26 @@ export const useOfflineStore = create<OfflineState>((set, get) => ({
         const { usePoiStore } = await import("@/store/poiStore");
         await usePoiStore.getState().fetchPOIs(routeId, points);
       }
-    } catch {
-      // POI fetch failure shouldn't block tile download
-    }
+    } catch {}
 
-    // Download tiles along route LineString
+    // Throttled progress: update store at most every 500ms, skip MMKV persist
+    let lastProgressUpdate = 0;
     await downloadRouteTiles(
       routeId,
       points,
       mapStyle,
       (percentage, completedBytes) => {
+        const now = Date.now();
+        if (now - lastProgressUpdate < 500) return;
+        lastProgressUpdate = now;
         const current = get().routeInfo[routeId];
         if (current?.status !== "downloading") return;
-        updateInfo({ percentage, downloadedBytes: completedBytes });
+        set((s) => ({
+          routeInfo: {
+            ...s.routeInfo,
+            [routeId]: { ...s.routeInfo[routeId] ?? DEFAULT_ROUTE_INFO, percentage, downloadedBytes: completedBytes },
+          },
+        }));
       },
       () => {
         updateInfo({
@@ -143,16 +144,6 @@ export const useOfflineStore = create<OfflineState>((set, get) => ({
         updateInfo({ status: "error", error });
       },
     );
-  },
-
-  cancelDownload: async (routeId) => {
-    await deleteRoutePacks(routeId);
-    set((s) => {
-      const updated = { ...s.routeInfo };
-      delete updated[routeId];
-      persistRouteInfo(updated);
-      return { routeInfo: updated };
-    });
   },
 
   deleteOfflineData: async (routeId) => {
@@ -173,7 +164,7 @@ export const useOfflineStore = create<OfflineState>((set, get) => ({
 
     for (const pack of routePacks) {
       const existing = updated[pack.routeId];
-      if (existing?.status === "downloading" && pack.allComplete) {
+      if (existing?.status === "downloading" || existing?.status === "error") {
         updated[pack.routeId] = {
           ...existing,
           status: "complete",
@@ -182,13 +173,13 @@ export const useOfflineStore = create<OfflineState>((set, get) => ({
           downloadedAt: new Date().toISOString(),
         };
         changed = true;
-      } else if (existing?.status === "complete") {
+      } else if (existing?.status === "complete" && existing.downloadedBytes !== pack.totalBytes) {
         updated[pack.routeId] = { ...existing, downloadedBytes: pack.totalBytes };
         changed = true;
       }
     }
 
-    // Check for orphaned entries (MMKV says downloaded but Mapbox has no packs)
+    // Remove orphaned entries (MMKV says downloaded but Mapbox has no packs)
     const packRouteIds = new Set(routePacks.map((p) => p.routeId));
     for (const routeId of Object.keys(updated)) {
       if (updated[routeId].status !== "idle" && !packRouteIds.has(routeId)) {
@@ -213,18 +204,5 @@ export const useOfflineStore = create<OfflineState>((set, get) => ({
     });
 
     return () => subscription.remove();
-  },
-
-  markPOIsSynced: (routeId) => {
-    set((s) => {
-      const existing = s.routeInfo[routeId];
-      if (!existing) return s;
-      const updated = {
-        ...s.routeInfo,
-        [routeId]: { ...existing },
-      };
-      persistRouteInfo(updated);
-      return { routeInfo: updated };
-    });
   },
 }));

@@ -92,6 +92,12 @@ export const DEFAULT_POWER_CONFIG: PowerModelConfig = {
   drivetrainEfficiency: 0.97,
 };
 
+export const MAP_STYLE_LABELS: Record<string, string> = {
+  streets: "Streets",
+  outdoors: "Outdoors",
+  satellite: "Satellite",
+};
+
 // --- Phase 4b: Offline ---
 
 /** Offline tile download: zoom range */

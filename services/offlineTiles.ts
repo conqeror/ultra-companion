@@ -17,12 +17,8 @@ function packId(routeId: string): string {
   return `${OFFLINE_PACK_PREFIX}${routeId}`;
 }
 
-function isOurRegion(id: string): boolean {
-  return id.startsWith(OFFLINE_PACK_PREFIX);
-}
-
 function extractRouteId(id: string): string | null {
-  if (!isOurRegion(id)) return null;
+  if (!id.startsWith(OFFLINE_PACK_PREFIX)) return null;
   return id.slice(OFFLINE_PACK_PREFIX.length);
 }
 
@@ -105,32 +101,18 @@ export async function deleteRoutePacks(routeId: string): Promise<void> {
   } catch {}
 }
 
-/** Get size of offline data for a route in bytes */
-export async function getRoutePackSize(routeId: string): Promise<number> {
-  try {
-    return await getTileRegionSize(packId(routeId));
-  } catch {
-    return 0;
-  }
-}
-
 /** Get all Ultra route regions with sizes */
 export async function getAllRoutePacks(): Promise<
-  Array<{ routeId: string; totalBytes: number; allComplete: boolean; packCount: number }>
+  Array<{ routeId: string; totalBytes: number }>
 > {
   try {
     const regions = await getAllTileRegions();
-    const results: Array<{ routeId: string; totalBytes: number; allComplete: boolean; packCount: number }> = [];
+    const results: Array<{ routeId: string; totalBytes: number }> = [];
 
     for (const region of regions) {
       const routeId = extractRouteId(region.id);
       if (routeId) {
-        results.push({
-          routeId,
-          totalBytes: region.completedBytes,
-          allComplete: true, // if it exists, it's complete
-          packCount: 1,
-        });
+        results.push({ routeId, totalBytes: region.completedBytes });
       }
     }
 

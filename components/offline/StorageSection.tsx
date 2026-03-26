@@ -6,12 +6,7 @@ import { useThemeColors } from "@/theme";
 import { useOfflineStore } from "@/store/offlineStore";
 import { useRouteStore } from "@/store/routeStore";
 import { formatFileSize } from "@/utils/formatters";
-
-const MAP_STYLE_LABELS: Record<string, string> = {
-  streets: "Streets",
-  outdoors: "Outdoors",
-  satellite: "Satellite",
-};
+import { MAP_STYLE_LABELS } from "@/constants";
 
 export default function StorageSection() {
   const colors = useThemeColors();

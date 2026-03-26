@@ -2,47 +2,35 @@ import React, { useMemo } from "react";
 import { View, TouchableOpacity, Alert } from "react-native";
 import { Text } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
-import { useThemeColors } from "@/theme";
 import { useOfflineStore } from "@/store/offlineStore";
 import { usePoiStore } from "@/store/poiStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import type { RoutePoint } from "@/types";
 import { formatFileSize } from "@/utils/formatters";
+import { estimateDownloadSize } from "@/services/offlineTiles";
+import { MAP_STYLE_LABELS } from "@/constants";
 
 interface OfflineSectionProps {
   routeId: string;
   points: RoutePoint[];
 }
 
-const MAP_STYLE_LABELS: Record<string, string> = {
-  streets: "Streets",
-  outdoors: "Outdoors",
-  satellite: "Satellite",
-};
-
 export default function OfflineSection({ routeId, points }: OfflineSectionProps) {
-  const colors = useThemeColors();
   const info = useOfflineStore((s) => s.getRouteInfo(routeId));
   const isConnected = useOfflineStore((s) => s.isConnected);
   const startDownload = useOfflineStore((s) => s.startDownload);
-  const cancelDownload = useOfflineStore((s) => s.cancelDownload);
   const deleteOfflineData = useOfflineStore((s) => s.deleteOfflineData);
-  const getEstimate = useOfflineStore((s) => s.getEstimate);
   const mapStyle = useSettingsStore((s) => s.mapStyle);
   const poiCount = usePoiStore((s) => s.pois[routeId]?.length ?? 0);
 
-  const estimatedBytes = useMemo(() => getEstimate(points), [points, getEstimate]);
+  const estimatedBytes = useMemo(() => estimateDownloadSize(points), [points]);
   const hasData = info.status === "complete";
   const isDownloading = info.status === "downloading";
-
-  const handlePrepare = () => {
-    startDownload(routeId, points, mapStyle);
-  };
 
   const handleCancel = () => {
     Alert.alert("Cancel Download", "Stop downloading offline data?", [
       { text: "Continue", style: "cancel" },
-      { text: "Cancel Download", style: "destructive", onPress: () => cancelDownload(routeId) },
+      { text: "Cancel Download", style: "destructive", onPress: () => deleteOfflineData(routeId) },
     ]);
   };
 
@@ -59,7 +47,6 @@ export default function OfflineSection({ routeId, points }: OfflineSectionProps)
         Offline
       </Text>
 
-      {/* Status card */}
       <View className="mx-4 bg-card rounded-xl px-4 py-3 mb-3">
         <View className="flex-row items-center justify-between py-1">
           <Text className="text-[15px] font-barlow text-foreground">Map tiles</Text>
@@ -78,14 +65,12 @@ export default function OfflineSection({ routeId, points }: OfflineSectionProps)
         </View>
       </View>
 
-      {/* Estimate (before download) */}
       {!hasData && !isDownloading && (
         <Text className="text-[13px] text-muted-foreground px-4 mb-2 font-barlow">
           ~{formatFileSize(estimatedBytes)} estimated for map tiles
         </Text>
       )}
 
-      {/* Progress bar */}
       {isDownloading && (
         <View className="mx-4 mb-2">
           <View className="h-2 bg-border rounded-full overflow-hidden">
@@ -101,14 +86,12 @@ export default function OfflineSection({ routeId, points }: OfflineSectionProps)
         </View>
       )}
 
-      {/* Error */}
       {info.status === "error" && info.error && (
         <Text className="text-[13px] text-destructive px-4 mb-2 font-barlow">
           {info.error}
         </Text>
       )}
 
-      {/* Action button */}
       <View className="px-4 mb-2">
         {isDownloading ? (
           <Button
@@ -125,7 +108,7 @@ export default function OfflineSection({ routeId, points }: OfflineSectionProps)
           />
         ) : (
           <Button
-            onPress={handlePrepare}
+            onPress={() => startDownload(routeId, points, mapStyle)}
             variant={hasData ? "secondary" : "default"}
             label={
               hasData
@@ -138,7 +121,6 @@ export default function OfflineSection({ routeId, points }: OfflineSectionProps)
         )}
       </View>
 
-      {/* Delete button */}
       {hasData && (
         <TouchableOpacity
           className="px-4 py-2 min-h-[48px] justify-center"
