@@ -1,22 +1,27 @@
 import React, { useEffect, useCallback } from "react";
 import {
   View,
-  Text,
-  StyleSheet,
   FlatList,
   TouchableOpacity,
   Alert,
   ActivityIndicator,
+  StyleSheet,
 } from "react-native";
 import { useRouter } from "expo-router";
+import { Text } from "@/components/ui/text";
+import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/cn";
 import { useRouteStore } from "@/store/routeStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import { formatDistance, formatElevation } from "@/utils/formatters";
-import { MIN_TOUCH_TARGET } from "@/constants";
+import { useThemeColors } from "@/theme";
 import type { Route } from "@/types";
 
 export default function RoutesScreen() {
   const router = useRouter();
+  const colors = useThemeColors();
   const {
     routes,
     isLoading,
@@ -59,84 +64,91 @@ export default function RoutesScreen() {
     [deleteRoute],
   );
 
+  const borderColor = colors.border;
+
   const renderRoute = useCallback(
     ({ item: route }: { item: Route }) => (
       <TouchableOpacity
-        style={styles.routeCard}
         activeOpacity={0.7}
         onPress={() => router.push(`/route/${route.id}`)}
       >
-        <View style={styles.routeHeader}>
-          <View style={[styles.colorDot, { backgroundColor: route.color }]} />
-          <Text style={styles.routeName} numberOfLines={1}>
-            {route.name}
-          </Text>
-          {route.isActive && (
-            <View style={styles.activeBadge}>
-              <Text style={styles.activeBadgeText}>Active</Text>
-            </View>
-          )}
-        </View>
+        <Card className="mb-3">
+          <View className="flex-row items-center mb-2">
+            <View
+              className="w-3 h-3 rounded-full mr-3"
+              style={{ backgroundColor: route.color }}
+            />
+            <Text className="flex-1 text-[17px] font-barlow-semibold text-foreground" numberOfLines={1}>
+              {route.name}
+            </Text>
+            {route.isActive && <Badge label="Active" className="ml-2" />}
+          </View>
 
-        <View style={styles.routeStats}>
-          <Text style={styles.stat}>
-            {formatDistance(route.totalDistanceMeters, units)}
-          </Text>
-          <Text style={styles.statDivider}>·</Text>
-          <Text style={styles.stat}>
-            ↑ {formatElevation(route.totalAscentMeters, units)}
-          </Text>
-          <Text style={styles.statDivider}>·</Text>
-          <Text style={styles.stat}>
-            ↓ {formatElevation(route.totalDescentMeters, units)}
-          </Text>
-        </View>
+          <View className="flex-row items-center mb-3">
+            <Text className="text-sm text-muted-foreground font-barlow-sc-medium">
+              {formatDistance(route.totalDistanceMeters, units)}
+            </Text>
+            <Text className="text-sm text-tertiary mx-2">·</Text>
+            <Text className="text-sm text-muted-foreground font-barlow-sc-medium">
+              ↑ {formatElevation(route.totalAscentMeters, units)}
+            </Text>
+            <Text className="text-sm text-tertiary mx-2">·</Text>
+            <Text className="text-sm text-muted-foreground font-barlow-sc-medium">
+              ↓ {formatElevation(route.totalDescentMeters, units)}
+            </Text>
+          </View>
 
-        <View style={styles.routeActions}>
-          <TouchableOpacity
-            style={[styles.actionBtn, route.isActive && styles.actionBtnDisabled]}
-            onPress={() => !route.isActive && setActiveRoute(route.id)}
-            hitSlop={8}
+          <View
+            className="flex-row pt-3 gap-4"
+            style={{ borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: borderColor }}
           >
-            <Text
-              style={[
-                styles.actionText,
-                route.isActive && styles.actionTextDisabled,
-              ]}
+            <TouchableOpacity
+              className={cn("min-h-[48px] justify-center", route.isActive && "opacity-50")}
+              onPress={() => !route.isActive && setActiveRoute(route.id)}
+              hitSlop={8}
             >
-              {route.isActive ? "Active" : "Set Active"}
-            </Text>
-          </TouchableOpacity>
+              <Text className={cn(
+                "text-[15px] font-barlow-medium",
+                route.isActive ? "text-muted-foreground" : "text-primary",
+              )}>
+                {route.isActive ? "Active" : "Set Active"}
+              </Text>
+            </TouchableOpacity>
 
-          <TouchableOpacity
-            style={styles.actionBtn}
-            onPress={() => toggleVisibility(route.id)}
-            hitSlop={8}
-          >
-            <Text style={styles.actionText}>
-              {route.isVisible ? "Hide" : "Show"}
-            </Text>
-          </TouchableOpacity>
+            <TouchableOpacity
+              className="min-h-[48px] justify-center"
+              onPress={() => toggleVisibility(route.id)}
+              hitSlop={8}
+            >
+              <Text className="text-[15px] font-barlow-medium text-primary">
+                {route.isVisible ? "Hide" : "Show"}
+              </Text>
+            </TouchableOpacity>
 
-          <TouchableOpacity
-            style={styles.actionBtn}
-            onPress={() => handleDelete(route)}
-            hitSlop={8}
-          >
-            <Text style={[styles.actionText, styles.deleteText]}>Delete</Text>
-          </TouchableOpacity>
-        </View>
+            <TouchableOpacity
+              className="min-h-[48px] justify-center"
+              onPress={() => handleDelete(route)}
+              hitSlop={8}
+            >
+              <Text className="text-[15px] font-barlow-medium text-destructive">
+                Delete
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </Card>
       </TouchableOpacity>
     ),
-    [units, router, setActiveRoute, toggleVisibility, handleDelete],
+    [units, router, setActiveRoute, toggleVisibility, handleDelete, borderColor],
   );
 
   return (
-    <View style={styles.container}>
+    <View className="flex-1 bg-background">
       {routes.length === 0 && !isLoading ? (
-        <View style={styles.empty}>
-          <Text style={styles.emptyTitle}>No routes imported</Text>
-          <Text style={styles.emptySubtitle}>
+        <View className="flex-1 items-center justify-center pb-[100px]">
+          <Text className="text-xl font-barlow-semibold text-foreground mb-2">
+            No routes imported
+          </Text>
+          <Text className="text-[15px] text-muted-foreground">
             Import a GPX or KML file to get started
           </Text>
         </View>
@@ -145,148 +157,18 @@ export default function RoutesScreen() {
           data={routes}
           keyExtractor={(r) => r.id}
           renderItem={renderRoute}
-          contentContainerStyle={styles.list}
+          contentContainerStyle={{ padding: 16, paddingBottom: 96 }}
         />
       )}
 
-      <TouchableOpacity
-        style={styles.importButton}
+      <Button
+        className="absolute bottom-8 left-5 right-5"
         onPress={importRoute}
         disabled={isLoading}
-        activeOpacity={0.8}
+        label={isLoading ? undefined : "Import Route"}
       >
-        {isLoading ? (
-          <ActivityIndicator color="#fff" />
-        ) : (
-          <Text style={styles.importButtonText}>Import Route</Text>
-        )}
-      </TouchableOpacity>
+        {isLoading && <ActivityIndicator color="#fff" />}
+      </Button>
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#F2F2F7",
-  },
-  list: {
-    padding: 16,
-    paddingBottom: 100,
-  },
-  routeCard: {
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 2,
-  },
-  routeHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 8,
-  },
-  colorDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    marginRight: 10,
-  },
-  routeName: {
-    flex: 1,
-    fontSize: 17,
-    fontWeight: "600",
-    color: "#1C1C1E",
-  },
-  activeBadge: {
-    backgroundColor: "#34C759",
-    borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    marginLeft: 8,
-  },
-  activeBadgeText: {
-    color: "#fff",
-    fontSize: 11,
-    fontWeight: "600",
-  },
-  routeStats: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 12,
-  },
-  stat: {
-    fontSize: 14,
-    color: "#636366",
-  },
-  statDivider: {
-    fontSize: 14,
-    color: "#C7C7CC",
-    marginHorizontal: 8,
-  },
-  routeActions: {
-    flexDirection: "row",
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: "#E5E5EA",
-    paddingTop: 12,
-    gap: 16,
-  },
-  actionBtn: {
-    minHeight: MIN_TOUCH_TARGET,
-    justifyContent: "center",
-  },
-  actionBtnDisabled: {
-    opacity: 0.5,
-  },
-  actionText: {
-    fontSize: 15,
-    color: "#007AFF",
-    fontWeight: "500",
-  },
-  actionTextDisabled: {
-    color: "#8E8E93",
-  },
-  deleteText: {
-    color: "#FF3B30",
-  },
-  empty: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingBottom: 100,
-  },
-  emptyTitle: {
-    fontSize: 20,
-    fontWeight: "600",
-    color: "#1C1C1E",
-    marginBottom: 8,
-  },
-  emptySubtitle: {
-    fontSize: 15,
-    color: "#8E8E93",
-  },
-  importButton: {
-    position: "absolute",
-    bottom: 32,
-    left: 20,
-    right: 20,
-    height: 52,
-    backgroundColor: "#007AFF",
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#007AFF",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-  },
-  importButtonText: {
-    color: "#fff",
-    fontSize: 17,
-    fontWeight: "600",
-  },
-});

@@ -1,15 +1,29 @@
 import React from "react";
 import { Tabs } from "expo-router";
 import { SymbolView } from "expo-symbols";
+import { useThemeColors } from "@/theme";
 
 export default function TabLayout() {
+  const colors = useThemeColors();
+
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: "#007AFF",
-        tabBarInactiveTintColor: "#8E8E93",
+        tabBarActiveTintColor: colors.accent,
+        tabBarInactiveTintColor: colors.textTertiary,
         tabBarStyle: {
-          borderTopColor: "#E5E5EA",
+          backgroundColor: colors.surface,
+          borderTopColor: colors.borderSubtle,
+        },
+        headerStyle: {
+          backgroundColor: colors.background,
+        },
+        headerTintColor: colors.textPrimary,
+        headerTitleStyle: {
+          fontFamily: "Barlow-SemiBold",
+        },
+        tabBarLabelStyle: {
+          fontFamily: "Barlow-Medium",
         },
       }}
     >

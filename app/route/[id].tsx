@@ -1,20 +1,28 @@
 import React, { useEffect, useState, useMemo, useRef } from "react";
 import {
   View,
-  Text,
-  StyleSheet,
   ScrollView,
+  TouchableOpacity,
   useWindowDimensions,
   ActivityIndicator,
 } from "react-native";
 import { useLocalSearchParams, Stack } from "expo-router";
 import { Camera, MapView as MapboxMapView } from "@rnmapbox/maps";
+import { Text } from "@/components/ui/text";
+import { Button } from "@/components/ui/button";
+import { useThemeColors } from "@/theme";
 import { useRouteStore } from "@/store/routeStore";
 import { useSettingsStore } from "@/store/settingsStore";
+import { usePoiStore } from "@/store/poiStore";
 import { MAP_STYLE_URLS } from "@/types";
 import type { RouteWithPoints } from "@/types";
 import { formatDistance, formatElevation } from "@/utils/formatters";
 import { computeElevationProgress, computeBounds } from "@/utils/geo";
+import {
+  DEFAULT_CORRIDOR_WIDTH_M,
+  MIN_CORRIDOR_WIDTH_M,
+  MAX_CORRIDOR_WIDTH_M,
+} from "@/constants";
 import ElevationProfile from "@/components/elevation/ElevationProfile";
 import RouteLayer from "@/components/map/RouteLayer";
 import StatBox from "@/components/common/StatBox";
@@ -23,6 +31,7 @@ export default function RouteDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { width: screenWidth } = useWindowDimensions();
   const cameraRef = useRef<Camera>(null);
+  const colors = useThemeColors();
 
   const [route, setRoute] = useState<RouteWithPoints | null>(null);
   const [loading, setLoading] = useState(true);
@@ -31,6 +40,15 @@ export default function RouteDetailScreen() {
   const snappedPosition = useRouteStore((s) => s.snappedPosition);
   const units = useSettingsStore((s) => s.units);
   const mapStyle = useSettingsStore((s) => s.mapStyle);
+
+  const fetchPOIs = usePoiStore((s) => s.fetchPOIs);
+  const loadPOIs = usePoiStore((s) => s.loadPOIs);
+  const fetchStatus = usePoiStore((s) => id ? s.fetchStatus[id] : undefined);
+  const fetchProgress = usePoiStore((s) => s.fetchProgress);
+  const fetchError = usePoiStore((s) => s.fetchError);
+  const poiCount = usePoiStore((s) => id ? (s.pois[id]?.length ?? 0) : 0);
+  const corridorWidthM = usePoiStore((s) => s.corridorWidthM);
+  const setCorridorWidth = usePoiStore((s) => s.setCorridorWidth);
 
   useEffect(() => {
     if (!id) return;
@@ -41,12 +59,15 @@ export default function RouteDetailScreen() {
     })();
   }, [id, getRouteDetail]);
 
+  useEffect(() => {
+    if (id) loadPOIs(id);
+  }, [id, loadPOIs]);
+
   const currentPointIndex = useMemo(() => {
     if (snappedPosition?.routeId === id) return snappedPosition.pointIndex;
     return undefined;
   }, [snappedPosition, id]);
 
-  // Elevation progress at current position
   const elevProgress = useMemo(() => {
     if (currentPointIndex == null || !route) return null;
     return computeElevationProgress(route.points, currentPointIndex);
@@ -59,16 +80,16 @@ export default function RouteDetailScreen() {
 
   if (loading) {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" />
+      <View className="flex-1 items-center justify-center">
+        <ActivityIndicator size="large" color={colors.accent} />
       </View>
     );
   }
 
   if (!route) {
     return (
-      <View style={styles.center}>
-        <Text style={styles.errorText}>Route not found</Text>
+      <View className="flex-1 items-center justify-center">
+        <Text className="text-[17px] text-muted-foreground">Route not found</Text>
       </View>
     );
   }
@@ -82,13 +103,22 @@ export default function RouteDetailScreen() {
         options={{
           title: route.name,
           headerBackTitle: "Routes",
+          headerStyle: { backgroundColor: colors.background },
+          headerTintColor: colors.accent,
+          headerTitleStyle: {
+            color: colors.textPrimary,
+            fontFamily: "Barlow-SemiBold",
+          },
         }}
       />
-      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      <ScrollView
+        className="flex-1 bg-background"
+        contentContainerStyle={{ paddingBottom: 40 }}
+      >
         {/* Mini map */}
-        <View style={styles.mapContainer}>
+        <View className="h-[250px] mx-4 mt-4 rounded-xl overflow-hidden">
           <MapboxMapView
-            style={styles.map}
+            style={{ flex: 1 }}
             styleURL={MAP_STYLE_URLS[mapStyle]}
             compassEnabled={false}
             scaleBarEnabled={false}
@@ -118,7 +148,7 @@ export default function RouteDetailScreen() {
         </View>
 
         {/* Stats */}
-        <View style={styles.statsRow}>
+        <View className="flex-row px-4 mt-3 mb-3 gap-3">
           <StatBox
             label="Distance"
             value={formatDistance(route.totalDistanceMeters, units)}
@@ -134,8 +164,10 @@ export default function RouteDetailScreen() {
         </View>
 
         {/* Elevation Profile */}
-        <Text style={styles.sectionTitle}>Elevation Profile</Text>
-        <View style={styles.chartContainer}>
+        <Text className="text-[22px] font-barlow-semibold text-foreground px-4 mt-2 mb-3">
+          Elevation Profile
+        </Text>
+        <View className="mx-4 rounded-xl overflow-hidden bg-surface">
           <ElevationProfile
             points={route.points}
             units={units}
@@ -145,11 +177,85 @@ export default function RouteDetailScreen() {
           />
         </View>
 
+        {/* Points of Interest */}
+        <Text className="text-[22px] font-barlow-semibold text-foreground px-4 mt-4 mb-3">
+          Points of Interest
+        </Text>
+
+        {/* Corridor width selector */}
+        <View className="flex-row items-center px-4 mb-3 gap-2">
+          <Text className="text-[14px] text-muted-foreground font-barlow mr-1">
+            Corridor:
+          </Text>
+          {[1000, 2000, 5000].map((w) => (
+            <TouchableOpacity
+              key={w}
+              className={`px-4 h-[44px] items-center justify-center rounded-full ${
+                corridorWidthM === w
+                  ? "bg-primary"
+                  : "bg-card border border-border"
+              }`}
+              onPress={() => setCorridorWidth(w)}
+            >
+              <Text
+                className={`text-[13px] font-barlow-medium ${
+                  corridorWidthM === w
+                    ? "text-primary-foreground"
+                    : "text-foreground"
+                }`}
+              >
+                {w / 1000} km
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {/* Fetch button */}
+        <View className="px-4 mb-2">
+          <Button
+            onPress={() => {
+              if (route) fetchPOIs(id!, route.points);
+            }}
+            disabled={fetchStatus === "fetching"}
+            variant={poiCount > 0 ? "secondary" : "default"}
+            label={
+              fetchStatus === "fetching"
+                ? "Fetching POIs..."
+                : poiCount > 0
+                  ? "Refresh POIs"
+                  : "Fetch POIs"
+            }
+          />
+        </View>
+
+        {/* Fetch progress */}
+        {fetchStatus === "fetching" && fetchProgress && (
+          <Text className="text-[13px] text-muted-foreground px-4 mb-2 font-barlow">
+            {fetchProgress.phase}: {fetchProgress.done}/{fetchProgress.total}
+          </Text>
+        )}
+
+        {/* Fetch error */}
+        {fetchStatus === "error" && fetchError && (
+          <Text className="text-[13px] text-destructive px-4 mb-2 font-barlow">
+            {fetchError}
+          </Text>
+        )}
+
+        {/* POI count */}
+        {fetchStatus === "done" && poiCount > 0 && (
+          <Text className="text-[14px] text-muted-foreground px-4 mb-2 font-barlow">
+            {poiCount} POIs found along route
+          </Text>
+        )}
+
         {/* Progress (if snapped) */}
         {currentPointIndex != null && elevProgress && (
-          <View style={styles.progressSection}>
-            <Text style={styles.sectionTitle}>Progress</Text>
-            <View style={styles.statsRow}>
+          <View className="mt-2">
+            <Text className="text-[22px] font-barlow-semibold text-foreground px-4 mt-2 mb-3">
+              Progress
+            </Text>
+            <View className="flex-row px-4 mb-3 gap-3">
               <StatBox
                 label="Completed"
                 value={formatDistance(
@@ -166,7 +272,7 @@ export default function RouteDetailScreen() {
                 )}
               />
             </View>
-            <View style={styles.statsRow}>
+            <View className="flex-row px-4 mb-3 gap-3">
               <StatBox
                 label="Ascent done"
                 value={"↑ " + formatElevation(elevProgress.ascentDone, units)}
@@ -176,7 +282,7 @@ export default function RouteDetailScreen() {
                 value={"↑ " + formatElevation(elevProgress.ascentRemaining, units)}
               />
             </View>
-            <View style={styles.statsRow}>
+            <View className="flex-row px-4 mb-3 gap-3">
               <StatBox
                 label="Descent done"
                 value={"↓ " + formatElevation(elevProgress.descentDone, units)}
@@ -192,54 +298,3 @@ export default function RouteDetailScreen() {
     </>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#F2F2F7",
-  },
-  content: {
-    paddingBottom: 40,
-  },
-  center: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  errorText: {
-    fontSize: 17,
-    color: "#8E8E93",
-  },
-  mapContainer: {
-    height: 250,
-    margin: 16,
-    borderRadius: 12,
-    overflow: "hidden",
-  },
-  map: {
-    flex: 1,
-  },
-  statsRow: {
-    flexDirection: "row",
-    paddingHorizontal: 16,
-    marginBottom: 12,
-    gap: 12,
-  },
-  sectionTitle: {
-    fontSize: 17,
-    fontWeight: "600",
-    color: "#1C1C1E",
-    paddingHorizontal: 16,
-    marginTop: 8,
-    marginBottom: 12,
-  },
-  chartContainer: {
-    marginHorizontal: 16,
-    borderRadius: 12,
-    overflow: "hidden",
-    backgroundColor: "#fff",
-  },
-  progressSection: {
-    marginTop: 8,
-  },
-});

@@ -1,5 +1,6 @@
 import React, { useMemo } from "react";
-import { View, Text, StyleSheet } from "react-native";
+import { View } from "react-native";
+import { Text } from "@/components/ui/text";
 import ElevationProfile from "@/components/elevation/ElevationProfile";
 import { extractRouteSlice } from "@/utils/geo";
 import { LOOK_BACK_RATIO } from "@/constants";
@@ -60,8 +61,10 @@ export default function UpcomingElevation({
 
   if (slicedPoints.length <= 1) {
     return (
-      <View style={styles.emptyContainer}>
-        <Text style={styles.emptyText}>Near the end of your route</Text>
+      <View className="flex-1 items-center justify-center">
+        <Text className="text-sm text-muted-foreground">
+          Near the end of your route
+        </Text>
       </View>
     );
   }
@@ -78,15 +81,3 @@ export default function UpcomingElevation({
     />
   );
 }
-
-const styles = StyleSheet.create({
-  emptyContainer: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  emptyText: {
-    fontSize: 14,
-    color: "#8E8E93",
-  },
-});

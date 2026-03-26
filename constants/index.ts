@@ -39,3 +39,29 @@ export const PANEL_MODES = [
   "remaining",
   "full",
 ] as const;
+
+// --- Phase 3: POI constants ---
+
+import type { POICategoryMeta } from "@/types";
+
+export const POI_CATEGORIES: POICategoryMeta[] = [
+  { key: "water", label: "Water", color: "#3B82F6", iconName: "Droplets" },
+  { key: "groceries", label: "Groceries", color: "#22C55E", iconName: "ShoppingCart" },
+  { key: "gas_station", label: "Gas Station", color: "#F97316", iconName: "Fuel" },
+  { key: "cafe_restaurant", label: "Café", color: "#A855F7", iconName: "Coffee" },
+  { key: "accommodation", label: "Sleep", color: "#EC4899", iconName: "Bed" },
+  { key: "bike_shop", label: "Bike Shop", color: "#14B8A6", iconName: "Wrench" },
+  { key: "atm", label: "ATM", color: "#EAB308", iconName: "Banknote" },
+  { key: "pharmacy", label: "Pharmacy", color: "#EF4444", iconName: "Cross" },
+  { key: "toilet_shower", label: "WC", color: "#6366F1", iconName: "ShowerHead" },
+];
+
+/** How far behind the rider a POI remains visible in the list */
+export const POI_BEHIND_THRESHOLD_M = 1000;
+
+export const DEFAULT_CORRIDOR_WIDTH_M = 2000;
+export const MAX_CORRIDOR_WIDTH_M = 10000;
+export const MIN_CORRIDOR_WIDTH_M = 500;
+export const OVERPASS_API_URL = "https://overpass-api.de/api/interpreter";
+export const OVERPASS_SEGMENT_LENGTH_M = 50_000;
+export const OVERPASS_RETRY_DELAYS = [2000, 5000, 15000];

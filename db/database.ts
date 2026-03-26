@@ -1,5 +1,5 @@
 import * as SQLite from "expo-sqlite";
-import type { Route, RoutePoint, RouteWithPoints } from "@/types";
+import type { Route, RoutePoint, RouteWithPoints, POI, POICategory } from "@/types";
 
 let db: SQLite.SQLiteDatabase | null = null;
 
@@ -37,6 +37,26 @@ async function createTables(db: SQLite.SQLiteDatabase): Promise<void> {
       PRIMARY KEY (routeId, idx),
       FOREIGN KEY (routeId) REFERENCES routes(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS pois (
+      id TEXT PRIMARY KEY,
+      osmId TEXT NOT NULL,
+      routeId TEXT NOT NULL,
+      name TEXT,
+      category TEXT NOT NULL,
+      latitude REAL NOT NULL,
+      longitude REAL NOT NULL,
+      tags TEXT NOT NULL,
+      distanceFromRouteMeters REAL NOT NULL,
+      distanceAlongRouteMeters REAL NOT NULL,
+      FOREIGN KEY (routeId) REFERENCES routes(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_pois_route_category
+      ON pois(routeId, category);
+
+    CREATE INDEX IF NOT EXISTS idx_pois_route_along
+      ON pois(routeId, distanceAlongRouteMeters);
   `);
 }
 
@@ -123,6 +143,7 @@ export async function getRoutePoints(routeId: string): Promise<RoutePoint[]> {
 
 export async function deleteRoute(routeId: string): Promise<void> {
   const database = await getDatabase();
+  await database.runAsync(`DELETE FROM pois WHERE routeId = ?`, routeId);
   await database.runAsync(`DELETE FROM route_points WHERE routeId = ?`, routeId);
   await database.runAsync(`DELETE FROM routes WHERE id = ?`, routeId);
 }
@@ -173,5 +194,93 @@ function rowToPoint(row: any): RoutePoint {
     elevationMeters: row.elevationMeters,
     distanceFromStartMeters: row.distanceFromStartMeters,
     index: row.idx,
+  };
+}
+
+// --- POI CRUD ---
+
+export async function insertPOIs(pois: POI[]): Promise<void> {
+  if (pois.length === 0) return;
+  const database = await getDatabase();
+
+  const CHUNK = 100;
+  for (let i = 0; i < pois.length; i += CHUNK) {
+    const chunk = pois.slice(i, i + CHUNK);
+    const placeholders = chunk
+      .map(() => "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .join(", ");
+    const values = chunk.flatMap((p) => [
+      p.id,
+      p.osmId,
+      p.nearestRouteId,
+      p.name,
+      p.category,
+      p.latitude,
+      p.longitude,
+      JSON.stringify(p.tags),
+      p.distanceFromRouteMeters,
+      p.distanceAlongRouteMeters,
+    ]);
+
+    await database.runAsync(
+      `INSERT OR REPLACE INTO pois (id, osmId, routeId, name, category, latitude, longitude, tags, distanceFromRouteMeters, distanceAlongRouteMeters) VALUES ${placeholders}`,
+      ...values,
+    );
+  }
+}
+
+export async function getPOIsForRoute(
+  routeId: string,
+  categories?: POICategory[],
+  maxDistFromRoute?: number,
+): Promise<POI[]> {
+  const database = await getDatabase();
+
+  let sql = `SELECT * FROM pois WHERE routeId = ?`;
+  const params: any[] = [routeId];
+
+  if (categories && categories.length > 0) {
+    const placeholders = categories.map(() => "?").join(", ");
+    sql += ` AND category IN (${placeholders})`;
+    params.push(...categories);
+  }
+
+  if (maxDistFromRoute != null) {
+    sql += ` AND distanceFromRouteMeters <= ?`;
+    params.push(maxDistFromRoute);
+  }
+
+  sql += ` ORDER BY distanceAlongRouteMeters`;
+
+  const rows = await database.getAllAsync<any>(sql, ...params);
+  return rows.map(rowToPOI);
+}
+
+export async function deletePOIsForRoute(routeId: string): Promise<void> {
+  const database = await getDatabase();
+  await database.runAsync(`DELETE FROM pois WHERE routeId = ?`, routeId);
+}
+
+export async function hasPOIsForRoute(routeId: string): Promise<boolean> {
+  const database = await getDatabase();
+  const row = await database.getFirstAsync<{ count: number }>(
+    `SELECT COUNT(*) as count FROM pois WHERE routeId = ?`,
+    routeId,
+  );
+  return (row?.count ?? 0) > 0;
+}
+
+function rowToPOI(row: any): POI {
+  return {
+    id: row.id,
+    osmId: row.osmId,
+    name: row.name,
+    category: row.category,
+    latitude: row.latitude,
+    longitude: row.longitude,
+    tags: JSON.parse(row.tags),
+    distanceFromRouteMeters: row.distanceFromRouteMeters,
+    distanceAlongRouteMeters: row.distanceAlongRouteMeters,
+    nearestRouteId: row.routeId,
   };
 }

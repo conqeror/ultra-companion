@@ -1,10 +1,12 @@
 import React, { useMemo } from "react";
-import { View, Text, StyleSheet, useWindowDimensions } from "react-native";
+import { View, StyleSheet, useWindowDimensions } from "react-native";
 import Animated, {
   useAnimatedStyle,
   withTiming,
   Easing,
 } from "react-native-reanimated";
+import { Text } from "@/components/ui/text";
+import { useThemeColors } from "@/theme";
 import { usePanelStore } from "@/store/panelStore";
 import { useRouteStore } from "@/store/routeStore";
 import { useSettingsStore } from "@/store/settingsStore";
@@ -16,6 +18,7 @@ import ElevationProfile from "@/components/elevation/ElevationProfile";
 import type { RoutePoint, PanelMode } from "@/types";
 
 const MAX_SNAP_DISTANCE_M = 500;
+const PANEL_CLASS = "absolute bottom-0 left-0 right-0 bg-surface rounded-t-2xl shadow-lg overflow-hidden";
 const STATS_ROW_HEIGHT = 28;
 
 /** Extract the numeric look-ahead in meters from an upcoming-* mode, or null */
@@ -34,6 +37,7 @@ interface BottomPanelProps {
 export default function BottomPanel({ activeRoutePoints }: BottomPanelProps) {
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const panelHeight = Math.round(screenHeight * BOTTOM_PANEL_HEIGHT_RATIO);
+  const colors = useThemeColors();
 
   const panelMode = usePanelStore((s) => s.panelMode);
   const routes = useRouteStore((s) => s.routes);
@@ -91,9 +95,14 @@ export default function BottomPanel({ activeRoutePoints }: BottomPanelProps) {
   // Edge case: no active route
   if (!activeRoute || !activeRoutePoints?.length) {
     return (
-      <Animated.View style={[styles.container, { height: panelHeight }, animatedStyle]}>
-        <View style={styles.messageContainer}>
-          <Text style={styles.messageText}>Import and activate a route</Text>
+      <Animated.View
+        className={PANEL_CLASS}
+        style={[{ height: panelHeight }, animatedStyle]}
+      >
+        <View className="flex-1 items-center justify-center">
+          <Text className="text-[15px] text-muted-foreground">
+            Import and activate a route
+          </Text>
         </View>
       </Animated.View>
     );
@@ -102,9 +111,14 @@ export default function BottomPanel({ activeRoutePoints }: BottomPanelProps) {
   // Edge case: not snapped but elevation mode requires it
   if (isElevationMode && !isSnapped) {
     return (
-      <Animated.View style={[styles.container, { height: panelHeight }, animatedStyle]}>
-        <View style={styles.messageContainer}>
-          <Text style={styles.messageText}>Ride closer to your route</Text>
+      <Animated.View
+        className={PANEL_CLASS}
+        style={[{ height: panelHeight }, animatedStyle]}
+      >
+        <View className="flex-1 items-center justify-center">
+          <Text className="text-[15px] text-muted-foreground">
+            Ride closer to your route
+          </Text>
         </View>
       </Animated.View>
     );
@@ -115,10 +129,21 @@ export default function BottomPanel({ activeRoutePoints }: BottomPanelProps) {
   const chartWidth = screenWidth - 16;
 
   return (
-    <Animated.View style={[styles.container, { height: panelHeight }, animatedStyle]}>
+    <Animated.View
+      className={PANEL_CLASS}
+      style={[{ height: panelHeight }, animatedStyle]}
+    >
       {showStats && (
-        <View style={styles.statsRow}>
-          <Text style={styles.statsText}>{statsText}</Text>
+        <View
+          className="justify-center items-center"
+          style={[
+            { height: STATS_ROW_HEIGHT },
+            { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+          ]}
+        >
+          <Text className="text-[13px] text-muted-foreground font-barlow-sc-medium">
+            {statsText}
+          </Text>
         </View>
       )}
       {isElevationMode && isSnapped && (
@@ -144,42 +169,3 @@ export default function BottomPanel({ activeRoutePoints }: BottomPanelProps) {
     </Animated.View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: "#fff",
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 6,
-    elevation: 8,
-    overflow: "hidden",
-  },
-  statsRow: {
-    height: STATS_ROW_HEIGHT,
-    justifyContent: "center",
-    alignItems: "center",
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#E5E5EA",
-  },
-  statsText: {
-    fontSize: 13,
-    color: "#8E8E93",
-    fontWeight: "500",
-  },
-  messageContainer: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  messageText: {
-    fontSize: 15,
-    color: "#8E8E93",
-  },
-});

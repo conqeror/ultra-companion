@@ -1,5 +1,6 @@
 import React from "react";
-import { View, Text, StyleSheet } from "react-native";
+import { View } from "react-native";
+import { Text } from "@/components/ui/text";
 
 interface StatBoxProps {
   label: string;
@@ -8,31 +9,16 @@ interface StatBoxProps {
 
 export default function StatBox({ label, value }: StatBoxProps) {
   return (
-    <View style={styles.statBox}>
-      <Text style={styles.statValue} numberOfLines={1}>
+    <View className="flex-1 items-center">
+      <Text
+        className="font-barlow-sc-semibold text-lg text-foreground"
+        numberOfLines={1}
+      >
         {value}
       </Text>
-      <Text style={styles.statLabel}>{label}</Text>
+      <Text className="font-barlow-sc-medium text-xs text-muted-foreground">
+        {label}
+      </Text>
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  statBox: {
-    flex: 1,
-    backgroundColor: "#fff",
-    borderRadius: 10,
-    padding: 12,
-    alignItems: "center",
-  },
-  statValue: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#1C1C1E",
-    marginBottom: 2,
-  },
-  statLabel: {
-    fontSize: 12,
-    color: "#8E8E93",
-  },
-});

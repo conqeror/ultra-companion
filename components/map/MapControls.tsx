@@ -1,88 +1,104 @@
 import React from "react";
-import { View, TouchableOpacity, Text, StyleSheet } from "react-native";
-import { MIN_TOUCH_TARGET } from "@/constants";
+import { View, TouchableOpacity, useWindowDimensions } from "react-native";
+import { Text } from "@/components/ui/text";
+import { Locate, LocateFixed, Mountain, ArrowRightFromLine, MoveHorizontal, List } from "lucide-react-native";
+import { cn } from "@/lib/cn";
+import { useThemeColors } from "@/theme";
 import { usePanelStore } from "@/store/panelStore";
+import { usePoiStore } from "@/store/poiStore";
+import { useRouteStore } from "@/store/routeStore";
+import { BOTTOM_PANEL_HEIGHT_RATIO } from "@/constants";
 import type { PanelMode } from "@/types";
-
-const PANEL_LABEL: Record<PanelMode, string> = {
-  none: "\u25BD",          // ▽ down triangle — panel off
-  "upcoming-5": "5",
-  "upcoming-10": "10",
-  "upcoming-20": "20",
-  remaining: "\u25B6",     // ▶ play — to end
-  full: "\u2194",          // ↔ full extent
-};
 
 interface MapControlsProps {
   onCenterUser: () => void;
   followUser: boolean;
 }
 
+function PanelIcon({ mode, color }: { mode: PanelMode; color: string }) {
+  switch (mode) {
+    case "none":
+      return <Mountain size={22} color={color} />;
+    case "upcoming-5":
+      return <Text style={{ color }} className="text-base font-barlow-bold">5</Text>;
+    case "upcoming-10":
+      return <Text style={{ color }} className="text-base font-barlow-bold">10</Text>;
+    case "upcoming-20":
+      return <Text style={{ color }} className="text-base font-barlow-bold">20</Text>;
+    case "remaining":
+      return <ArrowRightFromLine size={22} color={color} />;
+    case "full":
+      return <MoveHorizontal size={20} color={color} />;
+  }
+}
+
 export default function MapControls({
   onCenterUser,
   followUser,
 }: MapControlsProps) {
+  const colors = useThemeColors();
   const panelMode = usePanelStore((s) => s.panelMode);
   const cyclePanelMode = usePanelStore((s) => s.cyclePanelMode);
   const panelOpen = panelMode !== "none";
 
-  return (
-    <View style={styles.container}>
-      <TouchableOpacity
-        style={[styles.button, followUser && styles.buttonActive]}
-        onPress={onCenterUser}
-        accessibilityLabel="Center on my location"
-      >
-        <Text style={[styles.buttonText, followUser && styles.buttonTextActive]}>
-          {followUser ? "\u25C9" : "\u25CE"}
-        </Text>
-      </TouchableOpacity>
+  const activeRoute = useRouteStore((s) => s.routes.find((r) => r.isActive));
+  const hasPOIs = usePoiStore((s) => activeRoute ? (s.pois[activeRoute.id]?.length ?? 0) > 0 : false);
+  const setShowPOIList = usePoiStore((s) => s.setShowPOIList);
 
-      <TouchableOpacity
-        style={[styles.button, panelOpen && styles.buttonActive]}
-        onPress={cyclePanelMode}
-        accessibilityLabel="Cycle bottom panel mode"
-      >
-        <Text style={[styles.buttonText, panelOpen && styles.buttonTextActive, panelOpen && styles.buttonTextSmall]}>
-          {PANEL_LABEL[panelMode]}
-        </Text>
-      </TouchableOpacity>
-    </View>
+  const { height: screenHeight } = useWindowDimensions();
+  const panelHeight = Math.round(screenHeight * BOTTOM_PANEL_HEIGHT_RATIO);
+  const TAB_BAR_CLEARANCE = 16;
+  const elevButtonBottom = panelOpen ? panelHeight + TAB_BAR_CLEARANCE : TAB_BAR_CLEARANCE;
+
+  const locateColor = followUser ? colors.accentForeground : colors.textPrimary;
+  const panelColor = panelOpen ? colors.accentForeground : colors.textPrimary;
+
+  return (
+    <>
+      {/* Location control — top-right */}
+      <View className="absolute right-4 top-[120px]">
+        <TouchableOpacity
+          className={cn(
+            "w-[52px] h-[52px] rounded-xl items-center justify-center shadow-md",
+            followUser ? "bg-primary" : "bg-card/95 border border-border-subtle",
+          )}
+          onPress={onCenterUser}
+          accessibilityLabel="Center on my location"
+        >
+          {followUser ? (
+            <LocateFixed size={24} color={locateColor} />
+          ) : (
+            <Locate size={24} color={locateColor} />
+          )}
+        </TouchableOpacity>
+      </View>
+
+      {/* POI list button — bottom-left, above panel/tab bar */}
+      {hasPOIs && (
+        <View className="absolute left-4" style={{ bottom: elevButtonBottom }}>
+          <TouchableOpacity
+            className="w-[52px] h-[52px] rounded-xl items-center justify-center shadow-md bg-card/95 border border-border-subtle"
+            onPress={() => setShowPOIList(true)}
+            accessibilityLabel="Show POI list"
+          >
+            <List size={22} color={colors.textPrimary} />
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* Elevation panel control — bottom-right, above panel/tab bar */}
+      <View className="absolute right-4" style={{ bottom: elevButtonBottom }}>
+        <TouchableOpacity
+          className={cn(
+            "w-[52px] h-[52px] rounded-xl items-center justify-center shadow-md",
+            panelOpen ? "bg-primary" : "bg-card/95 border border-border-subtle",
+          )}
+          onPress={cyclePanelMode}
+          accessibilityLabel="Cycle bottom panel mode"
+        >
+          <PanelIcon mode={panelMode} color={panelColor} />
+        </TouchableOpacity>
+      </View>
+    </>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    position: "absolute",
-    right: 16,
-    top: 120,
-    gap: 8,
-  },
-  button: {
-    width: MIN_TOUCH_TARGET,
-    height: MIN_TOUCH_TARGET,
-    borderRadius: 8,
-    backgroundColor: "rgba(255, 255, 255, 0.95)",
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 4,
-  },
-  buttonActive: {
-    backgroundColor: "#007AFF",
-  },
-  buttonText: {
-    fontSize: 22,
-    fontWeight: "700",
-    color: "#333",
-  },
-  buttonTextActive: {
-    color: "#fff",
-  },
-  buttonTextSmall: {
-    fontSize: 16,
-  },
-});

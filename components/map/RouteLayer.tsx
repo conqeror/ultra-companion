@@ -1,6 +1,7 @@
 import React, { useMemo } from "react";
 import { ShapeSource, LineLayer } from "@rnmapbox/maps";
 import { routeToGeoJSON } from "@/utils/geo";
+import { useThemeColors } from "@/theme";
 import type { Route, RoutePoint } from "@/types";
 
 interface RouteLayerProps {
@@ -9,33 +10,36 @@ interface RouteLayerProps {
 }
 
 export default function RouteLayer({ route, points }: RouteLayerProps) {
+  const colors = useThemeColors();
   const geoJSON = useMemo(() => routeToGeoJSON(points), [points]);
+
+  const outlineStyle = useMemo(() => ({
+    lineColor: colors.surface,
+    lineWidth: 6,
+    lineOpacity: route.isActive ? 0.8 : 0.4,
+    lineCap: "round" as const,
+    lineJoin: "round" as const,
+  }), [colors.surface, route.isActive]);
+
+  const lineStyle = useMemo(() => ({
+    lineColor: route.color,
+    lineWidth: 4,
+    lineOpacity: route.isActive ? 1 : 0.6,
+    lineCap: "round" as const,
+    lineJoin: "round" as const,
+  }), [route.color, route.isActive]);
 
   if (points.length < 2) return null;
 
   return (
     <ShapeSource id={`route-source-${route.id}`} shape={geoJSON}>
-      {/* Outline for contrast */}
       <LineLayer
         id={`route-outline-${route.id}`}
-        style={{
-          lineColor: "#FFFFFF",
-          lineWidth: 6,
-          lineOpacity: route.isActive ? 0.8 : 0.4,
-          lineCap: "round",
-          lineJoin: "round",
-        }}
+        style={outlineStyle}
       />
-      {/* Main route line */}
       <LineLayer
         id={`route-line-${route.id}`}
-        style={{
-          lineColor: route.color,
-          lineWidth: 4,
-          lineOpacity: route.isActive ? 1 : 0.6,
-          lineCap: "round",
-          lineJoin: "round",
-        }}
+        style={lineStyle}
         aboveLayerID={`route-outline-${route.id}`}
       />
     </ShapeSource>

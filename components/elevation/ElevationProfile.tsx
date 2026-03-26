@@ -1,6 +1,9 @@
 import React, { useMemo } from "react";
-import { View, StyleSheet, Text } from "react-native";
+import { View } from "react-native";
 import Svg, { Path, Circle, Defs, LinearGradient, Stop, Line } from "react-native-svg";
+import { Text } from "@/components/ui/text";
+import { useThemeColors, gradientColor } from "@/theme";
+import { ELEVATION_STOPS } from "@/theme/elevation";
 import { formatDistance, formatElevation } from "@/utils/formatters";
 import type { RoutePoint, UnitSystem } from "@/types";
 
@@ -17,22 +20,6 @@ interface ElevationProfileProps {
 
 const PADDING = { top: 16, right: 16, bottom: 28, left: 48 };
 const SAMPLE_INTERVAL_M = 100;
-
-// Ascent gradient → color. Descent is always green.
-function gradientColor(gradientPercent: number): string {
-  if (gradientPercent <= 0) return "#4CAF50"; // descent — green
-  if (gradientPercent < 1) return "#4CAF50"; // flat — green
-  if (gradientPercent < 2) return "#8BC34A"; // light green
-  if (gradientPercent < 3) return "#CDDC39"; // lime
-  if (gradientPercent < 4) return "#FDD835"; // yellow
-  if (gradientPercent < 5) return "#FFB300"; // amber
-  if (gradientPercent < 7) return "#FB8C00"; // orange
-  if (gradientPercent < 9) return "#F4511E"; // deep orange
-  if (gradientPercent < 12) return "#E53935"; // red
-  if (gradientPercent < 15) return "#B71C1C"; // dark red
-  if (gradientPercent < 18) return "#5D4037"; // brown
-  return "#3E2723"; // dark brown
-}
 
 /** Resample route points at fixed distance intervals */
 function resampleAtInterval(
@@ -83,6 +70,7 @@ export default function ElevationProfile({
   showLegend = true,
   distanceOffsetMeters = 0,
 }: ElevationProfileProps) {
+  const colors = useThemeColors();
   const chartWidth = width - PADDING.left - PADDING.right;
   const chartHeight = height - PADDING.top - PADDING.bottom;
 
@@ -129,7 +117,7 @@ export default function ElevationProfile({
       const ys = (e: number) =>
         PADDING.top + chartHeight - ((e - yMin) / (yMax - yMin)) * chartHeight;
 
-      // Compute gradient at each sample point (average of adjacent segments)
+      // Compute gradient at each sample point
       const grads: number[] = [];
       for (let i = 0; i < samples.length; i++) {
         if (i === 0) {
@@ -147,7 +135,7 @@ export default function ElevationProfile({
         }
       }
 
-      // Build gradient stops — each sample maps to a fractional position
+      // Build gradient stops
       const stops: { offset: string; color: string }[] = [];
       for (let i = 0; i < samples.length; i++) {
         const fraction = totalD > 0 ? samples[i].distance / totalD : 0;
@@ -157,7 +145,7 @@ export default function ElevationProfile({
         });
       }
 
-      // Build single line path
+      // Build line path
       let lineD = "";
       for (let i = 0; i < samples.length; i++) {
         const x = xs(samples[i].distance);
@@ -183,14 +171,6 @@ export default function ElevationProfile({
       };
     }, [points, chartWidth, chartHeight]);
 
-  if (points.length === 0) {
-    return (
-      <View style={[styles.container, { width, height }]}>
-        <Text style={styles.noData}>No elevation data</Text>
-      </View>
-    );
-  }
-
   const currentPos = useMemo(() => {
     if (currentPointIndex == null || currentPointIndex < 0 || currentPointIndex >= points.length)
       return null;
@@ -200,6 +180,16 @@ export default function ElevationProfile({
       y: yScale(p.elevationMeters ?? 0),
     };
   }, [currentPointIndex, points, xScale, yScale]);
+
+  if (points.length === 0) {
+    return (
+      <View className="bg-surface" style={{ width, height }}>
+        <Text className="text-center text-muted-foreground mt-10">
+          No elevation data
+        </Text>
+      </View>
+    );
+  }
 
   const elevRange = maxElev - minElev;
   const yLabels = [minElev, minElev + elevRange / 2, maxElev].map((e) => ({
@@ -213,12 +203,12 @@ export default function ElevationProfile({
   }));
 
   return (
-    <View style={[styles.container, { width, height }]}>
+    <View className="bg-surface" style={{ width, height }}>
       <Svg width={width} height={height}>
         <Defs>
           <LinearGradient id="elevFill" x1="0" y1="0" x2="0" y2="1">
-            <Stop offset="0" stopColor="#8E8E93" stopOpacity="0.15" />
-            <Stop offset="1" stopColor="#8E8E93" stopOpacity="0.03" />
+            <Stop offset="0" stopColor={colors.textTertiary} stopOpacity="0.15" />
+            <Stop offset="1" stopColor={colors.textTertiary} stopOpacity="0.03" />
           </LinearGradient>
           {/* Horizontal gradient matching terrain steepness */}
           <LinearGradient id="lineGrad" x1="0" y1="0" x2="1" y2="0">
@@ -236,7 +226,7 @@ export default function ElevationProfile({
             y1={l.y}
             x2={width - PADDING.right}
             y2={l.y}
-            stroke="#E5E5EA"
+            stroke={colors.border}
             strokeWidth={0.5}
           />
         ))}
@@ -261,11 +251,11 @@ export default function ElevationProfile({
               y1={PADDING.top}
               x2={currentPos.x}
               y2={PADDING.top + chartHeight}
-              stroke="#007AFF"
+              stroke={colors.accent}
               strokeWidth={1}
               strokeDasharray="4,4"
             />
-            <Circle cx={currentPos.x} cy={currentPos.y} r={5} fill="#007AFF" />
+            <Circle cx={currentPos.x} cy={currentPos.y} r={5} fill={colors.accent} />
           </>
         )}
       </Svg>
@@ -274,7 +264,8 @@ export default function ElevationProfile({
       {yLabels.map((l, i) => (
         <Text
           key={`yl-${i}`}
-          style={[styles.axisLabel, { position: "absolute", left: 2, top: l.y - 7 }]}
+          className="font-barlow-sc-medium text-[10px] text-muted-foreground"
+          style={{ position: "absolute", left: 2, top: l.y - 7 }}
         >
           {formatElevation(l.value, units)}
         </Text>
@@ -284,16 +275,8 @@ export default function ElevationProfile({
       {xLabels.map((l, i) => (
         <Text
           key={`xl-${i}`}
-          style={[
-            styles.axisLabel,
-            {
-              position: "absolute",
-              left: l.x - 20,
-              bottom: 4,
-              width: 40,
-              textAlign: "center",
-            },
-          ]}
+          className="font-barlow-sc-medium text-[10px] text-muted-foreground text-center"
+          style={{ position: "absolute", left: l.x - 20, bottom: 4, width: 40 }}
         >
           {formatDistance(l.value + distanceOffsetMeters, units)}
         </Text>
@@ -301,55 +284,15 @@ export default function ElevationProfile({
 
       {/* Gradient legend */}
       {showLegend && (
-        <View style={styles.legend}>
-          <View style={[styles.legendDot, { backgroundColor: "#4CAF50" }]} />
-          <Text style={styles.legendText}>0%</Text>
-          <View style={[styles.legendDot, { backgroundColor: "#CDDC39" }]} />
-          <Text style={styles.legendText}>3</Text>
-          <View style={[styles.legendDot, { backgroundColor: "#FFB300" }]} />
-          <Text style={styles.legendText}>5</Text>
-          <View style={[styles.legendDot, { backgroundColor: "#F4511E" }]} />
-          <Text style={styles.legendText}>7</Text>
-          <View style={[styles.legendDot, { backgroundColor: "#E53935" }]} />
-          <Text style={styles.legendText}>9</Text>
-          <View style={[styles.legendDot, { backgroundColor: "#B71C1C" }]} />
-          <Text style={styles.legendText}>12</Text>
-          <View style={[styles.legendDot, { backgroundColor: "#5D4037" }]} />
-          <Text style={styles.legendText}>15%+</Text>
+        <View className="flex-row items-center justify-center pb-1 gap-1">
+          {ELEVATION_STOPS.map((stop) => (
+            <React.Fragment key={stop.label}>
+              <View className="w-2 h-2 rounded-full ml-1" style={{ backgroundColor: stop.color }} />
+              <Text className="text-[9px] text-muted-foreground">{stop.label}</Text>
+            </React.Fragment>
+          ))}
         </View>
       )}
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    backgroundColor: "#fff",
-  },
-  noData: {
-    textAlign: "center",
-    color: "#8E8E93",
-    marginTop: 40,
-  },
-  axisLabel: {
-    fontSize: 10,
-    color: "#8E8E93",
-  },
-  legend: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingBottom: 4,
-    gap: 4,
-  },
-  legendDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginLeft: 6,
-  },
-  legendText: {
-    fontSize: 9,
-    color: "#8E8E93",
-  },
-});

@@ -1,14 +1,9 @@
 import React from "react";
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  ScrollView,
-} from "react-native";
+import { View, TouchableOpacity, ScrollView } from "react-native";
+import { Text } from "@/components/ui/text";
+import { cn } from "@/lib/cn";
 import { useSettingsStore } from "@/store/settingsStore";
 import type { UnitSystem, MapStyle } from "@/types";
-import { MIN_TOUCH_TARGET } from "@/constants";
 
 const UNIT_OPTIONS: { value: UnitSystem; label: string }[] = [
   { value: "metric", label: "Metric (km)" },
@@ -21,93 +16,56 @@ const MAP_STYLE_OPTIONS: { value: MapStyle; label: string }[] = [
   { value: "satellite", label: "Satellite" },
 ];
 
+function OptionGroup<T extends string>({
+  options,
+  value,
+  onChange,
+}: {
+  options: { value: T; label: string }[];
+  value: T;
+  onChange: (v: T) => void;
+}) {
+  return (
+    <View className="gap-2">
+      {options.map((option) => (
+        <TouchableOpacity
+          key={option.value}
+          className={cn(
+            "min-h-[52px] px-4 py-3 rounded-xl justify-center",
+            value === option.value ? "bg-primary/10" : "bg-card",
+          )}
+          onPress={() => onChange(option.value)}
+        >
+          <Text
+            className={cn(
+              "text-base",
+              value === option.value
+                ? "text-primary font-barlow-semibold"
+                : "text-foreground font-barlow",
+            )}
+          >
+            {option.label}
+          </Text>
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
+}
+
 export default function SettingsScreen() {
   const { units, mapStyle, setUnits, setMapStyle } = useSettingsStore();
 
   return (
-    <ScrollView style={styles.container}>
-      <Text style={styles.sectionTitle}>Units</Text>
-      <View style={styles.optionGroup}>
-        {UNIT_OPTIONS.map((option) => (
-          <TouchableOpacity
-            key={option.value}
-            style={[
-              styles.option,
-              units === option.value && styles.optionActive,
-            ]}
-            onPress={() => setUnits(option.value)}
-          >
-            <Text
-              style={[
-                styles.optionText,
-                units === option.value && styles.optionTextActive,
-              ]}
-            >
-              {option.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
+    <ScrollView className="flex-1 bg-background px-4">
+      <Text className="text-[22px] font-barlow-semibold text-foreground mt-6 mb-3">
+        Units
+      </Text>
+      <OptionGroup options={UNIT_OPTIONS} value={units} onChange={setUnits} />
 
-      <Text style={styles.sectionTitle}>Map Style</Text>
-      <View style={styles.optionGroup}>
-        {MAP_STYLE_OPTIONS.map((option) => (
-          <TouchableOpacity
-            key={option.value}
-            style={[
-              styles.option,
-              mapStyle === option.value && styles.optionActive,
-            ]}
-            onPress={() => setMapStyle(option.value)}
-          >
-            <Text
-              style={[
-                styles.optionText,
-                mapStyle === option.value && styles.optionTextActive,
-              ]}
-            >
-              {option.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
+      <Text className="text-[22px] font-barlow-semibold text-foreground mt-6 mb-3">
+        Map Style
+      </Text>
+      <OptionGroup options={MAP_STYLE_OPTIONS} value={mapStyle} onChange={setMapStyle} />
     </ScrollView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#fff",
-    padding: 16,
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: "#333",
-    marginTop: 24,
-    marginBottom: 12,
-  },
-  optionGroup: {
-    gap: 8,
-  },
-  option: {
-    minHeight: MIN_TOUCH_TARGET,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 10,
-    backgroundColor: "#F2F2F7",
-    justifyContent: "center",
-  },
-  optionActive: {
-    backgroundColor: "#007AFF",
-  },
-  optionText: {
-    fontSize: 16,
-    color: "#333",
-  },
-  optionTextActive: {
-    color: "#fff",
-    fontWeight: "600",
-  },
-});

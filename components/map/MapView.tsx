@@ -1,5 +1,5 @@
 import React, { useRef, useCallback, useEffect, useState, useMemo } from "react";
-import { StyleSheet, View, useWindowDimensions } from "react-native";
+import { View, useWindowDimensions } from "react-native";
 import Mapbox, {
   Camera,
   UserTrackingMode,
@@ -11,15 +11,20 @@ import { useMapStore } from "@/store/mapStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import { useRouteStore } from "@/store/routeStore";
 import { usePanelStore } from "@/store/panelStore";
+import { useThemeColors } from "@/theme";
 import { MAP_STYLE_URLS } from "@/types";
 import type { RoutePoint } from "@/types";
 import { DEFAULT_ZOOM, BOTTOM_PANEL_HEIGHT_RATIO } from "@/constants";
 import { requestLocationPermission, watchPosition } from "@/services/gps";
 import MapControls from "./MapControls";
 import RouteLayer from "./RouteLayer";
+import POILayer from "./POILayer";
+import POIDetailSheet from "@/components/poi/POIDetailSheet";
+import POIListView from "@/components/poi/POIListView";
 import BottomPanel from "./BottomPanel";
 import { snapToRoute } from "@/services/routeSnapping";
 import { computeBounds } from "@/utils/geo";
+import { usePoiStore } from "@/store/poiStore";
 
 // Initialize Mapbox with access token from app config
 try {
@@ -32,6 +37,7 @@ try {
 }
 
 export default function MapScreen() {
+  const themeColors = useThemeColors();
   const cameraRef = useRef<Camera>(null);
   const mapRef = useRef<MapboxMapView>(null);
   const [hasGpsFix, setHasGpsFix] = useState(false);
@@ -50,6 +56,7 @@ export default function MapScreen() {
   const visibleRoutePoints = useRouteStore((s) => s.visibleRoutePoints);
   const loadRoutes = useRouteStore((s) => s.loadRoutes);
   const setSnappedPosition = useRouteStore((s) => s.setSnappedPosition);
+  const loadPOIs = usePoiStore((s) => s.loadPOIs);
 
   // Active route and its points
   const activeRoute = useMemo(() => routes.find((r) => r.isActive) ?? null, [routes]);
@@ -67,6 +74,13 @@ export default function MapScreen() {
   useEffect(() => {
     loadRoutes();
   }, [loadRoutes]);
+
+  // Load POIs when active route changes
+  useEffect(() => {
+    if (activeRoute) {
+      loadPOIs(activeRoute.id);
+    }
+  }, [activeRoute?.id, loadPOIs]);
 
   // Set initial camera once routes are loaded
   useEffect(() => {
@@ -148,11 +162,23 @@ export default function MapScreen() {
   // Only follow user location after we have a GPS fix
   const shouldFollow = followUser && hasGpsFix;
 
+  const cameraPadding = useMemo(() => ({
+    paddingTop: 0,
+    paddingLeft: 0,
+    paddingRight: 0,
+    paddingBottom: panelOpen ? panelHeight : 0,
+  }), [panelOpen, panelHeight]);
+
+  const pulsingConfig = useMemo(
+    () => ({ isEnabled: true, color: themeColors.accent, radius: 40 }),
+    [themeColors.accent],
+  );
+
   return (
-    <View style={styles.container}>
+    <View className="flex-1">
       <MapboxMapView
         ref={mapRef}
-        style={styles.map}
+        style={{ flex: 1 }}
         styleURL={MAP_STYLE_URLS[mapStyle]}
         compassEnabled={false}
         scaleBarEnabled={false}
@@ -167,12 +193,7 @@ export default function MapScreen() {
           followUserLocation={shouldFollow}
           followUserMode={UserTrackingMode.Follow}
           animationDuration={500}
-          padding={{
-            paddingTop: 0,
-            paddingLeft: 0,
-            paddingRight: 0,
-            paddingBottom: panelOpen ? panelHeight : 0,
-          }}
+          padding={cameraPadding}
         />
         {routes
           .filter((r) => r.isVisible && visibleRoutePoints[r.id])
@@ -183,24 +204,21 @@ export default function MapScreen() {
               points={visibleRoutePoints[route.id]}
             />
           ))}
+        {activeRoute && (
+          <POILayer routeId={activeRoute.id} />
+        )}
         <LocationPuck
           puckBearing="heading"
           puckBearingEnabled
-          pulsing={{ isEnabled: true, color: "#007AFF", radius: 40 }}
+          pulsing={pulsingConfig}
         />
       </MapboxMapView>
 
       <MapControls onCenterUser={handleCenterUser} followUser={followUser} />
       <BottomPanel activeRoutePoints={activeRoutePoints} />
+      <POIDetailSheet />
+      {activeRoute && <POIListView routeId={activeRoute.id} />}
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  map: {
-    flex: 1,
-  },
-});

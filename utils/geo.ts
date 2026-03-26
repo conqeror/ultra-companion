@@ -205,6 +205,107 @@ export function computeSliceAscent(
   return ascent;
 }
 
+// --- Phase 3: POI-to-route association ---
+
+/**
+ * Perpendicular distance from a point to a line segment, using planar
+ * approximation with latitude-corrected longitude. Returns the distance
+ * in meters and the fraction (0–1) along the segment of the closest point.
+ */
+export function pointToSegmentDistance(
+  pLat: number,
+  pLon: number,
+  aLat: number,
+  aLon: number,
+  bLat: number,
+  bLon: number,
+): { distanceMeters: number; fraction: number } {
+  // Convert to approximate meters using local tangent plane
+  const cosLat = Math.cos(toRad((aLat + bLat) / 2));
+  const px = (pLon - aLon) * cosLat;
+  const py = pLat - aLat;
+  const bx = (bLon - aLon) * cosLat;
+  const by = bLat - aLat;
+
+  const segLenSq = bx * bx + by * by;
+  let fraction: number;
+
+  if (segLenSq < 1e-12) {
+    // Degenerate segment (a == b)
+    fraction = 0;
+  } else {
+    fraction = Math.max(0, Math.min(1, (px * bx + py * by) / segLenSq));
+  }
+
+  const projLat = aLat + fraction * (bLat - aLat);
+  const projLon = aLon + fraction * (bLon - aLon);
+
+  return {
+    distanceMeters: haversineDistance(pLat, pLon, projLat, projLon),
+    fraction,
+  };
+}
+
+/**
+ * For a POI at (lat, lon), find the nearest point on the route
+ * and compute both perpendicular distance and distance along route.
+ * Uses segment projection for accuracy.
+ */
+export function computePOIRouteAssociation(
+  poiLat: number,
+  poiLon: number,
+  routePoints: RoutePoint[],
+): {
+  distanceFromRouteMeters: number;
+  distanceAlongRouteMeters: number;
+  nearestIndex: number;
+} {
+  if (routePoints.length === 0) {
+    return { distanceFromRouteMeters: Infinity, distanceAlongRouteMeters: 0, nearestIndex: 0 };
+  }
+
+  if (routePoints.length === 1) {
+    return {
+      distanceFromRouteMeters: haversineDistance(
+        poiLat, poiLon,
+        routePoints[0].latitude, routePoints[0].longitude,
+      ),
+      distanceAlongRouteMeters: routePoints[0].distanceFromStartMeters,
+      nearestIndex: 0,
+    };
+  }
+
+  let bestDist = Infinity;
+  let bestAlongRoute = 0;
+  let bestIndex = 0;
+
+  for (let i = 0; i < routePoints.length - 1; i++) {
+    const a = routePoints[i];
+    const b = routePoints[i + 1];
+
+    const { distanceMeters, fraction } = pointToSegmentDistance(
+      poiLat, poiLon,
+      a.latitude, a.longitude,
+      b.latitude, b.longitude,
+    );
+
+    if (distanceMeters < bestDist) {
+      bestDist = distanceMeters;
+      // Interpolate the along-route distance
+      bestAlongRoute =
+        a.distanceFromStartMeters +
+        fraction * (b.distanceFromStartMeters - a.distanceFromStartMeters);
+      bestIndex = fraction < 0.5 ? i : i + 1;
+    }
+  }
+
+  return {
+    distanceFromRouteMeters: bestDist,
+    distanceAlongRouteMeters: bestAlongRoute,
+    nearestIndex: bestIndex,
+  };
+}
+
 /** Convert route points to GeoJSON LineString for Mapbox */
 export function routeToGeoJSON(points: RoutePoint[]): GeoJSON.Feature<GeoJSON.LineString> {
   return {

@@ -62,6 +62,41 @@ export type PanelMode =
   | "remaining"
   | "full";
 
+// --- Phase 3: POI types ---
+
+export type POICategory =
+  | "water"
+  | "groceries"
+  | "gas_station"
+  | "cafe_restaurant"
+  | "accommodation"
+  | "bike_shop"
+  | "atm"
+  | "pharmacy"
+  | "toilet_shower";
+
+export interface POI {
+  id: string;
+  osmId: string;
+  name: string | null;
+  category: POICategory;
+  latitude: number;
+  longitude: number;
+  tags: Record<string, string>;
+  distanceFromRouteMeters: number;
+  distanceAlongRouteMeters: number;
+  nearestRouteId: string;
+}
+
+export interface POICategoryMeta {
+  key: POICategory;
+  label: string;
+  color: string;
+  iconName: string;
+}
+
+export type POIFetchStatus = "idle" | "fetching" | "done" | "error";
+
 export interface ParsedRoute {
   name: string;
   points: RoutePoint[];
