@@ -152,78 +152,93 @@ See all resources along your route, filter by type, and quickly find what's ahea
 
 ---
 
-## Phase 4: ETA & Offline
+## Phase 4: ETA, POIs on Elevation, Opening Hours & Offline
 
-**Goal:** Know when you'll reach the next resource, and make everything work without internet.
+**Goal:** Answer "where should I stop next?" with terrain-aware ETAs, opening hours, and POIs visible on the elevation profile. Then make everything work in airplane mode.
 
 ### Steps:
 
+#### GPS Rework
+1. **On-demand GPS model** — replace continuous polling with:
+   - Auto-refresh on app focus if last position is >10 min old
+   - Manual "refresh position" button (prominent, always visible on map)
+   - No background polling at all — zero battery cost from GPS
+   - Show position age indicator when stale ("Position from 23 min ago")
+   - Route snapping + ETA recalculation triggered by each position update
+
 #### ETA Calculator (Power-Based)
-1. **Power model physics engine** — implement the cycling power equation:
+2. **Power model physics engine** — implement the cycling power equation:
    - `P = (Crr × m × g × cos(θ) + 0.5 × ρ × CdA × v² + m × g × sin(θ)) × v`
    - Given power + gradient → solve cubic for velocity (Newton's method / bisection)
    - Cap descent speed at configurable max (default 60 km/h)
    - Apply drivetrain efficiency loss
-2. **Segment-based ETA computation** — for each route segment between consecutive points:
+3. **Segment-based ETA computation** — for each route segment between consecutive points:
    - Calculate gradient from elevation delta / distance
    - Solve for predicted speed at configured power
    - Accumulate time = segment distance / predicted speed
-3. **Power model configuration UI** — settings screen for:
+4. **Power model configuration UI** — settings screen for:
    - Power output (W) — primary input
    - Total weight (kg) — rider + bike + gear
    - Advanced toggle: CdA, Crr, max descent speed (with sensible defaults)
-4. **Distance-along-route calculation** — from current snapped position to any POI/route point
 5. **ETA display on POI cards** — show distance, predicted riding time, and ETA for each POI
 6. **ETA in "What's next" bar** — "Next water: 23 km (~1h 12min, ETA 14:35)"
-   - ETA is now terrain-aware: 23 km with a big climb shows longer time than 23 km flat
+
+#### POIs on Elevation Profile
+7. **POI markers on elevation chart** — show category icons at their distance-along-route position on the elevation profile
+   - Both the bottom panel (upcoming elevation) and full route profile views
+   - Tap a POI marker on the profile to open its detail sheet
+   - Respects current category filters
+   - This is the key "what's between here and there" view
+
+#### Opening Hours
+8. **Opening hours parser** — parse OSM `opening_hours` format into structured data
+9. **Open/closed status on POI cards** — prominently show "Open now", "Closes at 20:00", "Closed", "Opens at 07:00"
+   - Color-coded: green for open, red for closed, amber for closing soon
+10. **"Open now" filter** — toggle to hide closed POIs from list and map
+11. **Opening hours on elevation profile POIs** — show open/closed status on profile markers too
 
 #### Offline Support
-7. **Offline tile downloader** — given a route, calculate required tile regions, download tile packs via Mapbox offline API
-8. **Download size estimator** — estimate MB before downloading, show to user
-9. **Download progress UI** — progress bar, cancel, retry
-10. **POI data caching** — mark routes as "offline ready" when POI data is fetched
-11. **Offline state indicator** — show connectivity status, "last synced" for POI data
-12. **Storage management screen** — show space used per route (tiles + POI data), allow cleanup
+12. **Offline tile downloader** — given a route, calculate required tile regions, download tile packs via Mapbox offline API
+13. **Download size estimator** — estimate MB before downloading, show to user
+14. **Download progress UI** — progress bar, cancel, retry
+15. **"Prepare for offline" button** — single action that downloads tiles + ensures POI data is cached for a route
+16. **Offline state indicator** — show connectivity status, "last synced" for POI data
+17. **Storage management screen** — show space used per route (tiles + POI data), allow cleanup
 
 ### Deliverable:
-Full race-ready app. Know your ETAs, and everything works in airplane mode.
+Full race-ready app. Open the app, get your position, see POIs on the elevation profile with ETAs and opening hours, all in airplane mode.
 
 ### Technical notes:
 - Mapbox's `OfflineManager` API handles tile pack downloads natively
 - Tile download for zoom 6–15 in a 10km corridor around a 1000km route ≈ 50–150 MB
-- **Power model math:** solving `P = f(v, θ)` for v is a depressed cubic — Newton's method converges in 3-5 iterations, fast enough to recompute on every GPS update
-- Pre-compute and cache segment speeds for the entire route when power config changes (avoid recalculating on every position update)
-- ETA should update reactively as position changes — just look up remaining segments from the pre-computed table
-- Consider allowing "offline preparation" mode: a single button that downloads tiles + POIs for a route
+- **Power model math:** solving `P = f(v, θ)` for v is a depressed cubic — Newton's method converges in 3-5 iterations
+- Pre-compute and cache segment speeds for the entire route when power config changes
+- ETA recalculates on each manual position refresh — not continuous, so no performance concern
+- Opening hours parsing: use `opening_hours` npm package to evaluate OSM format against current time
 - The power model is pure math on elevation data — no network dependency, works fully offline
 
 ---
 
-## Phase 5: Weather & Polish (Advanced)
+## Phase 5: Weather
 
-**Goal:** Weather integration and UX refinements for race conditions.
+**Goal:** Route-aware weather forecasts — know what's coming at your pace.
 
 ### Steps:
 
-#### Weather
 1. **Open-Meteo API client** — fetch current weather + forecast for coordinates
 2. **Weather at current position** — display temp, wind, precipitation on map screen
 3. **Weather along route** — fetch forecasts at waypoints spaced every ~50km along route
-4. **Weather timeline** — show expected conditions at your estimated positions over next 12/24h
+4. **Weather timeline** — show expected conditions at your estimated positions over next 12/24h (uses ETA calculator from Phase 4 to project where you'll be)
 5. **Wind indicator** — headwind/tailwind/crosswind relative to route bearing
 6. **Weather cache** — store last fetched weather, show "as of X hours ago" when offline
 
-#### Polish
-7. **Dark mode** — full dark theme for night riding
-8. **Performance optimization** — profile and optimize battery usage, reduce GPS polling when stationary
-9. **Route comparison view** — overlay two route alternatives, compare elevation and distance
-10. **Improved elevation profile** — show POIs on the elevation chart
-11. **Export/share** — export current position, share route with others
-12. **Onboarding flow** — first-launch tutorial showing key features
-13. **Crash reporting & error handling** — graceful error recovery, especially for corrupt GPX files
-
 ### Deliverable:
-A polished, weather-aware ultra-cycling companion ready for race day.
+Weather-aware logistics — know if you need rain gear for tonight's mountain pass before you leave the valley.
+
+### Notes:
+- Weather requires connectivity — inherently limited when in airplane mode
+- Cache aggressively: fetch when signal is available, display cached data with "as of" timestamp
+- Dark mode is already implemented via NativeWind — no separate work needed
 
 ---
 
@@ -234,8 +249,8 @@ A polished, weather-aware ultra-cycling companion ready for race day.
 | 1 | Foundation | Map + GPS working |
 | 2 | Routes | Import routes, elevation profile |
 | 3 | POIs | Find resources along route |
-| 4 | ETA + Offline | Race-ready, works without internet |
-| 5 | Weather + Polish | Advanced features, production quality |
+| 4 | ETA + POIs on elevation + opening hours + offline | Race-ready, works in airplane mode |
+| 5 | Weather | Route-aware forecasts when connectivity is available |
 
 ## Estimated Complexity
 
@@ -244,8 +259,8 @@ A polished, weather-aware ultra-cycling companion ready for race day.
 | 1 | Small — mostly setup and integration |
 | 2 | Medium — GPX parsing, chart component, route snapping math |
 | 3 | Medium — Overpass API integration, spatial queries, POI UI |
-| 4 | Large — offline tile management is the biggest technical challenge |
-| 5 | Medium — weather is straightforward, polish is iterative |
+| 4 | Large — power model, POIs on elevation, opening hours, offline tiles |
+| 5 | Small — weather API is straightforward, display is the main work |
 
 ---
 

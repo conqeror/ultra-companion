@@ -2,23 +2,24 @@
 
 ## 1. Vision
 
-A mobile companion app purpose-built for ultra-distance cycling races. It solves the unique navigation, logistics, and planning problems that riders face during multi-day, self-supported events — where connectivity is unreliable, decisions are made under fatigue, and access to basic resources (water, food, shelter) can be critical.
+A mobile logistics companion for ultra-distance cycling races. It solves the resource planning and decision-making problems riders face during multi-day, self-supported events — where connectivity is unreliable, decisions are made under fatigue, and access to basic resources (water, food, shelter) can be critical.
+
+**What this app is:** A logistics planning tool — where to stop, what's available, when does it close, what's the terrain ahead, what's the weather doing.
+
+**What this app is NOT:** A navigation device or GPS tracker. Those are handled by a dedicated bike computer and race-provided tracker. See `docs/usage-context.md` for the full picture.
 
 ## 2. Target Users
 
-### Primary Persona: Ultra-Distance Cyclist
-- Participates in events like Transcontinental Race, Atlas Mountain Race, Silk Road Mountain Race, Indian Pacific Wheel Race, etc.
-- Self-supported — no team car, must find resources independently
-- Rides 200–400+ km/day for multiple consecutive days
-- Operates under severe fatigue and sleep deprivation
-- Needs large, glove-friendly touch targets and high-contrast UI
-- Often in areas with no cell signal for hours or days
-- Battery conservation is a top priority
+### Target User: Ultra-Distance Cyclist
+- Races 1,000–4,000 km solo unsupported (Transcontinental-style events)
+- Rides ~18–19 hours/day, sleeps 4–5 hours, severe fatigue and sleep deprivation
+- Bike computer handles navigation and ride stats; phone is for logistics planning
+- Phone frequently in airplane mode to conserve battery (powerbanks shared with front light)
+- Interacts with phone on aerobar mount while riding — needs glanceable info and large touch targets
+- Often in areas with no cell signal for hours
+- Plans stops around resource availability and opening hours
 
-### Secondary Persona: Bikepacking Enthusiast
-- Multi-day touring on remote routes
-- Similar needs but at a more relaxed pace
-- May have more flexibility in route planning
+See `docs/usage-context.md` for detailed race conditions and decision-making patterns.
 
 ## 3. Core Problems to Solve
 
@@ -26,21 +27,21 @@ A mobile companion app purpose-built for ultra-distance cycling races. It solves
 |---|---------|--------|
 | P1 | Finding resources (water, food, shops) along the route | Critical — running out of water in remote areas is dangerous |
 | P2 | Knowing ETA to the next resource point | Critical — determines pacing and rationing decisions |
-| P3 | Understanding upcoming terrain (elevation profile) | High — affects gear selection, pacing, and morale |
-| P4 | Navigating the correct route | High — wrong turns cost time and energy |
-| P5 | Working without internet connectivity | Critical — most race routes cross remote areas |
-| P6 | Comparing route alternatives | Medium — choosing between options at decision points |
+| P3 | Understanding upcoming terrain (elevation profile) | High — affects pacing, stop planning, and morale |
+| P4 | Knowing what's open and when it closes | High — grocery runs must happen before closing time; gas stations may be the only 24h option |
+| P5 | Working without internet connectivity | Critical — most race routes cross remote areas; phone often in airplane mode |
+| P6 | Seeing POIs in terrain context (on the elevation profile) | High — the core question is "what's between here and there, and how hard is the terrain" |
 | P7 | Understanding weather ahead on the route | Medium — affects clothing, timing, and safety decisions |
 
 ## 4. Feature Specification
 
 ### 4.1 Map Display (MVP)
-- Full-screen map with current GPS position
+- Full-screen map with current position
 - Smooth pan, zoom, and rotation
 - Map style optimized for cycling (show surface types, trails, elevation shading)
-- High-contrast mode for sunlight readability
 - Minimal UI chrome — maximize map area
-- North-up and heading-up orientation modes
+- **On-demand GPS**: position refreshes on app focus (if stale >10 min) or manual tap — no continuous background polling
+- Position indicator shows last-known location with staleness hint when old
 
 ### 4.2 Route Management (MVP)
 - **Import routes** from GPX and KML files
@@ -74,7 +75,10 @@ A mobile companion app purpose-built for ultra-distance cycling races. It solves
   - **Pharmacies**
   - **Toilets / Showers**
 - Show POIs as icons on the map along the route
-- POI detail view: name, type, opening hours (if available), distance from route, distance along route from current position
+- **Show POIs on the elevation profile** — see resources in terrain context (what's between here and there)
+- POI detail view: name, type, distance from route, distance along route from current position
+- **Opening hours prominently displayed**: "Open now", "Closes at 20:00", "Closed" — critical for stop planning
+- **Filter by "open now"** in addition to category filters
 - Filter POIs by category (multi-select)
 - Sort POIs by distance along route from current position
 
@@ -117,11 +121,11 @@ A mobile companion app purpose-built for ultra-distance cycling races. It solves
 
 ## 5. Non-Functional Requirements
 
-### 5.1 Performance
+### 5.1 Performance & Battery
 - App must launch to usable map in < 3 seconds
 - Map interactions must be 60fps
-- Battery usage: target < 5% per hour with GPS tracking active and screen off
-- GPS position updates: configurable 1–10 second intervals
+- **Near-zero GPS battery cost**: no background polling — position acquired on-demand only (app focus or manual refresh)
+- Battery budget assumes the phone shares powerbank capacity with the front light (critical for night riding) — every mAh counts
 
 ### 5.2 Offline-First Architecture
 - All features except weather must work without any network connectivity
@@ -143,21 +147,21 @@ A mobile companion app purpose-built for ultra-distance cycling races. It solves
 
 ## 6. MVP Scope
 
-**In scope (Phase 1):**
-- Map display with GPS tracking
+**In scope:**
+- Map display with on-demand GPS position
 - GPX/KML route import and display
 - Multiple route support
-- Elevation profile
-- POI search along route (offline-capable)
-- ETA calculations
+- Elevation profile with POIs overlaid
+- POI search along route with opening hours (offline-capable)
+- Power-based ETA calculations
 - Offline map tiles and POI data
-- Basic settings (units, speed calculation method)
+- Basic settings (units, power model config)
 
-**Out of scope (Phase 1):**
-- Weather integration
+**Out of scope:**
+- Weather integration (Phase 5 — requires connectivity)
 - Route creation/editing within the app
-- Social features / live tracking
-- Turn-by-turn navigation with voice
+- Turn-by-turn navigation (bike computer handles this)
+- GPS tracking / ride recording (dedicated tracker handles this)
 - Integration with bike computers (ANT+/BLE sensors)
 - Cloud sync between devices
 - User accounts
@@ -166,5 +170,6 @@ A mobile companion app purpose-built for ultra-distance cycling races. It solves
 
 - App is usable for a full multi-day race without requiring connectivity
 - All core information (next resource, ETA, route) accessible within 2 taps
-- Battery drain does not exceed 5%/hour during active GPS use
+- Negligible battery drain — no background GPS, no background processing
 - Route + offline data download completes in < 10 minutes for a 1000km route on WiFi
+- Can answer "where should I stop next?" in under 5 seconds

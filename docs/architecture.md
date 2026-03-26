@@ -53,8 +53,9 @@
 ├──────────┴──────────┴───────────┴───────────────────┤
 │                  Core Services Layer                  │
 ├──────────┬──────────┬───────────┬───────────────────┤
-│  GPS     │  Offline │  GPX/KML  │  Elevation        │
-│  Service │  Manager │  Parser   │  Service          │
+│  GPS     │  Offline │  GPX/KML  │  Opening          │
+│  (on-    │  Manager │  Parser   │  Hours            │
+│  demand) │          │           │  Parser           │
 ├──────────┴──────────┴───────────┴───────────────────┤
 │                  Storage Layer                        │
 ├──────────┬──────────┬───────────────────────────────┤
@@ -107,10 +108,12 @@
 - All computation is pure math on route elevation data — fully offline
 
 #### GPS Service
-- Background location tracking via `expo-location`
-- Configurable update interval (battery vs accuracy tradeoff)
-- Maintains current speed, heading, and position history
-- Feeds into ETA calculator and route-snapping
+- **On-demand positioning** via `expo-location` — no background tracking
+- Position acquired in two cases: (1) app comes to foreground and last position is >10 min old, (2) user taps manual refresh button
+- Single position fix per request — no continuous watch/polling
+- Each position update triggers route snapping and ETA recalculation
+- Shows position age indicator when stale ("23 min ago")
+- Near-zero battery cost from GPS — critical since powerbank is shared with front light
 
 #### Offline Manager
 - Coordinates tile region downloads for loaded routes

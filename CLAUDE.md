@@ -1,11 +1,12 @@
 # Ultra Companion
 
-Mobile app for ultra-distance cycling races. iOS only, personal use.
+Logistics companion app for ultra-distance cycling races. iOS only, personal use. Not a navigation device or GPS tracker — those are handled by dedicated bike computer and race tracker. This app answers: where to stop, what's available, when does it close, what's the terrain, what's the weather.
 
 ## Docs
 
 Detailed specs live in `docs/` — read these before starting any implementation work:
 
+- `docs/usage-context.md` — **read first** — how the app is used during races, decision-making patterns, device setup
 - `docs/product-spec.md` — features, user stories, MVP scope
 - `docs/architecture.md` — stack, data models, offline strategy, project structure
 - `docs/implementation-plan.md` — phased build plan with steps per phase
@@ -25,8 +26,8 @@ Detailed specs live in `docs/` — read these before starting any implementation
 
 ## Key Design Principles
 
-1. **Offline-first** — all core features must work without connectivity
-2. **Battery-efficient** — minimize GPS polling, avoid unnecessary re-renders
+1. **Offline-first** — all core features must work in airplane mode
+2. **Near-zero battery cost** — on-demand GPS only (no background polling), phone shares powerbank with front light
 3. **Fatigue-friendly UI** — minimum 48dp touch targets, high contrast, key info within 1 tap
 4. **Simple over clever** — this is a personal tool, not a product. Ship working features, iterate later.
 
@@ -59,8 +60,8 @@ Detailed specs live in `docs/` — read these before starting any implementation
 - [x] Phase 1: Map + GPS foundation
 - [x] Phase 2: Route import (GPX/KML) + elevation profile
 - [x] Phase 3: POI search along route
-- [ ] Phase 4: Power-based ETA + offline tile/POI downloads
-- [ ] Phase 5: Weather + polish
+- [ ] Phase 4: ETA + POIs on elevation + opening hours + offline
+- [ ] Phase 5: Weather
 
 ## Current Phase
 
