@@ -57,6 +57,73 @@ Import your race route, see it on the map, track your progress along it, and stu
 
 ---
 
+## Phase 2b: Map Screen Bottom Panel — Toggleable Views ✓
+
+**Goal:** Show elevation and progress data directly on the map screen via a toggleable bottom panel, so the rider doesn't need to leave the map during a ride.
+
+### Design
+
+**4 panel modes**, cycled via a single 48dp button (top-right, below center-on-user):
+- **None** — clean map (current behavior)
+- **Upcoming elevation** — next N km elevation profile from current position on active route
+- **Full route profile** — entire active route elevation with current position marker
+- **Route stats** — compact bar: distance remaining, ascent remaining, progress %
+
+**Bottom panel** — overlays the map (no resize), ~25% screen height, white background with rounded top corners. Map camera padding adjusts so user position stays centered in the visible area above the panel.
+
+**Look-ahead presets** (upcoming mode only) — pill buttons inside panel header: 2 / 5 / 10 / 20 km. Persisted in MMKV.
+
+### Steps
+
+1. **Add types and constants** — `PanelMode` type, `BOTTOM_PANEL_HEIGHT_RATIO`, `LOOK_AHEAD_OPTIONS_KM`
+2. **Create panel store** (`store/panelStore.ts`) — Zustand + MMKV: `panelMode`, `lookAheadKm`, `cyclePanelMode()`
+3. **Add `extractRouteSlice()` to `utils/geo.ts`** — slices route points from snapped position forward by N km, re-zeros distances, re-indexes from 0
+4. **Extract `StatBox`** from `app/route/[id].tsx` → `components/common/StatBox.tsx` for reuse
+5. **Create `BottomPanel.tsx`** — panel container with slide animation (reanimated), delegates to child component based on mode
+6. **Add cycle button to `MapControls.tsx`** — below center-on-user button, cycles through panel modes, offsets up when panel visible
+7. **Mount panel in `MapView.tsx`** — render `<BottomPanel />`, add Camera `padding.paddingBottom` when panel is visible
+8. **Create `FullRouteProfile.tsx`** — wraps `ElevationProfile` with full active route points + current position marker
+9. **Add `showLegend` prop to `ElevationProfile.tsx`** — optional, default true; false for compact panel view
+10. **Create `RouteStatsBar.tsx`** — distance remaining, ascent remaining, progress % using `computeElevationProgress()`
+11. **Create `UpcomingElevation.tsx`** — uses `extractRouteSlice()` + `ElevationProfile` with `currentPointIndex=0`, includes look-ahead pill buttons
+
+### Key algorithm: Route slice
+
+```
+extractRouteSlice(points, startIndex, maxDistanceM):
+  1. startDist = points[startIndex].distanceFromStartMeters
+  2. endDist = startDist + maxDistanceM
+  3. Scan forward from startIndex until point.distanceFromStartMeters >= endDist
+  4. Slice array, re-zero distances (subtract startDist), re-index from 0
+  5. Return new RoutePoint[] — ElevationProfile renders with currentPointIndex=0
+```
+
+### Panel ↔ Map interaction
+
+- Panel is `position: absolute, bottom: 0` — map stays full screen underneath (resizing Mapbox causes expensive re-renders)
+- When panel visible, Mapbox Camera `padding={{ paddingBottom: panelHeight }}` centers user position in visible area
+- Cycle button offsets upward when panel is open
+
+### Edge cases
+
+- No active route → panel shows "Import and activate a route"
+- Not snapped to route (>500m away) → upcoming/stats show "Ride closer to your route"
+- Remaining route < look-ahead distance → show whatever is left
+- App restart → panel mode and look-ahead persisted in MMKV
+
+### New files
+
+| File | Purpose |
+|------|---------|
+| `store/panelStore.ts` | Panel mode + look-ahead state (MMKV-backed) |
+| `components/map/BottomPanel.tsx` | Panel container with slide animation |
+| `components/map/UpcomingElevation.tsx` | Upcoming N km elevation + look-ahead pills |
+| `components/map/FullRouteProfile.tsx` | Full route elevation wrapper |
+| `components/map/RouteStatsBar.tsx` | Distance/ascent remaining, progress % |
+| `components/common/StatBox.tsx` | Extracted stat box for reuse |
+
+---
+
 ## Phase 3: POI Search
 
 **Goal:** Find resources along your route — water, food, shops, gas stations.

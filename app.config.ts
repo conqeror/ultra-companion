@@ -40,6 +40,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
           "Ultra Companion uses background location to track your position during ultra-distance rides.",
       },
     ],
+    "expo-sqlite",
   ],
   experiments: {
     typedRoutes: true,
