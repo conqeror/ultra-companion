@@ -10,6 +10,7 @@ import { usePoiStore } from "@/store/poiStore";
 import { useRouteStore } from "@/store/routeStore";
 import { BOTTOM_PANEL_HEIGHT_RATIO } from "@/constants";
 import PositionAgeIndicator from "./PositionAgeIndicator";
+import ConnectivityIndicator from "./ConnectivityIndicator";
 import type { PanelMode } from "@/types";
 
 interface MapControlsProps {
@@ -112,6 +113,7 @@ export default function MapControls({
         </TouchableOpacity>
 
         <PositionAgeIndicator />
+        <ConnectivityIndicator />
       </View>
 
       {/* POI list button — bottom-left, above panel/tab bar */}

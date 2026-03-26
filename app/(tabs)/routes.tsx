@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
 import { useRouteStore } from "@/store/routeStore";
 import { useSettingsStore } from "@/store/settingsStore";
+import { useOfflineStore } from "@/store/offlineStore";
 import { formatDistance, formatElevation } from "@/utils/formatters";
 import { useThemeColors } from "@/theme";
 import type { Route } from "@/types";
@@ -35,6 +36,7 @@ export default function RoutesScreen() {
   } = useRouteStore();
 
   const units = useSettingsStore((s) => s.units);
+  const isRouteOfflineReady = useOfflineStore((s) => s.isRouteOfflineReady);
 
   useEffect(() => {
     loadRoutes();
@@ -82,6 +84,7 @@ export default function RoutesScreen() {
               {route.name}
             </Text>
             {route.isActive && <Badge label="Active" className="ml-2" />}
+            {isRouteOfflineReady(route.id) && <Badge label="Offline" variant="outline" className="ml-2" />}
           </View>
 
           <View className="flex-row items-center mb-3">
@@ -138,7 +141,7 @@ export default function RoutesScreen() {
         </Card>
       </TouchableOpacity>
     ),
-    [units, router, setActiveRoute, toggleVisibility, handleDelete, borderColor],
+    [units, router, setActiveRoute, toggleVisibility, handleDelete, borderColor, isRouteOfflineReady],
   );
 
   return (

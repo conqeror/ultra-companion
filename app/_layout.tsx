@@ -4,6 +4,7 @@ import { useFonts } from "expo-font";
 import { useEffect } from "react";
 import "react-native-reanimated";
 import "../global.css";
+import { useOfflineStore } from "@/store/offlineStore";
 
 export { ErrorBoundary } from "expo-router";
 
@@ -28,6 +29,13 @@ export default function RootLayout() {
       SplashScreen.hideAsync();
     }
   }, [fontsLoaded, fontError]);
+
+  // Initialize connectivity listener and reconcile offline pack statuses
+  useEffect(() => {
+    const unsubscribe = useOfflineStore.getState().initConnectivityListener();
+    useOfflineStore.getState().refreshAllStatuses();
+    return unsubscribe;
+  }, []);
 
   if (!fontsLoaded && !fontError) {
     return null;

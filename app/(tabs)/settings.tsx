@@ -8,6 +8,7 @@ import { useSettingsStore } from "@/store/settingsStore";
 import { useEtaStore } from "@/store/etaStore";
 import { solveVelocity } from "@/services/powerModel";
 import type { UnitSystem, MapStyle } from "@/types";
+import StorageSection from "@/components/offline/StorageSection";
 
 const UNIT_OPTIONS: { value: UnitSystem; label: string }[] = [
   { value: "metric", label: "Metric (km)" },
@@ -194,6 +195,8 @@ export default function SettingsScreen() {
           />
         </View>
       )}
+
+      <StorageSection />
 
       {/* Bottom spacer */}
       <View className="h-12" />

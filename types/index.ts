@@ -131,3 +131,17 @@ export interface ParsedRoute {
   totalAscentMeters: number;
   totalDescentMeters: number;
 }
+
+// --- Phase 4b: Offline ---
+
+export type OfflinePackStatus = "idle" | "downloading" | "complete" | "error";
+
+export interface OfflineRouteInfo {
+  status: OfflinePackStatus;
+  percentage: number;
+  downloadedBytes: number;
+  estimatedBytes: number;
+  mapStyle: MapStyle | null;
+  downloadedAt: string | null;
+  error: string | null;
+}

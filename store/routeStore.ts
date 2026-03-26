@@ -113,6 +113,9 @@ export const useRouteStore = create<RouteState>((set, get) => ({
 
   deleteRoute: async (id) => {
     try {
+      // Clean up offline tile data
+      const { useOfflineStore } = await import("@/store/offlineStore");
+      await useOfflineStore.getState().deleteOfflineData(id);
       await dbDeleteRoute(id);
       await get().loadRoutes();
     } catch (e: any) {

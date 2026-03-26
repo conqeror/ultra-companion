@@ -63,9 +63,7 @@ export async function fetchAndStorePOIs(
     });
   }
 
-  // 4. Elevation filter: discard POIs too far above/below the route
-  onProgress?.("Checking elevations", 0, 1);
-  const pois = await filterByElevation(candidates, routePoints);
+  const pois = candidates.map((c) => c.poi);
 
   // 5. Store: delete old, insert new
   onProgress?.("Storing", 0, 1);

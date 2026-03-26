@@ -26,6 +26,7 @@ import {
 import ElevationProfile from "@/components/elevation/ElevationProfile";
 import RouteLayer from "@/components/map/RouteLayer";
 import StatBox from "@/components/common/StatBox";
+import OfflineSection from "@/components/offline/OfflineSection";
 
 export default function RouteDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -258,6 +259,9 @@ export default function RouteDetailScreen() {
             {poiCount} POIs found along route
           </Text>
         )}
+
+        {/* Offline */}
+        <OfflineSection routeId={id!} points={route.points} />
 
         {/* Progress (if snapped) */}
         {currentPointIndex != null && elevProgress && (

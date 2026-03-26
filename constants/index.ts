@@ -91,3 +91,12 @@ export const DEFAULT_POWER_CONFIG: PowerModelConfig = {
   maxDescentSpeedKmh: 60,
   drivetrainEfficiency: 0.97,
 };
+
+// --- Phase 4b: Offline ---
+
+/** Offline tile download: zoom range */
+export const OFFLINE_MIN_ZOOM = 10;
+export const OFFLINE_MAX_ZOOM = 14;
+
+/** Pack name prefix for Mapbox offline tile regions */
+export const OFFLINE_PACK_PREFIX = "ultra-route-";
