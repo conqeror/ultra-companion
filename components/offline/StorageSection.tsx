@@ -100,7 +100,7 @@ export default function StorageSection() {
                     {info?.mapStyle ? ` · ${MAP_STYLE_LABELS[info.mapStyle] ?? info.mapStyle}` : ""}
                   </Text>
                   <TouchableOpacity
-                    className="min-h-[44px] justify-center"
+                    className="min-h-[48px] justify-center"
                     onPress={() => handleDeleteRoute(route.id, route.name)}
                     hitSlop={8}
                   >

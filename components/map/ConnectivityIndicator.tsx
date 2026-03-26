@@ -12,9 +12,9 @@ export default function ConnectivityIndicator() {
   if (isConnected) return null;
 
   return (
-    <View className="flex-row items-center bg-card/95 border border-border-subtle rounded-full px-3 py-1.5 mt-3 shadow-sm">
+    <View className="flex-row items-center bg-card/95 border border-border-subtle rounded-full px-3 py-1 mt-3 shadow-sm">
       <WifiOff size={14} color={colors.warning} />
-      <Text className="text-[12px] font-barlow-medium text-warning ml-1.5">
+      <Text className="text-[12px] font-barlow-medium text-warning ml-1">
         Offline
       </Text>
     </View>
