@@ -26,7 +26,7 @@ export const COLORS = {
     border: "#2A2924",
     borderSubtle: "#1C1B18",
     accent: "#14B8A6",
-    accentForeground: "#FFFFFF",
+    accentForeground: "#0E0E0C",
     accentSubtle: "#14B8A61A",
     positive: "#22C55E",
     warning: "#FBBF24",

@@ -41,15 +41,15 @@
     --popover: 45 8% 10%;
     --popover-foreground: 37 21% 93%;
     --primary: 173 80% 40%;
-    --primary-foreground: 0 0% 100%;
+    --primary-foreground: 60 8% 5%;
     --secondary: 50 8% 15%;
     --secondary-foreground: 37 21% 93%;
     --muted: 50 8% 15%;
     --muted-foreground: 30 7% 58%;
     --accent: 173 80% 40%;
-    --accent-foreground: 0 0% 100%;
+    --accent-foreground: 60 8% 5%;
     --destructive: 0 84% 60%;
-    --destructive-foreground: 0 0% 100%;
+    --destructive-foreground: 60 8% 5%;
     --border: 50 8% 15%;
     --input: 50 8% 15%;
     --ring: 173 80% 40%;
