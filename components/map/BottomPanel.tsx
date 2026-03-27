@@ -21,7 +21,7 @@ import WeatherPanel from "./WeatherPanel";
 import type { RoutePoint, PanelMode, POI } from "@/types";
 
 const MAX_SNAP_DISTANCE_M = 500;
-const PANEL_CLASS = "absolute bottom-0 left-0 right-0 bg-surface rounded-t-2xl shadow-lg overflow-hidden";
+const PANEL_CLASS = "absolute bottom-0 left-0 right-0 rounded-t-2xl shadow-lg overflow-hidden";
 const STATS_ROW_HEIGHT = 28;
 const WHATS_NEXT_ROW_HEIGHT = 48;
 
@@ -151,7 +151,7 @@ export default function BottomPanel({ activeRoutePoints }: BottomPanelProps) {
     return (
       <Animated.View
         className={PANEL_CLASS}
-        style={[{ height: panelHeight }, animatedStyle]}
+        style={[{ height: panelHeight, backgroundColor: colors.surface }, animatedStyle]}
       >
         <View className="flex-1 items-center justify-center">
           <Text className="text-[15px] text-muted-foreground">
@@ -167,7 +167,7 @@ export default function BottomPanel({ activeRoutePoints }: BottomPanelProps) {
     return (
       <Animated.View
         className={PANEL_CLASS}
-        style={[{ height: panelHeight }, animatedStyle]}
+        style={[{ height: panelHeight, backgroundColor: colors.surface }, animatedStyle]}
       >
         <WeatherPanel height={panelHeight} />
       </Animated.View>
@@ -179,7 +179,7 @@ export default function BottomPanel({ activeRoutePoints }: BottomPanelProps) {
     return (
       <Animated.View
         className={PANEL_CLASS}
-        style={[{ height: panelHeight }, animatedStyle]}
+        style={[{ height: panelHeight, backgroundColor: colors.surface }, animatedStyle]}
       >
         <View className="flex-1 items-center justify-center">
           <Text className="text-[15px] text-muted-foreground">
@@ -201,7 +201,7 @@ export default function BottomPanel({ activeRoutePoints }: BottomPanelProps) {
   return (
     <Animated.View
       className={PANEL_CLASS}
-      style={[{ height: panelHeight }, animatedStyle]}
+      style={[{ height: panelHeight, backgroundColor: colors.surface }, animatedStyle]}
     >
       {showStats && (
         <View

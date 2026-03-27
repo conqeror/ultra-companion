@@ -12,6 +12,7 @@ import { useSettingsStore } from "@/store/settingsStore";
 import { useRouteStore } from "@/store/routeStore";
 import { usePanelStore } from "@/store/panelStore";
 import { useThemeColors } from "@/theme";
+import { useColorScheme } from "nativewind";
 import { MAP_STYLE_URLS } from "@/types";
 import type { RoutePoint } from "@/types";
 import { DEFAULT_ZOOM, BOTTOM_PANEL_HEIGHT_RATIO, GPS_STALE_THRESHOLD_MS } from "@/constants";
@@ -40,6 +41,7 @@ try {
 
 export default function MapScreen() {
   const themeColors = useThemeColors();
+  const { colorScheme } = useColorScheme();
   const cameraRef = useRef<Camera>(null);
   const mapRef = useRef<MapboxMapView>(null);
   const [hasGpsFix, setHasGpsFix] = useState(false);
@@ -217,7 +219,7 @@ export default function MapScreen() {
       <MapboxMapView
         ref={mapRef}
         style={{ flex: 1 }}
-        styleURL={MAP_STYLE_URLS[mapStyle]}
+        styleURL={MAP_STYLE_URLS[mapStyle][colorScheme ?? "light"]}
         compassEnabled={false}
         scaleBarEnabled={false}
         rotateEnabled={false}

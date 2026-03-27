@@ -64,7 +64,7 @@ export async function downloadRouteTiles(
   onError: (error: string) => void,
 ): Promise<void> {
   const id = packId(routeId);
-  const styleURL = MAP_STYLE_URLS[mapStyle];
+  const styleURL = MAP_STYLE_URLS[mapStyle].light;
   const coords = downsampleCoords(points);
 
   if (coords.length < 2) {

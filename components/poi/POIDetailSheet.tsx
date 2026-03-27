@@ -130,8 +130,8 @@ export default function POIDetailSheet() {
 
   return (
     <Animated.View
-      className="absolute bottom-0 left-0 right-0 bg-surface rounded-t-2xl shadow-lg z-20"
-      style={[{ maxHeight: "45%" }, animatedStyle]}
+      className="absolute bottom-0 left-0 right-0 rounded-t-2xl shadow-lg z-20"
+      style={[{ maxHeight: "45%", backgroundColor: colors.surface }, animatedStyle]}
     >
       {/* Header */}
       <View className="flex-row items-start px-4 pt-4 pb-2">

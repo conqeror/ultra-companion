@@ -90,8 +90,8 @@ export default function POIListView({ routeId }: POIListViewProps) {
 
   return (
     <Animated.View
-      className="absolute inset-0 bg-background z-30"
-      style={[{ top: 48 }, animatedStyle]}
+      className="absolute inset-0 z-30"
+      style={[{ top: 48, backgroundColor: colors.background }, animatedStyle]}
     >
       {/* Header */}
       <View className="flex-row items-center px-4 py-3 border-b border-border">

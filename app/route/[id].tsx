@@ -11,6 +11,7 @@ import { Camera, MapView as MapboxMapView } from "@rnmapbox/maps";
 import { Text } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
 import { useThemeColors } from "@/theme";
+import { useColorScheme } from "nativewind";
 import { useRouteStore } from "@/store/routeStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import { usePoiStore } from "@/store/poiStore";
@@ -33,6 +34,7 @@ export default function RouteDetailScreen() {
   const { width: screenWidth } = useWindowDimensions();
   const cameraRef = useRef<Camera>(null);
   const colors = useThemeColors();
+  const { colorScheme } = useColorScheme();
 
   const [route, setRoute] = useState<RouteWithPoints | null>(null);
   const [loading, setLoading] = useState(true);
@@ -128,7 +130,7 @@ export default function RouteDetailScreen() {
         <View className="h-[250px] mx-4 mt-4 rounded-xl overflow-hidden">
           <MapboxMapView
             style={{ flex: 1 }}
-            styleURL={MAP_STYLE_URLS[mapStyle]}
+            styleURL={MAP_STYLE_URLS[mapStyle][colorScheme ?? "light"]}
             compassEnabled={false}
             scaleBarEnabled={false}
             rotateEnabled={false}

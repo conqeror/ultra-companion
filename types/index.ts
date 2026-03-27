@@ -11,10 +11,19 @@ export type UnitSystem = "metric" | "imperial";
 
 export type MapStyle = "streets" | "outdoors" | "satellite";
 
-export const MAP_STYLE_URLS: Record<MapStyle, string> = {
-  streets: "mapbox://styles/mapbox/streets-v12",
-  outdoors: "mapbox://styles/mapbox/outdoors-v12",
-  satellite: "mapbox://styles/mapbox/satellite-streets-v12",
+export const MAP_STYLE_URLS: Record<MapStyle, { light: string; dark: string }> = {
+  streets: {
+    light: "mapbox://styles/mapbox/streets-v12",
+    dark: "mapbox://styles/mapbox/dark-v11",
+  },
+  outdoors: {
+    light: "mapbox://styles/mapbox/outdoors-v12",
+    dark: "mapbox://styles/mapbox/dark-v11",
+  },
+  satellite: {
+    light: "mapbox://styles/mapbox/satellite-streets-v12",
+    dark: "mapbox://styles/mapbox/satellite-streets-v12",
+  },
 };
 
 // --- Phase 2: Route types ---
