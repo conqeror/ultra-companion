@@ -14,6 +14,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     backgroundColor: "#0E0E0C",
   },
   android: {
+    package: "com.ultra.companion",
     adaptiveIcon: {
       foregroundImage: "./assets/images/android-icon-foreground.png",
       backgroundImage: "./assets/images/android-icon-background.png",
@@ -54,5 +55,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   extra: {
     mapboxAccessToken: process.env.MAPBOX_ACCESS_TOKEN,
+    eas: {
+      projectId: "cf1ced74-65cd-43ab-8521-6a76eea57adf",
+    },
   },
 });
