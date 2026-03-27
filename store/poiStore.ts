@@ -33,11 +33,12 @@ function parseStarredIds(raw: string | undefined): Set<string> {
 }
 
 function parseCategories(raw: string | undefined): POICategory[] {
-  if (!raw) return POI_CATEGORIES.map((c) => c.key);
+  if (!raw) return [];
   try {
-    return JSON.parse(raw) as POICategory[];
+    const valid = new Set<string>(POI_CATEGORIES.map((c) => c.key));
+    return (JSON.parse(raw) as string[]).filter((c) => valid.has(c)) as POICategory[];
   } catch {
-    return POI_CATEGORIES.map((c) => c.key);
+    return [];
   }
 }
 
@@ -204,6 +205,8 @@ export const usePoiStore = create<POIState>((set, get) => ({
     if (!all) return [];
     const enabled = new Set(state.enabledCategories);
     return all.filter((p) => {
+      // Always show starred POIs
+      if (state.starredPOIIds.has(p.id)) return true;
       if (!enabled.has(p.category)) return false;
       if (state.showOpenOnly && p.tags?.opening_hours) {
         const status = getOpeningHoursStatus(p.tags.opening_hours);

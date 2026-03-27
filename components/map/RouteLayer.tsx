@@ -2,6 +2,7 @@ import React, { useMemo } from "react";
 import { ShapeSource, LineLayer } from "@rnmapbox/maps";
 import { routeToGeoJSON } from "@/utils/geo";
 import { useThemeColors } from "@/theme";
+import { ACTIVE_ROUTE_COLOR, INACTIVE_ROUTE_COLOR } from "@/constants";
 import type { Route, RoutePoint } from "@/types";
 
 interface RouteLayerProps {
@@ -22,12 +23,12 @@ export default function RouteLayer({ route, points }: RouteLayerProps) {
   }), [colors.surface, route.isActive]);
 
   const lineStyle = useMemo(() => ({
-    lineColor: route.color,
+    lineColor: route.isActive ? ACTIVE_ROUTE_COLOR : INACTIVE_ROUTE_COLOR,
     lineWidth: 4,
     lineOpacity: route.isActive ? 1 : 0.6,
     lineCap: "round" as const,
     lineJoin: "round" as const,
-  }), [route.color, route.isActive]);
+  }), [route.isActive]);
 
   if (points.length < 2) return null;
 

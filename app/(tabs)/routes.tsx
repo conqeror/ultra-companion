@@ -16,6 +16,7 @@ import { cn } from "@/lib/cn";
 import { useRouteStore } from "@/store/routeStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import { useOfflineStore } from "@/store/offlineStore";
+import { ACTIVE_ROUTE_COLOR, INACTIVE_ROUTE_COLOR } from "@/constants";
 import { formatDistance, formatElevation } from "@/utils/formatters";
 import { useThemeColors } from "@/theme";
 import type { Route } from "@/types";
@@ -78,7 +79,7 @@ export default function RoutesScreen() {
           <View className="flex-row items-center mb-2">
             <View
               className="w-3 h-3 rounded-full mr-3"
-              style={{ backgroundColor: route.color }}
+              style={{ backgroundColor: route.isActive ? ACTIVE_ROUTE_COLOR : INACTIVE_ROUTE_COLOR }}
             />
             <Text className="flex-1 text-[17px] font-barlow-semibold text-foreground" numberOfLines={1}>
               {route.name}

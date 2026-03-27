@@ -6,7 +6,6 @@ import { useThemeColors } from "@/theme";
 import { useOfflineStore } from "@/store/offlineStore";
 import { useRouteStore } from "@/store/routeStore";
 import { formatFileSize } from "@/utils/formatters";
-import { MAP_STYLE_LABELS } from "@/constants";
 
 export default function StorageSection() {
   const colors = useThemeColors();
@@ -88,7 +87,7 @@ export default function StorageSection() {
                 <View className="flex-row items-center flex-1 mr-3">
                   <View
                     className="w-3 h-3 rounded-full mr-2"
-                    style={{ backgroundColor: route.color }}
+                    style={{ backgroundColor: route.isActive ? "#E63946" : "#94A3B8" }}
                   />
                   <Text className="text-[15px] font-barlow text-foreground flex-1" numberOfLines={1}>
                     {route.name}
@@ -97,7 +96,6 @@ export default function StorageSection() {
                 <View className="flex-row items-center gap-3">
                   <Text className="text-[13px] font-barlow-sc-medium text-muted-foreground">
                     {info ? formatFileSize(info.downloadedBytes) : ""}
-                    {info?.mapStyle ? ` · ${MAP_STYLE_LABELS[info.mapStyle] ?? info.mapStyle}` : ""}
                   </Text>
                   <TouchableOpacity
                     className="min-h-[48px] justify-center"

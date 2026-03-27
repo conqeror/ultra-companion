@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { View } from "react-native";
 import { Text } from "@/components/ui/text";
 import { useMapStore } from "@/store/mapStore";
 import { useThemeColors } from "@/theme";
@@ -29,11 +30,13 @@ export default function PositionAgeIndicator() {
   const isStale = Date.now() - userPosition.timestamp >= GPS_STALE_THRESHOLD_MS;
 
   return (
-    <Text
-      className="text-[11px] font-barlow-medium text-center mt-1"
-      style={{ color: isStale ? colors.warning : colors.textSecondary }}
-    >
-      {formatTimeAgo(userPosition.timestamp)}
-    </Text>
+    <View className="mt-2 px-2 py-1 rounded-lg bg-card/95 border border-border-subtle">
+      <Text
+        className="text-[11px] font-barlow-medium text-center"
+        style={{ color: isStale ? colors.warning : colors.textSecondary }}
+      >
+        {formatTimeAgo(userPosition.timestamp)}
+      </Text>
+    </View>
   );
 }

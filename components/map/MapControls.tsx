@@ -18,6 +18,8 @@ interface MapControlsProps {
   followUser: boolean;
   onRefreshPosition: () => void;
   isRefreshing: boolean;
+  showWeather: boolean;
+  onToggleWeather: () => void;
 }
 
 function PanelIcon({ mode, color }: { mode: PanelMode; color: string }) {
@@ -34,8 +36,6 @@ function PanelIcon({ mode, color }: { mode: PanelMode; color: string }) {
       return <ArrowRightFromLine size={22} color={color} />;
     case "full":
       return <MoveHorizontal size={20} color={color} />;
-    case "weather":
-      return <CloudSun size={22} color={color} />;
   }
 }
 
@@ -64,6 +64,8 @@ export default function MapControls({
   followUser,
   onRefreshPosition,
   isRefreshing,
+  showWeather,
+  onToggleWeather,
 }: MapControlsProps) {
   const colors = useThemeColors();
   const panelMode = usePanelStore((s) => s.panelMode);
@@ -112,6 +114,17 @@ export default function MapControls({
           ) : (
             <RefreshCw size={22} color={colors.textPrimary} />
           )}
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          className={cn(
+            "w-[52px] h-[52px] rounded-xl items-center justify-center shadow-md mt-3",
+            showWeather ? "bg-primary" : "bg-card/95 border border-border-subtle",
+          )}
+          onPress={onToggleWeather}
+          accessibilityLabel="Toggle weather"
+        >
+          <CloudSun size={22} color={showWeather ? colors.accentForeground : colors.textPrimary} />
         </TouchableOpacity>
 
         <PositionAgeIndicator />

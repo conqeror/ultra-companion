@@ -17,6 +17,11 @@ Dump for future feature ideas, UX improvements, and things to consider later.
 - Route stitching — merge multiple child routes into one continuous route with seamless stats and elevation profile
 - Drag-to-reorder routes to define riding sequence
 
+## Map
+
+- **Dark outdoor style** — use Mapbox runtime style API to programmatically darken the outdoor-v12 base map (dim base layers, adjust label colors) so dark mode keeps contour/terrain detail instead of falling back to generic dark-v11
+- Booking.com integration — pull accommodation availability/prices for POIs along the route (low priority)
+
 ## Planning
 
 - Sleep planner — suggest optimal sleep stops based on route profile, accommodation POIs, and target daily distance (needs research on what inputs/heuristics make sense)

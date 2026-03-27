@@ -17,16 +17,15 @@ import { computeElevationProgress, computeSliceAscent } from "@/utils/geo";
 import { formatDistance, formatElevation, formatDuration, formatETA } from "@/utils/formatters";
 import UpcomingElevation from "./UpcomingElevation";
 import ElevationProfile from "@/components/elevation/ElevationProfile";
-import WeatherPanel from "./WeatherPanel";
 import type { RoutePoint, PanelMode, POI } from "@/types";
 
-const MAX_SNAP_DISTANCE_M = 500;
+const MAX_SNAP_DISTANCE_M = 1000;
 const PANEL_CLASS = "absolute bottom-0 left-0 right-0 rounded-t-2xl shadow-lg overflow-hidden";
 const STATS_ROW_HEIGHT = 28;
 const WHATS_NEXT_ROW_HEIGHT = 48;
 
 /** Priority categories for "What's Next" display */
-const WHATS_NEXT_CATEGORIES = ["water", "groceries", "cafe_restaurant", "accommodation"] as const;
+const WHATS_NEXT_CATEGORIES = ["water", "groceries"] as const;
 
 /** Extract the numeric look-ahead in meters from an upcoming-* mode, or null */
 function lookAheadForMode(mode: PanelMode): number | "remaining" | null {
@@ -142,7 +141,6 @@ export default function BottomPanel({ activeRoutePoints }: BottomPanelProps) {
 
   if (!isVisible) return null;
 
-  const isWeatherMode = panelMode === "weather";
   const lookAhead = lookAheadForMode(panelMode);
   const isElevationMode = lookAhead !== null;
 
@@ -162,33 +160,8 @@ export default function BottomPanel({ activeRoutePoints }: BottomPanelProps) {
     );
   }
 
-  // Weather mode: render directly without needing snap
-  if (isWeatherMode) {
-    return (
-      <Animated.View
-        className={PANEL_CLASS}
-        style={[{ height: panelHeight, backgroundColor: colors.surface }, animatedStyle]}
-      >
-        <WeatherPanel height={panelHeight} />
-      </Animated.View>
-    );
-  }
-
-  // Edge case: not snapped but elevation mode requires it
-  if (isElevationMode && !isSnapped) {
-    return (
-      <Animated.View
-        className={PANEL_CLASS}
-        style={[{ height: panelHeight, backgroundColor: colors.surface }, animatedStyle]}
-      >
-        <View className="flex-1 items-center justify-center">
-          <Text className="text-[15px] text-muted-foreground">
-            Ride closer to your route
-          </Text>
-        </View>
-      </Animated.View>
-    );
-  }
+  // When not snapped, default to route start (index 0)
+  const effectivePointIndex = isSnapped ? snappedPosition!.pointIndex : 0;
 
   const showStats = !!statsText;
   const showWhatsNext = whatsNextItems.length > 0;
@@ -245,10 +218,10 @@ export default function BottomPanel({ activeRoutePoints }: BottomPanelProps) {
           ))}
         </View>
       )}
-      {isElevationMode && isSnapped && (
+      {isElevationMode && (
         <UpcomingElevation
           points={activeRoutePoints}
-          currentPointIndex={snappedPosition!.pointIndex}
+          currentPointIndex={effectivePointIndex}
           lookAhead={lookAhead}
           units={units}
           width={chartWidth}
@@ -263,7 +236,7 @@ export default function BottomPanel({ activeRoutePoints }: BottomPanelProps) {
           units={units}
           width={chartWidth}
           height={chartHeight}
-          currentPointIndex={isSnapped ? snappedPosition!.pointIndex : undefined}
+          currentPointIndex={effectivePointIndex}
           showLegend={false}
           pois={poisForChart}
           onPOIPress={setSelectedPOI}

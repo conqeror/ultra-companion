@@ -26,6 +26,7 @@ export default function POIListView({ routeId }: POIListViewProps) {
   const setSelectedPOI = usePoiStore((s) => s.setSelectedPOI);
   const getVisiblePOIs = usePoiStore((s) => s.getVisiblePOIs);
   const enabledCategories = usePoiStore((s) => s.enabledCategories);
+  const starredPOIIds = usePoiStore((s) => s.starredPOIIds);
   const pois = usePoiStore((s) => s.pois[routeId]);
   const snappedPosition = useRouteStore((s) => s.snappedPosition);
 
@@ -34,7 +35,7 @@ export default function POIListView({ routeId }: POIListViewProps) {
   const visiblePOIs = useMemo(
     () => getVisiblePOIs(routeId),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [routeId, pois, enabledCategories],
+    [routeId, pois, enabledCategories, starredPOIIds],
   );
 
   // Filter to ahead + 1km behind, sort by distance along route (upcoming first)

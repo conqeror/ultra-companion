@@ -1,7 +1,7 @@
 import { findNearestPointOnRoute } from "@/utils/geo";
 import type { RoutePoint, SnappedPosition } from "@/types";
 
-const MAX_SNAP_DISTANCE_M = 500; // Don't snap if >500m from route
+const MAX_SNAP_DISTANCE_M = 1000; // Don't snap if >1km from route
 
 export function snapToRoute(
   lat: number,

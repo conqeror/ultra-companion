@@ -5,8 +5,8 @@ import {
   getAllTileRegions,
   addProgressListener,
 } from "@/modules/offline-tiles";
-import type { RoutePoint, MapStyle } from "@/types";
-import { MAP_STYLE_URLS } from "@/types";
+import type { RoutePoint } from "@/types";
+import { MAP_STYLE_URL } from "@/types";
 import {
   OFFLINE_MIN_ZOOM,
   OFFLINE_MAX_ZOOM,
@@ -58,13 +58,12 @@ export function estimateDownloadSize(points: RoutePoint[]): number {
 export async function downloadRouteTiles(
   routeId: string,
   points: RoutePoint[],
-  mapStyle: MapStyle,
   onProgress: (percentage: number, completedBytes: number) => void,
   onComplete: () => void,
   onError: (error: string) => void,
 ): Promise<void> {
   const id = packId(routeId);
-  const styleURL = MAP_STYLE_URLS[mapStyle].light;
+  const styleURL = MAP_STYLE_URL;
   const coords = downsampleCoords(points);
 
   if (coords.length < 2) {

@@ -4,7 +4,7 @@ import { Text } from "@/components/ui/text";
 import {
   Sun, CloudSun, Cloud, CloudFog, CloudDrizzle, CloudRain,
   CloudRainWind, CloudSnow, Snowflake, CloudLightning,
-  Wind, ArrowUp,
+  Wind, ArrowUp, Droplets,
 } from "lucide-react-native";
 import { useThemeColors } from "@/theme";
 import { useWeatherStore } from "@/store/weatherStore";
@@ -84,6 +84,15 @@ const WeatherCell = React.memo(function WeatherCell({ point, colors }: WeatherCe
         {formatTemp(point.temperatureC)}
       </Text>
 
+      {point.precipitationMm > 0 && (
+        <View className="flex-row items-center mt-1">
+          <Droplets size={10} color={colors.accent} />
+          <Text className="text-[11px] font-barlow-sc-medium ml-0.5" style={{ color: colors.accent }}>
+            {point.precipitationMm.toFixed(1)}
+          </Text>
+        </View>
+      )}
+
       <View className="flex-row items-center mt-1">
         <View style={{ transform: [{ rotate: `${rotation}deg` }] }}>
           <ArrowUp size={12} color={wColor} />
@@ -96,11 +105,7 @@ const WeatherCell = React.memo(function WeatherCell({ point, colors }: WeatherCe
   );
 });
 
-interface WeatherPanelProps {
-  height: number;
-}
-
-export default function WeatherPanel({ height }: WeatherPanelProps) {
+export default function WeatherPanel() {
   const colors = useThemeColors();
   const timeline = useWeatherStore((s) => s.timeline);
   const fetchedAt = useWeatherStore((s) => s.fetchedAt);
@@ -110,7 +115,7 @@ export default function WeatherPanel({ height }: WeatherPanelProps) {
 
   if (fetchStatus === "fetching") {
     return (
-      <View style={{ height }} className="items-center justify-center">
+      <View className="items-center justify-center py-6">
         <Text className="text-[13px] text-muted-foreground font-barlow-medium">
           Fetching weather...
         </Text>
@@ -120,7 +125,7 @@ export default function WeatherPanel({ height }: WeatherPanelProps) {
 
   if (timeline.length === 0) {
     return (
-      <View style={{ height }} className="items-center justify-center">
+      <View className="items-center justify-center py-6">
         <Wind size={24} color={colors.textTertiary} />
         <Text className="text-[13px] text-muted-foreground font-barlow-medium mt-2">
           {fetchStatus === "error" ? "Weather unavailable" : "No weather data"}
@@ -138,7 +143,7 @@ export default function WeatherPanel({ height }: WeatherPanelProps) {
     : null;
 
   return (
-    <View style={{ height }}>
+    <View>
       {/* Header: current summary */}
       <View
         className="flex-row items-center justify-between px-3 py-1"

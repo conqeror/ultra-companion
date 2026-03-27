@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { createMMKV, type MMKV } from "react-native-mmkv";
 import { addNetworkStateListener, getNetworkStateAsync } from "expo-network";
-import type { MapStyle, OfflineRouteInfo, RoutePoint } from "@/types";
+import type { OfflineRouteInfo, RoutePoint } from "@/types";
 import { hasPOIsForRoute } from "@/db/database";
 import {
   downloadRouteTiles,
@@ -38,7 +38,6 @@ const DEFAULT_ROUTE_INFO: OfflineRouteInfo = {
   percentage: 0,
   downloadedBytes: 0,
   estimatedBytes: 0,
-  mapStyle: null,
   downloadedAt: null,
   error: null,
 };
@@ -48,7 +47,7 @@ interface OfflineState {
   isConnected: boolean;
 
   // Actions
-  startDownload: (routeId: string, points: RoutePoint[], mapStyle: MapStyle) => Promise<void>;
+  startDownload: (routeId: string, points: RoutePoint[]) => Promise<void>;
   deleteOfflineData: (routeId: string) => Promise<void>;
   refreshAllStatuses: () => Promise<void>;
   initConnectivityListener: () => () => void;
@@ -81,7 +80,7 @@ export const useOfflineStore = create<OfflineState>((set, get) => ({
     return total;
   },
 
-  startDownload: async (routeId, points, mapStyle) => {
+  startDownload: async (routeId, points) => {
     const estimated = estimateDownloadSize(points);
 
     // Persist-and-set helper for non-progress updates
@@ -101,7 +100,6 @@ export const useOfflineStore = create<OfflineState>((set, get) => ({
       percentage: 0,
       downloadedBytes: 0,
       estimatedBytes: estimated,
-      mapStyle,
       error: null,
     });
 
@@ -119,7 +117,6 @@ export const useOfflineStore = create<OfflineState>((set, get) => ({
     await downloadRouteTiles(
       routeId,
       points,
-      mapStyle,
       (percentage, completedBytes) => {
         const now = Date.now();
         if (now - lastProgressUpdate < 500) return;

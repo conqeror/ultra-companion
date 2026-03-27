@@ -7,17 +7,9 @@ export const DEFAULT_ZOOM = 12;
 // Fatigue-friendly: minimum 48dp touch targets
 export const MIN_TOUCH_TARGET = 48;
 
-// Distinct route colors — high contrast, colorblind-friendly
-export const ROUTE_COLORS = [
-  "#E63946", // red
-  "#457B9D", // steel blue
-  "#2A9D8F", // teal
-  "#E9C46A", // gold
-  "#F4A261", // sandy orange
-  "#6A4C93", // purple
-  "#1D3557", // navy
-  "#264653", // dark teal
-] as const;
+// Route colors: active stands out, inactive fades back
+export const ACTIVE_ROUTE_COLOR = "#E63946";
+export const INACTIVE_ROUTE_COLOR = "#94A3B8";
 
 // Max points before downsampling elevation chart
 export const ELEVATION_CHART_MAX_POINTS = 500;
@@ -38,7 +30,6 @@ export const PANEL_MODES = [
   "upcoming-20",
   "remaining",
   "full",
-  "weather",
 ] as const;
 
 // --- Phase 3: POI constants ---
@@ -49,8 +40,6 @@ export const POI_CATEGORIES: POICategoryMeta[] = [
   { key: "water", label: "Water", color: "#3B82F6", iconName: "Droplets" },
   { key: "groceries", label: "Groceries", color: "#22C55E", iconName: "ShoppingCart" },
   { key: "gas_station", label: "Gas Station", color: "#F97316", iconName: "Fuel" },
-  { key: "cafe_restaurant", label: "Café", color: "#A855F7", iconName: "Coffee" },
-  { key: "accommodation", label: "Sleep", color: "#EC4899", iconName: "Bed" },
   { key: "bike_shop", label: "Bike Shop", color: "#14B8A6", iconName: "Wrench" },
   { key: "atm", label: "ATM", color: "#EAB308", iconName: "Banknote" },
   { key: "pharmacy", label: "Pharmacy", color: "#EF4444", iconName: "Cross" },
@@ -60,7 +49,7 @@ export const POI_CATEGORIES: POICategoryMeta[] = [
 /** How far behind the rider a POI remains visible in the list */
 export const POI_BEHIND_THRESHOLD_M = 1000;
 
-export const DEFAULT_CORRIDOR_WIDTH_M = 2000;
+export const DEFAULT_CORRIDOR_WIDTH_M = 1000;
 export const MAX_CORRIDOR_WIDTH_M = 10000;
 export const MIN_CORRIDOR_WIDTH_M = 500;
 export const OVERPASS_API_URL = "https://overpass-api.de/api/interpreter";
@@ -93,11 +82,6 @@ export const DEFAULT_POWER_CONFIG: PowerModelConfig = {
   drivetrainEfficiency: 0.97,
 };
 
-export const MAP_STYLE_LABELS: Record<string, string> = {
-  streets: "Streets",
-  outdoors: "Outdoors",
-  satellite: "Satellite",
-};
 
 // --- Phase 5: Weather ---
 

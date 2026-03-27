@@ -9,22 +9,7 @@ export interface UserPosition {
 
 export type UnitSystem = "metric" | "imperial";
 
-export type MapStyle = "streets" | "outdoors" | "satellite";
-
-export const MAP_STYLE_URLS: Record<MapStyle, { light: string; dark: string }> = {
-  streets: {
-    light: "mapbox://styles/mapbox/streets-v12",
-    dark: "mapbox://styles/mapbox/dark-v11",
-  },
-  outdoors: {
-    light: "mapbox://styles/mapbox/outdoors-v12",
-    dark: "mapbox://styles/mapbox/dark-v11",
-  },
-  satellite: {
-    light: "mapbox://styles/mapbox/satellite-streets-v12",
-    dark: "mapbox://styles/mapbox/satellite-streets-v12",
-  },
-};
+export const MAP_STYLE_URL = "mapbox://styles/mapbox/outdoors-v12";
 
 // --- Phase 2: Route types ---
 
@@ -69,8 +54,7 @@ export type PanelMode =
   | "upcoming-10"
   | "upcoming-20"
   | "remaining"
-  | "full"
-  | "weather";
+  | "full";
 
 // --- Phase 3: POI types ---
 
@@ -78,8 +62,6 @@ export type POICategory =
   | "water"
   | "groceries"
   | "gas_station"
-  | "cafe_restaurant"
-  | "accommodation"
   | "bike_shop"
   | "atm"
   | "pharmacy"
@@ -186,7 +168,6 @@ export interface OfflineRouteInfo {
   percentage: number;
   downloadedBytes: number;
   estimatedBytes: number;
-  mapStyle: MapStyle | null;
   downloadedAt: string | null;
   error: string | null;
 }

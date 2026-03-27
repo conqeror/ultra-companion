@@ -8,12 +8,10 @@ import Mapbox, {
 } from "@rnmapbox/maps";
 import Constants from "expo-constants";
 import { useMapStore } from "@/store/mapStore";
-import { useSettingsStore } from "@/store/settingsStore";
 import { useRouteStore } from "@/store/routeStore";
 import { usePanelStore } from "@/store/panelStore";
 import { useThemeColors } from "@/theme";
-import { useColorScheme } from "nativewind";
-import { MAP_STYLE_URLS } from "@/types";
+import { MAP_STYLE_URL } from "@/types";
 import type { RoutePoint } from "@/types";
 import { DEFAULT_ZOOM, BOTTOM_PANEL_HEIGHT_RATIO, GPS_STALE_THRESHOLD_MS } from "@/constants";
 import MapControls from "./MapControls";
@@ -22,6 +20,7 @@ import POILayer from "./POILayer";
 import POIDetailSheet from "@/components/poi/POIDetailSheet";
 import POIListView from "@/components/poi/POIListView";
 import BottomPanel from "./BottomPanel";
+import WeatherBottomSheet from "./WeatherBottomSheet";
 import { snapToRoute } from "@/services/routeSnapping";
 import { computeBounds } from "@/utils/geo";
 import { usePoiStore } from "@/store/poiStore";
@@ -41,18 +40,17 @@ try {
 
 export default function MapScreen() {
   const themeColors = useThemeColors();
-  const { colorScheme } = useColorScheme();
   const cameraRef = useRef<Camera>(null);
   const mapRef = useRef<MapboxMapView>(null);
   const [hasGpsFix, setHasGpsFix] = useState(false);
   const [initialCameraSet, setInitialCameraSet] = useState(false);
+  const [showWeather, setShowWeather] = useState(false);
   const { height: screenHeight } = useWindowDimensions();
 
   const { followUser, userPosition, setFollowUser } = useMapStore();
   const refreshPosition = useMapStore((s) => s.refreshPosition);
   const isRefreshing = useMapStore((s) => s.isRefreshing);
 
-  const mapStyle = useSettingsStore((s) => s.mapStyle);
   const panelMode = usePanelStore((s) => s.panelMode);
   const panelOpen = panelMode !== "none";
   const panelHeight = Math.round(screenHeight * BOTTOM_PANEL_HEIGHT_RATIO);
@@ -219,7 +217,7 @@ export default function MapScreen() {
       <MapboxMapView
         ref={mapRef}
         style={{ flex: 1 }}
-        styleURL={MAP_STYLE_URLS[mapStyle][colorScheme ?? "light"]}
+        styleURL={MAP_STYLE_URL}
         compassEnabled={false}
         scaleBarEnabled={false}
         rotateEnabled={false}
@@ -259,8 +257,11 @@ export default function MapScreen() {
         followUser={followUser}
         onRefreshPosition={handleRefreshPosition}
         isRefreshing={isRefreshing}
+        showWeather={showWeather}
+        onToggleWeather={() => setShowWeather((v) => !v)}
       />
       <BottomPanel activeRoutePoints={activeRoutePoints} />
+      {showWeather && <WeatherBottomSheet onClose={() => setShowWeather(false)} />}
       <POIDetailSheet />
       {activeRoute && <POIListView routeId={activeRoute.id} />}
     </View>

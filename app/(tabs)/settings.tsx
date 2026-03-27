@@ -6,8 +6,9 @@ import { cn } from "@/lib/cn";
 import { useThemeColors } from "@/theme";
 import { useSettingsStore } from "@/store/settingsStore";
 import { useEtaStore } from "@/store/etaStore";
+import { usePoiStore } from "@/store/poiStore";
 import { solveVelocity } from "@/services/powerModel";
-import type { UnitSystem, MapStyle } from "@/types";
+import type { UnitSystem } from "@/types";
 import StorageSection from "@/components/offline/StorageSection";
 
 const UNIT_OPTIONS: { value: UnitSystem; label: string }[] = [
@@ -15,10 +16,11 @@ const UNIT_OPTIONS: { value: UnitSystem; label: string }[] = [
   { value: "imperial", label: "Imperial (mi)" },
 ];
 
-const MAP_STYLE_OPTIONS: { value: MapStyle; label: string }[] = [
-  { value: "streets", label: "Streets" },
-  { value: "outdoors", label: "Outdoors" },
-  { value: "satellite", label: "Satellite" },
+const CORRIDOR_OPTIONS: { value: string; label: string }[] = [
+  { value: "500", label: "500 m" },
+  { value: "1000", label: "1 km" },
+  { value: "2000", label: "2 km" },
+  { value: "5000", label: "5 km" },
 ];
 
 function OptionGroup<T extends string>({
@@ -103,10 +105,12 @@ function NumericInput({
 }
 
 export default function SettingsScreen() {
-  const { units, mapStyle, setUnits, setMapStyle } = useSettingsStore();
+  const { units, setUnits } = useSettingsStore();
   const colors = useThemeColors();
   const powerConfig = useEtaStore((s) => s.powerConfig);
   const updatePowerConfig = useEtaStore((s) => s.updatePowerConfig);
+  const corridorWidthM = usePoiStore((s) => s.corridorWidthM);
+  const setCorridorWidth = usePoiStore((s) => s.setCorridorWidth);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   const flatSpeedKmh = useMemo(() => {
@@ -122,9 +126,13 @@ export default function SettingsScreen() {
       <OptionGroup options={UNIT_OPTIONS} value={units} onChange={setUnits} />
 
       <Text className="text-[22px] font-barlow-semibold text-foreground mt-6 mb-3">
-        Map Style
+        POI Search Radius
       </Text>
-      <OptionGroup options={MAP_STYLE_OPTIONS} value={mapStyle} onChange={setMapStyle} />
+      <OptionGroup
+        options={CORRIDOR_OPTIONS}
+        value={String(corridorWidthM)}
+        onChange={(v) => setCorridorWidth(Number(v))}
+      />
 
       <Text className="text-[22px] font-barlow-semibold text-foreground mt-8 mb-1">
         ETA Calculator

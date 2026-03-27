@@ -12,7 +12,7 @@ import {
 } from "@/db/database";
 import { parseGPX } from "@/services/gpxParser";
 import { parseKML } from "@/services/kmlParser";
-import { ROUTE_COLORS } from "@/constants";
+import { INACTIVE_ROUTE_COLOR } from "@/constants";
 import type { Route, RouteWithPoints, RoutePoint, SnappedPosition } from "@/types";
 
 interface RouteState {
@@ -87,13 +87,12 @@ export const useRouteStore = create<RouteState>((set, get) => ({
         : parseKML(content, fileName);
 
       const routes = get().routes;
-      const colorIndex = routes.length % ROUTE_COLORS.length;
 
       const route: Route = {
         id: generateId(),
         name: parsed.name,
         fileName,
-        color: ROUTE_COLORS[colorIndex],
+        color: INACTIVE_ROUTE_COLOR,
         isActive: routes.length === 0, // First route is active by default
         isVisible: true,
         totalDistanceMeters: parsed.totalDistanceMeters,

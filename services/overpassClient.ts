@@ -102,10 +102,6 @@ export function buildOverpassQuery(
   node["shop"~"^(supermarket|convenience|grocery|bakery)$"](around:${r},${coords});
   node["amenity"="fuel"](around:${r},${coords});
   way["amenity"="fuel"](around:${r},${coords});
-  node["amenity"~"^(cafe|restaurant|fast_food)$"](around:${r},${coords});
-  way["amenity"~"^(cafe|restaurant|fast_food)$"](around:${r},${coords});
-  node["tourism"~"^(hotel|hostel|motel|guest_house|camp_site)$"](around:${r},${coords});
-  way["tourism"~"^(hotel|hostel|motel|guest_house|camp_site)$"](around:${r},${coords});
   node["shop"="bicycle"](around:${r},${coords});
   node["amenity"="bicycle_repair_station"](around:${r},${coords});
   node["amenity"~"^(atm|bank)$"](around:${r},${coords});

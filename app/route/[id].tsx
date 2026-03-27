@@ -2,7 +2,6 @@ import React, { useEffect, useState, useMemo, useRef } from "react";
 import {
   View,
   ScrollView,
-  TouchableOpacity,
   useWindowDimensions,
   ActivityIndicator,
 } from "react-native";
@@ -11,19 +10,13 @@ import { Camera, MapView as MapboxMapView } from "@rnmapbox/maps";
 import { Text } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
 import { useThemeColors } from "@/theme";
-import { useColorScheme } from "nativewind";
 import { useRouteStore } from "@/store/routeStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import { usePoiStore } from "@/store/poiStore";
-import { MAP_STYLE_URLS } from "@/types";
+import { MAP_STYLE_URL } from "@/types";
 import type { RouteWithPoints } from "@/types";
 import { formatDistance, formatElevation } from "@/utils/formatters";
 import { computeElevationProgress, computeBounds } from "@/utils/geo";
-import {
-  DEFAULT_CORRIDOR_WIDTH_M,
-  MIN_CORRIDOR_WIDTH_M,
-  MAX_CORRIDOR_WIDTH_M,
-} from "@/constants";
 import ElevationProfile from "@/components/elevation/ElevationProfile";
 import RouteLayer from "@/components/map/RouteLayer";
 import StatBox from "@/components/common/StatBox";
@@ -34,7 +27,6 @@ export default function RouteDetailScreen() {
   const { width: screenWidth } = useWindowDimensions();
   const cameraRef = useRef<Camera>(null);
   const colors = useThemeColors();
-  const { colorScheme } = useColorScheme();
 
   const [route, setRoute] = useState<RouteWithPoints | null>(null);
   const [loading, setLoading] = useState(true);
@@ -42,16 +34,12 @@ export default function RouteDetailScreen() {
   const getRouteDetail = useRouteStore((s) => s.getRouteDetail);
   const snappedPosition = useRouteStore((s) => s.snappedPosition);
   const units = useSettingsStore((s) => s.units);
-  const mapStyle = useSettingsStore((s) => s.mapStyle);
-
   const fetchPOIs = usePoiStore((s) => s.fetchPOIs);
   const loadPOIs = usePoiStore((s) => s.loadPOIs);
   const fetchStatus = usePoiStore((s) => id ? s.fetchStatus[id] : undefined);
   const fetchProgress = usePoiStore((s) => s.fetchProgress);
   const fetchError = usePoiStore((s) => s.fetchError);
   const poiCount = usePoiStore((s) => id ? (s.pois[id]?.length ?? 0) : 0);
-  const corridorWidthM = usePoiStore((s) => s.corridorWidthM);
-  const setCorridorWidth = usePoiStore((s) => s.setCorridorWidth);
   const getStarredPOIs = usePoiStore((s) => s.getStarredPOIs);
   const starredPOIIds = usePoiStore((s) => s.starredPOIIds);
   const setSelectedPOI = usePoiStore((s) => s.setSelectedPOI);
@@ -130,7 +118,7 @@ export default function RouteDetailScreen() {
         <View className="h-[250px] mx-4 mt-4 rounded-xl overflow-hidden">
           <MapboxMapView
             style={{ flex: 1 }}
-            styleURL={MAP_STYLE_URLS[mapStyle][colorScheme ?? "light"]}
+            styleURL={MAP_STYLE_URL}
             compassEnabled={false}
             scaleBarEnabled={false}
             rotateEnabled={false}
@@ -194,34 +182,6 @@ export default function RouteDetailScreen() {
         <Text className="text-[22px] font-barlow-semibold text-foreground px-4 mt-4 mb-3">
           Points of Interest
         </Text>
-
-        {/* Corridor width selector */}
-        <View className="flex-row items-center px-4 mb-3 gap-2">
-          <Text className="text-[14px] text-muted-foreground font-barlow mr-1">
-            Corridor:
-          </Text>
-          {[1000, 2000, 5000].map((w) => (
-            <TouchableOpacity
-              key={w}
-              className={`px-4 h-[44px] items-center justify-center rounded-full ${
-                corridorWidthM === w
-                  ? "bg-primary"
-                  : "bg-card border border-border"
-              }`}
-              onPress={() => setCorridorWidth(w)}
-            >
-              <Text
-                className={`text-[13px] font-barlow-medium ${
-                  corridorWidthM === w
-                    ? "text-primary-foreground"
-                    : "text-foreground"
-                }`}
-              >
-                {w / 1000} km
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
 
         {/* Fetch button */}
         <View className="px-4 mb-2">

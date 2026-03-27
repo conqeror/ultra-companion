@@ -25,18 +25,6 @@ const TAG_RULES: {
     check: (t) => t.amenity === "fuel",
   },
   {
-    category: "cafe_restaurant",
-    check: (t) =>
-      ["cafe", "restaurant", "fast_food"].includes(t.amenity ?? ""),
-  },
-  {
-    category: "accommodation",
-    check: (t) =>
-      ["hotel", "hostel", "motel", "guest_house", "camp_site"].includes(
-        t.tourism ?? "",
-      ),
-  },
-  {
     category: "bike_shop",
     check: (t) =>
       t.shop === "bicycle" || t.amenity === "bicycle_repair_station",

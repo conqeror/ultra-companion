@@ -26,8 +26,14 @@ interface PanelState {
   setPanelMode: (mode: PanelMode) => void;
 }
 
+function readPanelMode(): PanelMode {
+  const raw = readString("panelMode");
+  if (raw && (PANEL_MODES as readonly string[]).includes(raw)) return raw as PanelMode;
+  return "none";
+}
+
 export const usePanelStore = create<PanelState>((set, get) => ({
-  panelMode: (readString("panelMode") as PanelMode) ?? "none",
+  panelMode: readPanelMode(),
 
   cyclePanelMode: () => {
     const current = get().panelMode;

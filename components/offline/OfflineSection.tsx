@@ -4,11 +4,9 @@ import { Text } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
 import { useOfflineStore } from "@/store/offlineStore";
 import { usePoiStore } from "@/store/poiStore";
-import { useSettingsStore } from "@/store/settingsStore";
 import type { RoutePoint } from "@/types";
 import { formatFileSize } from "@/utils/formatters";
 import { estimateDownloadSize } from "@/services/offlineTiles";
-import { MAP_STYLE_LABELS } from "@/constants";
 
 interface OfflineSectionProps {
   routeId: string;
@@ -20,7 +18,6 @@ export default function OfflineSection({ routeId, points }: OfflineSectionProps)
   const isConnected = useOfflineStore((s) => s.isConnected);
   const startDownload = useOfflineStore((s) => s.startDownload);
   const deleteOfflineData = useOfflineStore((s) => s.deleteOfflineData);
-  const mapStyle = useSettingsStore((s) => s.mapStyle);
   const poiCount = usePoiStore((s) => s.pois[routeId]?.length ?? 0);
 
   const estimatedBytes = useMemo(() => estimateDownloadSize(points), [points]);
@@ -52,7 +49,7 @@ export default function OfflineSection({ routeId, points }: OfflineSectionProps)
           <Text className="text-[15px] font-barlow text-foreground">Map tiles</Text>
           <Text className="text-[14px] font-barlow-sc-medium text-muted-foreground">
             {hasData
-              ? `${formatFileSize(info.downloadedBytes)}${info.mapStyle ? `, ${MAP_STYLE_LABELS[info.mapStyle] ?? info.mapStyle}` : ""}`
+              ? formatFileSize(info.downloadedBytes)
               : "Not downloaded"}
           </Text>
         </View>
@@ -108,7 +105,7 @@ export default function OfflineSection({ routeId, points }: OfflineSectionProps)
           />
         ) : (
           <Button
-            onPress={() => startDownload(routeId, points, mapStyle)}
+            onPress={() => startDownload(routeId, points)}
             variant={hasData ? "secondary" : "default"}
             label={
               hasData
