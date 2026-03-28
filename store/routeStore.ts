@@ -13,6 +13,7 @@ import {
 import { parseGPX } from "@/services/gpxParser";
 import { parseKML } from "@/services/kmlParser";
 import { INACTIVE_ROUTE_COLOR } from "@/constants";
+import { generateId } from "@/utils/generateId";
 import type { Route, RouteWithPoints, RoutePoint, SnappedPosition } from "@/types";
 
 interface RouteState {
@@ -33,10 +34,6 @@ interface RouteState {
   loadVisibleRoutePoints: () => Promise<void>;
   setSnappedPosition: (pos: SnappedPosition | null) => void;
   clearError: () => void;
-}
-
-function generateId(): string {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
 
 export const useRouteStore = create<RouteState>((set, get) => ({
@@ -117,6 +114,9 @@ export const useRouteStore = create<RouteState>((set, get) => ({
       await useOfflineStore.getState().deleteOfflineData(id);
       await dbDeleteRoute(id);
       await get().loadRoutes();
+      // Reload races in case this route was in one (cascade deletes the segment)
+      const { useRaceStore } = await import("@/store/raceStore");
+      await useRaceStore.getState().loadRaces();
     } catch (e: any) {
       set({ error: e.message });
     }
@@ -131,6 +131,10 @@ export const useRouteStore = create<RouteState>((set, get) => ({
 
   setActiveRoute: async (id) => {
     await dbSetActiveRoute(id);
+    // Clear active race in raceStore
+    const { useRaceStore } = await import("@/store/raceStore");
+    useRaceStore.getState().clearActiveStitched();
+    await useRaceStore.getState().loadRaces();
     await get().loadRoutes();
   },
 

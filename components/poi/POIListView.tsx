@@ -13,13 +13,15 @@ import { useRouteStore } from "@/store/routeStore";
 import POIFilterBar from "@/components/map/POIFilterBar";
 import POIListItem from "./POIListItem";
 import { POI_BEHIND_THRESHOLD_M } from "@/constants";
-import type { POI } from "@/types";
+import { stitchPOIs } from "@/services/stitchingService";
+import type { POI, StitchedSegmentInfo } from "@/types";
 
 interface POIListViewProps {
-  routeId: string;
+  routeIds: string[];
+  segments: StitchedSegmentInfo[] | null;
 }
 
-export default function POIListView({ routeId }: POIListViewProps) {
+export default function POIListView({ routeIds, segments }: POIListViewProps) {
   const colors = useThemeColors();
   const showPOIList = usePoiStore((s) => s.showPOIList);
   const setShowPOIList = usePoiStore((s) => s.setShowPOIList);
@@ -27,16 +29,24 @@ export default function POIListView({ routeId }: POIListViewProps) {
   const getVisiblePOIs = usePoiStore((s) => s.getVisiblePOIs);
   const enabledCategories = usePoiStore((s) => s.enabledCategories);
   const starredPOIIds = usePoiStore((s) => s.starredPOIIds);
-  const pois = usePoiStore((s) => s.pois[routeId]);
+  const allPois = usePoiStore((s) => s.pois);
   const snappedPosition = useRouteStore((s) => s.snappedPosition);
 
   const currentDist = snappedPosition?.distanceAlongRouteMeters ?? null;
 
-  const visiblePOIs = useMemo(
-    () => getVisiblePOIs(routeId),
+  const visiblePOIs = useMemo(() => {
+    if (segments) {
+      // Race mode: get visible POIs per segment, stitch with distance offsets
+      const poisByRoute: Record<string, POI[]> = {};
+      for (const routeId of routeIds) {
+        poisByRoute[routeId] = getVisiblePOIs(routeId);
+      }
+      return stitchPOIs(segments, poisByRoute);
+    }
+    // Standalone route
+    return routeIds.length > 0 ? getVisiblePOIs(routeIds[0]) : [];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [routeId, pois, enabledCategories, starredPOIIds],
-  );
+  }, [routeIds, segments, allPois, enabledCategories, starredPOIIds]);
 
   // Filter to ahead + 1km behind, sort by distance along route (upcoming first)
   const sortedPOIs = useMemo(() => {
@@ -113,7 +123,7 @@ export default function POIListView({ routeId }: POIListViewProps) {
 
       {/* Category filters */}
       <View className="border-b border-border">
-        <POIFilterBar routeId={routeId} />
+        <POIFilterBar routeIds={routeIds} />
       </View>
 
       {/* List */}

@@ -11,22 +11,25 @@ const categoryColorMap = Object.fromEntries(
 );
 
 interface POILayerProps {
-  routeId: string;
+  routeIds: string[];
 }
 
-export default function POILayer({ routeId }: POILayerProps) {
+export default function POILayer({ routeIds }: POILayerProps) {
   const getVisiblePOIs = usePoiStore((s) => s.getVisiblePOIs);
   const enabledCategories = usePoiStore((s) => s.enabledCategories);
   const starredPOIIds = usePoiStore((s) => s.starredPOIIds);
-  const pois = usePoiStore((s) => s.pois[routeId]);
+  const allPois = usePoiStore((s) => s.pois);
   const setSelectedPOI = usePoiStore((s) => s.setSelectedPOI);
   const colors = useThemeColors();
 
-  const visiblePOIs = useMemo(
-    () => getVisiblePOIs(routeId),
+  const visiblePOIs = useMemo(() => {
+    const combined: POI[] = [];
+    for (const routeId of routeIds) {
+      combined.push(...getVisiblePOIs(routeId));
+    }
+    return combined;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [routeId, pois, enabledCategories, starredPOIIds],
-  );
+  }, [routeIds, allPois, enabledCategories, starredPOIIds]);
 
   const geoJSON = useMemo(
     (): GeoJSON.FeatureCollection => ({

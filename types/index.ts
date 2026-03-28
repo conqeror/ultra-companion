@@ -50,11 +50,11 @@ export interface SnappedPosition {
 
 export type PanelMode =
   | "none"
-  | "upcoming-5"
   | "upcoming-10"
-  | "upcoming-20"
-  | "remaining"
-  | "full";
+  | "upcoming-25"
+  | "upcoming-50"
+  | "upcoming-100"
+  | "upcoming-200";
 
 // --- Phase 3: POI types ---
 
@@ -158,6 +158,62 @@ export interface WeatherPoint {
 export type WindRelative = "headwind" | "tailwind" | "crosswind-left" | "crosswind-right";
 
 export type WeatherFetchStatus = "idle" | "fetching" | "done" | "error";
+
+// --- Phase 6: Race / Route Collections ---
+
+export interface Race {
+  id: string;
+  name: string;
+  isActive: boolean;
+  createdAt: string; // ISO 8601
+}
+
+export interface RaceSegment {
+  raceId: string;
+  routeId: string;
+  position: number;
+  isSelected: boolean;
+}
+
+export interface RaceSegmentWithRoute {
+  segment: RaceSegment;
+  route: Route;
+}
+
+export interface StitchedSegmentInfo {
+  routeId: string;
+  routeName: string;
+  position: number;
+  startPointIndex: number;
+  endPointIndex: number;
+  distanceOffsetMeters: number;
+  segmentDistanceMeters: number;
+  segmentAscentMeters: number;
+  segmentDescentMeters: number;
+}
+
+export interface StitchedRace {
+  raceId: string;
+  points: RoutePoint[];
+  segments: StitchedSegmentInfo[];
+  totalDistanceMeters: number;
+  totalAscentMeters: number;
+  totalDescentMeters: number;
+  /** Per-segment raw points, keyed by routeId */
+  pointsByRouteId: Record<string, RoutePoint[]>;
+}
+
+export interface ActiveRouteData {
+  type: "route" | "race";
+  id: string;
+  name: string;
+  points: RoutePoint[];
+  totalDistanceMeters: number;
+  totalAscentMeters: number;
+  totalDescentMeters: number;
+  segments: StitchedSegmentInfo[] | null;
+  routeIds: string[];
+}
 
 // --- Phase 4b: Offline ---
 

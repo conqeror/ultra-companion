@@ -1,13 +1,12 @@
 import React from "react";
 import { View, TouchableOpacity, useWindowDimensions } from "react-native";
 import { Text } from "@/components/ui/text";
-import { Locate, LocateFixed, Mountain, ArrowRightFromLine, MoveHorizontal, List, RefreshCw, CloudSun } from "lucide-react-native";
+import { Locate, LocateFixed, Mountain, List, RefreshCw, CloudSun } from "lucide-react-native";
 import Animated, { useAnimatedStyle, withRepeat, withTiming, Easing } from "react-native-reanimated";
 import { cn } from "@/lib/cn";
 import { useThemeColors } from "@/theme";
 import { usePanelStore } from "@/store/panelStore";
 import { usePoiStore } from "@/store/poiStore";
-import { useRouteStore } from "@/store/routeStore";
 import { BOTTOM_PANEL_HEIGHT_RATIO } from "@/constants";
 import PositionAgeIndicator from "./PositionAgeIndicator";
 import ConnectivityIndicator from "./ConnectivityIndicator";
@@ -20,23 +19,13 @@ interface MapControlsProps {
   isRefreshing: boolean;
   showWeather: boolean;
   onToggleWeather: () => void;
+  activeRouteIds: string[];
 }
 
 function PanelIcon({ mode, color }: { mode: PanelMode; color: string }) {
-  switch (mode) {
-    case "none":
-      return <Mountain size={22} color={color} />;
-    case "upcoming-5":
-      return <Text style={{ color }} className="text-base font-barlow-bold">5</Text>;
-    case "upcoming-10":
-      return <Text style={{ color }} className="text-base font-barlow-bold">10</Text>;
-    case "upcoming-20":
-      return <Text style={{ color }} className="text-base font-barlow-bold">20</Text>;
-    case "remaining":
-      return <ArrowRightFromLine size={22} color={color} />;
-    case "full":
-      return <MoveHorizontal size={20} color={color} />;
-  }
+  if (mode === "none") return <Mountain size={22} color={color} />;
+  const km = mode.replace("upcoming-", "");
+  return <Text style={{ color }} className="text-base font-barlow-bold">{km}</Text>;
 }
 
 function SpinningRefreshIcon({ color }: { color: string }) {
@@ -66,14 +55,16 @@ export default function MapControls({
   isRefreshing,
   showWeather,
   onToggleWeather,
+  activeRouteIds,
 }: MapControlsProps) {
   const colors = useThemeColors();
   const panelMode = usePanelStore((s) => s.panelMode);
   const cyclePanelMode = usePanelStore((s) => s.cyclePanelMode);
   const panelOpen = panelMode !== "none";
 
-  const activeRoute = useRouteStore((s) => s.routes.find((r) => r.isActive));
-  const hasPOIs = usePoiStore((s) => activeRoute ? (s.pois[activeRoute.id]?.length ?? 0) > 0 : false);
+  const hasPOIs = usePoiStore((s) =>
+    activeRouteIds.some((id) => (s.pois[id]?.length ?? 0) > 0),
+  );
   const setShowPOIList = usePoiStore((s) => s.setShowPOIList);
 
   const { height: screenHeight } = useWindowDimensions();

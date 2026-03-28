@@ -1,10 +1,14 @@
 import { Stack } from "expo-router";
+import { ThemeProvider, type Theme } from "@react-navigation/native";
 import * as SplashScreen from "expo-splash-screen";
 import { useFonts } from "expo-font";
 import { useEffect } from "react";
+import { useColorScheme } from "nativewind";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 import "react-native-reanimated";
 import "../global.css";
 import { useOfflineStore } from "@/store/offlineStore";
+import { COLORS } from "@/theme";
 
 export { ErrorBoundary } from "expo-router";
 
@@ -23,6 +27,27 @@ export default function RootLayout() {
     "BarlowSemiCondensed-Medium": require("../assets/fonts/BarlowSemiCondensed-Medium.ttf"),
     "BarlowSemiCondensed-SemiBold": require("../assets/fonts/BarlowSemiCondensed-SemiBold.ttf"),
   });
+  const { colorScheme } = useColorScheme();
+  const isDark = colorScheme === "dark";
+  const colors = COLORS[isDark ? "dark" : "light"];
+
+  const navTheme: Theme = {
+    dark: isDark,
+    colors: {
+      primary: colors.accent,
+      background: colors.background,
+      card: colors.background,
+      text: colors.textPrimary,
+      border: colors.border,
+      notification: colors.accent,
+    },
+    fonts: {
+      regular: { fontFamily: "Barlow-Regular", fontWeight: "400" },
+      medium: { fontFamily: "Barlow-Medium", fontWeight: "500" },
+      bold: { fontFamily: "Barlow-SemiBold", fontWeight: "600" },
+      heavy: { fontFamily: "Barlow-Bold", fontWeight: "700" },
+    },
+  };
 
   useEffect(() => {
     if (fontsLoaded || fontError) {
@@ -42,9 +67,19 @@ export default function RootLayout() {
   }
 
   return (
-    <Stack>
-      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-      <Stack.Screen name="route/[id]" options={{ title: "Route" }} />
-    </Stack>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <ThemeProvider value={navTheme}>
+        <Stack
+          screenOptions={{
+            headerBackTitle: "Routes",
+            headerTitleStyle: { fontFamily: "Barlow-SemiBold" },
+          }}
+        >
+          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          <Stack.Screen name="route/[id]" options={{ title: "Route" }} />
+          <Stack.Screen name="race/[id]" options={{ title: "Race" }} />
+        </Stack>
+      </ThemeProvider>
+    </GestureHandlerRootView>
   );
 }

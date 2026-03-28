@@ -15,7 +15,7 @@ import { cn } from "@/lib/cn";
 import { useThemeColors } from "@/theme";
 import { usePoiStore } from "@/store/poiStore";
 import { POI_CATEGORIES } from "@/constants";
-import type { POICategory } from "@/types";
+import type { POI, POICategory } from "@/types";
 
 const ICON_MAP: Record<string, React.ComponentType<any>> = {
   Droplets,
@@ -28,13 +28,21 @@ const ICON_MAP: Record<string, React.ComponentType<any>> = {
 };
 
 interface POIFilterBarProps {
-  routeId: string;
+  routeIds: string[];
 }
 
 /** Inline horizontal filter chip row — meant to be embedded in panels/lists, not floating on the map */
-export default function POIFilterBar({ routeId }: POIFilterBarProps) {
+export default function POIFilterBar({ routeIds }: POIFilterBarProps) {
   const colors = useThemeColors();
-  const pois = usePoiStore((s) => s.pois[routeId]);
+  const allPois = usePoiStore((s) => s.pois);
+  const pois = useMemo(() => {
+    const combined: POI[] = [];
+    for (const id of routeIds) {
+      const p = allPois[id];
+      if (p) combined.push(...p);
+    }
+    return combined.length > 0 ? combined : undefined;
+  }, [routeIds, allPois]);
   const enabledCategories = usePoiStore((s) => s.enabledCategories);
   const toggleCategory = usePoiStore((s) => s.toggleCategory);
   const showOpenOnly = usePoiStore((s) => s.showOpenOnly);

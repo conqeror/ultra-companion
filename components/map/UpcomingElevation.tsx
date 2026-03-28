@@ -6,14 +6,11 @@ import { extractRouteSlice } from "@/utils/geo";
 import { LOOK_BACK_RATIO } from "@/constants";
 import type { RoutePoint, UnitSystem, POI } from "@/types";
 
-/** Max look-back distance in meters (cap for "remaining" mode) */
-const MAX_LOOK_BACK_M = 5_000;
-
 interface UpcomingElevationProps {
   points: RoutePoint[];
   currentPointIndex: number;
-  /** Look-ahead distance in meters, or "remaining" for rest of route */
-  lookAhead: number | "remaining";
+  /** Look-ahead distance in meters */
+  lookAhead: number;
   units: UnitSystem;
   width: number;
   height: number;
@@ -40,15 +37,8 @@ export default function UpcomingElevation({
     const currentDist = points[currentPointIndex].distanceFromStartMeters;
     const totalDist = points[points.length - 1].distanceFromStartMeters;
 
-    const lookAheadM =
-      lookAhead === "remaining" ? totalDist - currentDist : lookAhead;
-
     // Look-back: ~20% of visible chart is behind current position
-    const rawLookBackM = lookAheadM * LOOK_BACK_RATIO;
-    const lookBackM =
-      lookAhead === "remaining"
-        ? Math.min(rawLookBackM, MAX_LOOK_BACK_M)
-        : rawLookBackM;
+    const lookBackM = lookAhead * LOOK_BACK_RATIO;
 
     // Find start index by scanning backwards
     const startDist = Math.max(0, currentDist - lookBackM);
@@ -58,7 +48,7 @@ export default function UpcomingElevation({
     }
 
     const sliceOffsetMeters = points[startIdx].distanceFromStartMeters;
-    const totalSliceM = (currentDist - sliceOffsetMeters) + lookAheadM;
+    const totalSliceM = (currentDist - sliceOffsetMeters) + lookAhead;
     const sliced = extractRouteSlice(points, startIdx, totalSliceM);
     const idxInSlice = currentPointIndex - startIdx;
 

@@ -79,7 +79,7 @@ export default function RouteDetailScreen() {
 
   if (loading) {
     return (
-      <View className="flex-1 items-center justify-center">
+      <View className="flex-1 items-center justify-center bg-background">
         <ActivityIndicator size="large" color={colors.accent} />
       </View>
     );
@@ -87,7 +87,7 @@ export default function RouteDetailScreen() {
 
   if (!route) {
     return (
-      <View className="flex-1 items-center justify-center">
+      <View className="flex-1 items-center justify-center bg-background">
         <Text className="text-[17px] text-muted-foreground">Route not found</Text>
       </View>
     );
@@ -98,18 +98,7 @@ export default function RouteDetailScreen() {
 
   return (
     <>
-      <Stack.Screen
-        options={{
-          title: route.name,
-          headerBackTitle: "Routes",
-          headerStyle: { backgroundColor: colors.background },
-          headerTintColor: colors.accent,
-          headerTitleStyle: {
-            color: colors.textPrimary,
-            fontFamily: "Barlow-SemiBold",
-          },
-        }}
-      />
+      <Stack.Screen options={{ title: route.name }} />
       <ScrollView
         className="flex-1 bg-background"
         contentContainerStyle={{ paddingBottom: 40 }}

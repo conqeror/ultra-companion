@@ -62,10 +62,13 @@ Detailed specs live in `docs/` — read these before starting any implementation
 - [x] Phase 3: POI search along route
 - [x] Phase 4a: GPS rework, opening hours, ETA calculator, POIs on elevation
 - [x] Phase 4b: Offline support (tile download, storage management)
-- [ ] Phase 5: Weather
+- [x] Phase 5: Weather
+- [ ] Phase 6: Route collections + stitching (races)
+- [ ] Phase 7: POI enhancements (starred POIs, open/closed highlighting)
+- [ ] Phase 8: Dark outdoor map style
 
 ## Current Phase
 
-Phase 5 — not started.
+Phase 6 — Route collections + stitching. See `docs/phase-6-route-collections.md` for detailed spec.
 
-When starting a phase, read `docs/implementation-plan.md` for the detailed steps.
+When starting a phase, read the phase spec doc for detailed steps.

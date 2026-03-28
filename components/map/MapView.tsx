@@ -9,10 +9,10 @@ import Mapbox, {
 import Constants from "expo-constants";
 import { useMapStore } from "@/store/mapStore";
 import { useRouteStore } from "@/store/routeStore";
+import { useRaceStore } from "@/store/raceStore";
 import { usePanelStore } from "@/store/panelStore";
 import { useThemeColors } from "@/theme";
 import { MAP_STYLE_URL } from "@/types";
-import type { RoutePoint } from "@/types";
 import { DEFAULT_ZOOM, BOTTOM_PANEL_HEIGHT_RATIO, GPS_STALE_THRESHOLD_MS } from "@/constants";
 import MapControls from "./MapControls";
 import RouteLayer from "./RouteLayer";
@@ -23,6 +23,7 @@ import BottomPanel from "./BottomPanel";
 import WeatherBottomSheet from "./WeatherBottomSheet";
 import { snapToRoute } from "@/services/routeSnapping";
 import { computeBounds } from "@/utils/geo";
+import { useActiveRouteData, getActiveRouteDataImperative } from "@/hooks/useActiveRouteData";
 import { usePoiStore } from "@/store/poiStore";
 import { useEtaStore } from "@/store/etaStore";
 import { useWeatherStore } from "@/store/weatherStore";
@@ -60,18 +61,23 @@ export default function MapScreen() {
   const loadRoutes = useRouteStore((s) => s.loadRoutes);
   const snappedPosition = useRouteStore((s) => s.snappedPosition);
   const setSnappedPosition = useRouteStore((s) => s.setSnappedPosition);
+  const loadRaces = useRaceStore((s) => s.loadRaces);
   const loadPOIs = usePoiStore((s) => s.loadPOIs);
   const computeETAForRoute = useEtaStore((s) => s.computeETAForRoute);
   const cumulativeTime = useEtaStore((s) => s.cumulativeTime);
   const fetchWeather = useWeatherStore((s) => s.fetchWeather);
   const isConnected = useOfflineStore((s) => s.isConnected);
 
-  // Active route and its points
-  const activeRoute = useMemo(() => routes.find((r) => r.isActive) ?? null, [routes]);
-  const activeRoutePoints = useMemo(
-    () => (activeRoute ? visibleRoutePoints[activeRoute.id] ?? null : null),
-    [activeRoute, visibleRoutePoints],
-  );
+  // Unified active context — works for both standalone routes and races
+  const activeData = useActiveRouteData();
+  const activeRoutePoints = activeData?.points ?? null;
+  const activeRouteIds = activeData?.routeIds ?? [];
+
+  // Set of routeIds that are part of the active race (for RouteLayer styling)
+  const activeRaceRouteIds = useMemo(() => {
+    if (activeData?.type === "race") return new Set(activeData.routeIds);
+    return null;
+  }, [activeData]);
 
   // Compute active route bounds for initial camera
   const activeRouteBounds = useMemo(() => {
@@ -81,27 +87,30 @@ export default function MapScreen() {
 
   useEffect(() => {
     loadRoutes();
-  }, [loadRoutes]);
+    loadRaces();
+  }, [loadRoutes, loadRaces]);
 
-  // Load POIs and compute ETA when active route changes
+  // Load POIs and compute ETA when active context changes
   useEffect(() => {
-    if (activeRoute) {
-      loadPOIs(activeRoute.id);
+    if (activeData) {
+      for (const routeId of activeData.routeIds) {
+        loadPOIs(routeId);
+      }
     }
-  }, [activeRoute?.id, loadPOIs]);
+  }, [activeData?.id, loadPOIs]);
 
   useEffect(() => {
-    if (activeRoute && activeRoutePoints?.length) {
-      computeETAForRoute(activeRoute.id, activeRoutePoints);
+    if (activeData && activeRoutePoints?.length) {
+      computeETAForRoute(activeData.id, activeRoutePoints);
     }
-  }, [activeRoute?.id, activeRoutePoints, computeETAForRoute]);
+  }, [activeData?.id, activeRoutePoints, computeETAForRoute]);
 
-  // Fetch weather when active route + snapped position + ETA are available (and online)
+  // Fetch weather when active context + snapped position + ETA are available (and online)
   useEffect(() => {
-    if (activeRoute && activeRoutePoints?.length && snappedPosition && cumulativeTime && isConnected) {
-      fetchWeather(activeRoute.id, activeRoutePoints, snappedPosition.pointIndex, cumulativeTime);
+    if (activeData && activeRoutePoints?.length && snappedPosition && cumulativeTime && isConnected) {
+      fetchWeather(activeData.id, activeRoutePoints, snappedPosition.pointIndex, cumulativeTime);
     }
-  }, [activeRoute?.id, snappedPosition?.pointIndex, isConnected, cumulativeTime, fetchWeather]);
+  }, [activeData?.id, snappedPosition?.pointIndex, isConnected, cumulativeTime, fetchWeather]);
 
   // Set initial camera once routes are loaded
   useEffect(() => {
@@ -124,23 +133,20 @@ export default function MapScreen() {
 
   // Snap eagerly when routes load (don't wait for next GPS refresh)
   useEffect(() => {
-    if (!activeRoute || !activeRoutePoints?.length) return;
+    if (!activeData || !activeRoutePoints?.length) return;
     const pos = useMapStore.getState().userPosition;
     if (!pos) return;
-    const snapped = snapToRoute(pos.latitude, pos.longitude, activeRoute.id, activeRoutePoints);
+    const snapped = snapToRoute(pos.latitude, pos.longitude, activeData.id, activeRoutePoints);
     setSnappedPosition(snapped);
-  }, [activeRoute, activeRoutePoints, setSnappedPosition]);
+  }, [activeData, activeRoutePoints, setSnappedPosition]);
 
   // Snap to route after each position refresh
   const snapAfterRefresh = useCallback(
     (position: { latitude: number; longitude: number }) => {
-      const active = useRouteStore.getState().routes.find((r) => r.isActive);
-      if (active) {
-        const points = useRouteStore.getState().visibleRoutePoints[active.id];
-        if (points?.length) {
-          const snapped = snapToRoute(position.latitude, position.longitude, active.id, points);
-          setSnappedPosition(snapped);
-        }
+      const data = getActiveRouteDataImperative();
+      if (data && data.points.length) {
+        const snapped = snapToRoute(position.latitude, position.longitude, data.id, data.points);
+        setSnappedPosition(snapped);
       }
     },
     [setSnappedPosition],
@@ -235,15 +241,20 @@ export default function MapScreen() {
         />
         {routes
           .filter((r) => r.isVisible && visibleRoutePoints[r.id])
-          .map((route) => (
-            <RouteLayer
-              key={route.id}
-              route={route}
-              points={visibleRoutePoints[route.id]}
-            />
-          ))}
-        {activeRoute && (
-          <POILayer routeId={activeRoute.id} />
+          .map((route) => {
+            // Mark routes as active if they're the standalone active route or part of the active race
+            const isActive = route.isActive || (activeRaceRouteIds?.has(route.id) ?? false);
+            const styledRoute = isActive !== route.isActive ? { ...route, isActive } : route;
+            return (
+              <RouteLayer
+                key={route.id}
+                route={styledRoute}
+                points={visibleRoutePoints[route.id]}
+              />
+            );
+          })}
+        {activeRouteIds.length > 0 && (
+          <POILayer routeIds={activeRouteIds} />
         )}
         <LocationPuck
           puckBearing="heading"
@@ -259,11 +270,17 @@ export default function MapScreen() {
         isRefreshing={isRefreshing}
         showWeather={showWeather}
         onToggleWeather={() => setShowWeather((v) => !v)}
+        activeRouteIds={activeRouteIds}
       />
-      <BottomPanel activeRoutePoints={activeRoutePoints} />
+      <BottomPanel activeData={activeData} />
       {showWeather && <WeatherBottomSheet onClose={() => setShowWeather(false)} />}
       <POIDetailSheet />
-      {activeRoute && <POIListView routeId={activeRoute.id} />}
+      {activeRouteIds.length > 0 && (
+        <POIListView
+          routeIds={activeRouteIds}
+          segments={activeData?.segments ?? null}
+        />
+      )}
     </View>
   );
 }

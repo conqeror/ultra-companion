@@ -15,9 +15,9 @@ import { useEtaStore } from "@/store/etaStore";
 import { BOTTOM_PANEL_HEIGHT_RATIO, POI_CATEGORIES } from "@/constants";
 import { computeElevationProgress, computeSliceAscent } from "@/utils/geo";
 import { formatDistance, formatElevation, formatDuration, formatETA } from "@/utils/formatters";
+import { stitchPOIs } from "@/services/stitchingService";
 import UpcomingElevation from "./UpcomingElevation";
-import ElevationProfile from "@/components/elevation/ElevationProfile";
-import type { RoutePoint, PanelMode, POI } from "@/types";
+import type { RoutePoint, PanelMode, POI, ActiveRouteData } from "@/types";
 
 const MAX_SNAP_DISTANCE_M = 1000;
 const PANEL_CLASS = "absolute bottom-0 left-0 right-0 rounded-t-2xl shadow-lg overflow-hidden";
@@ -28,47 +28,55 @@ const WHATS_NEXT_ROW_HEIGHT = 48;
 const WHATS_NEXT_CATEGORIES = ["water", "groceries"] as const;
 
 /** Extract the numeric look-ahead in meters from an upcoming-* mode, or null */
-function lookAheadForMode(mode: PanelMode): number | "remaining" | null {
-  if (mode === "upcoming-5") return 5_000;
-  if (mode === "upcoming-10") return 10_000;
-  if (mode === "upcoming-20") return 20_000;
-  if (mode === "remaining") return "remaining";
+function lookAheadForMode(mode: PanelMode): number | null {
+  const match = mode.match(/^upcoming-(\d+)$/);
+  if (match) return parseInt(match[1], 10) * 1_000;
   return null;
 }
 
 interface BottomPanelProps {
-  activeRoutePoints: RoutePoint[] | null;
+  activeData: ActiveRouteData | null;
 }
 
-export default function BottomPanel({ activeRoutePoints }: BottomPanelProps) {
+export default function BottomPanel({ activeData }: BottomPanelProps) {
+  const activeRoutePoints = activeData?.points ?? null;
+  const activeId = activeData?.id ?? null;
+  const activeRouteIds = activeData?.routeIds ?? [];
+  const activeSegments = activeData?.segments ?? null;
+  const activeTotalDistance = activeData?.totalDistanceMeters ?? 0;
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const panelHeight = Math.round(screenHeight * BOTTOM_PANEL_HEIGHT_RATIO);
   const colors = useThemeColors();
 
   const panelMode = usePanelStore((s) => s.panelMode);
-  const routes = useRouteStore((s) => s.routes);
   const snappedPosition = useRouteStore((s) => s.snappedPosition);
   const units = useSettingsStore((s) => s.units);
   const setSelectedPOI = usePoiStore((s) => s.setSelectedPOI);
 
-  const activeRoute = useMemo(() => routes.find((r) => r.isActive) ?? null, [routes]);
   const isVisible = panelMode !== "none";
 
   const isSnapped =
     isVisible &&
     snappedPosition &&
-    activeRoute &&
-    snappedPosition.routeId === activeRoute.id &&
+    activeId &&
+    snappedPosition.routeId === activeId &&
     snappedPosition.distanceFromRouteMeters <= MAX_SNAP_DISTANCE_M;
 
   // Only starred POIs appear on the elevation profile
   const getStarredPOIs = usePoiStore((s) => s.getStarredPOIs);
   const starredPOIIds = usePoiStore((s) => s.starredPOIIds);
   const poisForChart = useMemo(() => {
-    if (!activeRoute) return [];
-    return getStarredPOIs(activeRoute.id);
-  }, [activeRoute, getStarredPOIs, starredPOIIds]);
-
+    if (!activeId || activeRouteIds.length === 0) return [];
+    if (activeSegments) {
+      // Race: stitch starred POIs with distance offsets
+      const poisByRoute: Record<string, POI[]> = {};
+      for (const routeId of activeRouteIds) {
+        poisByRoute[routeId] = getStarredPOIs(routeId);
+      }
+      return stitchPOIs(activeSegments, poisByRoute);
+    }
+    return getStarredPOIs(activeRouteIds[0]);
+  }, [activeId, activeRouteIds, activeSegments, getStarredPOIs, starredPOIIds]);
 
   // "What's Next" — next upcoming POI per priority category
   const getNextPOIPerCategory = usePoiStore((s) => s.getNextPOIPerCategory);
@@ -76,8 +84,31 @@ export default function BottomPanel({ activeRoutePoints }: BottomPanelProps) {
   const cumulativeTime = useEtaStore((s) => s.cumulativeTime);
 
   const whatsNextItems = useMemo(() => {
-    if (!isSnapped || !activeRoute) return [];
-    const nextPOIs = getNextPOIPerCategory(activeRoute.id, snappedPosition!.distanceAlongRouteMeters);
+    if (!isSnapped || !activeId) return [];
+    // For races: combine next POIs from all segments with distance offsets
+    let nextPOIs: Partial<Record<string, POI>> = {};
+    if (activeSegments) {
+      for (const seg of activeSegments) {
+        const segNext = getNextPOIPerCategory(
+          seg.routeId,
+          Math.max(0, snappedPosition!.distanceAlongRouteMeters - seg.distanceOffsetMeters),
+        );
+        for (const [cat, poi] of Object.entries(segNext)) {
+          if (!poi) continue;
+          const adjusted: POI = {
+            ...poi,
+            distanceAlongRouteMeters: poi.distanceAlongRouteMeters + seg.distanceOffsetMeters,
+          };
+          if (adjusted.distanceAlongRouteMeters <= snappedPosition!.distanceAlongRouteMeters) continue;
+          const existing = nextPOIs[cat];
+          if (!existing || adjusted.distanceAlongRouteMeters < existing.distanceAlongRouteMeters) {
+            nextPOIs[cat] = adjusted;
+          }
+        }
+      }
+    } else {
+      nextPOIs = getNextPOIPerCategory(activeRouteIds[0], snappedPosition!.distanceAlongRouteMeters);
+    }
     const items: { poi: POI; label: string; distText: string; etaText: string | null }[] = [];
 
     for (const catKey of WHATS_NEXT_CATEGORIES) {
@@ -96,37 +127,33 @@ export default function BottomPanel({ activeRoutePoints }: BottomPanelProps) {
       });
     }
     return items;
-  }, [isSnapped, activeRoute, snappedPosition, getNextPOIPerCategory, getETAToPOI, units, cumulativeTime]);
+  }, [isSnapped, activeId, activeRouteIds, activeSegments, snappedPosition, getNextPOIPerCategory, getETAToPOI, units, cumulativeTime]);
 
   // ETA to end of route
   const getETAToDistance = useEtaStore((s) => s.getETAToDistance);
 
   // Stats for the compact header
   const statsText = useMemo(() => {
-    if (!isSnapped || !activeRoute || !activeRoutePoints?.length) return null;
+    if (!isSnapped || !activeId || !activeRoutePoints?.length) return null;
     const idx = snappedPosition!.pointIndex;
     const distDone = activeRoutePoints[idx]?.distanceFromStartMeters ?? 0;
-    const distLeft = activeRoute.totalDistanceMeters - distDone;
+    const distLeft = activeTotalDistance - distDone;
     const elev = computeElevationProgress(activeRoutePoints, idx);
 
     // ETA to finish
-    const finishETA = getETAToDistance(activeRoute.totalDistanceMeters);
+    const finishETA = getETAToDistance(activeTotalDistance);
     const etaSuffix = finishETA && finishETA.ridingTimeSeconds > 0
       ? `~${formatDuration(finishETA.ridingTimeSeconds)} (${formatETA(finishETA.eta)})`
       : null;
 
-    // For upcoming-N modes, compute slice-specific stats
     const la = lookAheadForMode(panelMode);
-    if (typeof la === "number") {
-      const sliceAscent = computeSliceAscent(activeRoutePoints, idx, distDone + la);
-      const sliceDist = Math.min(la, distLeft);
-      const base = `${formatDistance(sliceDist, units)} / ${formatDistance(distLeft, units)} left  \u00B7  \u2191 ${formatElevation(sliceAscent, units)} / ${formatElevation(elev.ascentRemaining, units)}`;
-      return etaSuffix ? `${base}  \u00B7  ${etaSuffix}` : base;
-    }
+    if (la == null) return null;
 
-    const base = `${formatDistance(distLeft, units)} left  \u00B7  \u2191 ${formatElevation(elev.ascentRemaining, units)}`;
+    const sliceAscent = computeSliceAscent(activeRoutePoints, idx, distDone + la);
+    const sliceDist = Math.min(la, distLeft);
+    const base = `${formatDistance(sliceDist, units)} / ${formatDistance(distLeft, units)} left  \u00B7  \u2191 ${formatElevation(sliceAscent, units)} / ${formatElevation(elev.ascentRemaining, units)}`;
     return etaSuffix ? `${base}  \u00B7  ${etaSuffix}` : base;
-  }, [isSnapped, snappedPosition, activeRoute, activeRoutePoints, units, panelMode, getETAToDistance, cumulativeTime]);
+  }, [isSnapped, snappedPosition, activeId, activeTotalDistance, activeRoutePoints, units, panelMode, getETAToDistance, cumulativeTime]);
 
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [
@@ -141,11 +168,10 @@ export default function BottomPanel({ activeRoutePoints }: BottomPanelProps) {
 
   if (!isVisible) return null;
 
-  const lookAhead = lookAheadForMode(panelMode);
-  const isElevationMode = lookAhead !== null;
+  const lookAhead = lookAheadForMode(panelMode)!;
 
   // Edge case: no active route
-  if (!activeRoute || !activeRoutePoints?.length) {
+  if (!activeId || !activeRoutePoints?.length) {
     return (
       <Animated.View
         className={PANEL_CLASS}
@@ -218,30 +244,16 @@ export default function BottomPanel({ activeRoutePoints }: BottomPanelProps) {
           ))}
         </View>
       )}
-      {isElevationMode && (
-        <UpcomingElevation
-          points={activeRoutePoints}
-          currentPointIndex={effectivePointIndex}
-          lookAhead={lookAhead}
-          units={units}
-          width={chartWidth}
-          height={chartHeight}
-          pois={poisForChart}
-          onPOIPress={setSelectedPOI}
-        />
-      )}
-      {panelMode === "full" && (
-        <ElevationProfile
-          points={activeRoutePoints}
-          units={units}
-          width={chartWidth}
-          height={chartHeight}
-          currentPointIndex={effectivePointIndex}
-          showLegend={false}
-          pois={poisForChart}
-          onPOIPress={setSelectedPOI}
-        />
-      )}
+      <UpcomingElevation
+        points={activeRoutePoints}
+        currentPointIndex={effectivePointIndex}
+        lookAhead={lookAhead}
+        units={units}
+        width={chartWidth}
+        height={chartHeight}
+        pois={poisForChart}
+        onPOIPress={setSelectedPOI}
+      />
     </Animated.View>
   );
 }

@@ -25,11 +25,11 @@ export const LOOK_BACK_RATIO = 0.25;
 /** Panel modes in cycle order */
 export const PANEL_MODES = [
   "none",
-  "upcoming-5",
   "upcoming-10",
-  "upcoming-20",
-  "remaining",
-  "full",
+  "upcoming-25",
+  "upcoming-50",
+  "upcoming-100",
+  "upcoming-200",
 ] as const;
 
 // --- Phase 3: POI constants ---

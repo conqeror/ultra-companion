@@ -9,6 +9,11 @@ import { getOpeningHoursStatus } from "@/services/openingHoursParser";
 import { categoryColor, categoryLetter, ohStatusColorKey } from "@/constants/poiHelpers";
 import type { RoutePoint, UnitSystem, POI } from "@/types";
 
+interface SegmentBoundary {
+  distanceMeters: number;
+  label?: string;
+}
+
 interface ElevationProfileProps {
   points: RoutePoint[];
   units: UnitSystem;
@@ -22,6 +27,8 @@ interface ElevationProfileProps {
   pois?: POI[];
   /** Called when a POI marker is tapped */
   onPOIPress?: (poi: POI) => void;
+  /** Vertical boundary lines at segment junctions (for stitched races) */
+  segmentBoundaries?: SegmentBoundary[];
 }
 
 const PADDING = { top: 16, right: 16, bottom: 28, left: 48 };
@@ -110,6 +117,7 @@ export default function ElevationProfile({
   distanceOffsetMeters = 0,
   pois,
   onPOIPress,
+  segmentBoundaries,
 }: ElevationProfileProps) {
   const colors = useThemeColors();
   const chartWidth = width - PADDING.left - PADDING.right;
@@ -347,6 +355,26 @@ export default function ElevationProfile({
             <Circle cx={currentPos.x} cy={currentPos.y} r={5} fill={colors.accent} />
           </>
         )}
+
+        {/* Segment boundary lines */}
+        {segmentBoundaries?.map((b, i) => {
+          const localDist = b.distanceMeters - distanceOffsetMeters;
+          if (localDist <= 0 || localDist >= totalDist) return null;
+          const bx = PADDING.left + xScale(localDist);
+          return (
+            <Line
+              key={`seg-boundary-${i}`}
+              x1={bx}
+              y1={PADDING.top}
+              x2={bx}
+              y2={PADDING.top + chartHeight}
+              stroke={colors.border}
+              strokeWidth={1}
+              strokeDasharray="3,3"
+              opacity={0.6}
+            />
+          );
+        })}
 
         {/* POI markers */}
         {poiMarkers.map((m) => (
