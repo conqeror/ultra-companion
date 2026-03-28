@@ -37,6 +37,7 @@ export default function RaceDetailScreen() {
   const [segmentsWithRoutes, setSegmentsWithRoutes] = useState<RaceSegmentWithRoute[]>([]);
   const [stitched, setStitched] = useState<StitchedRace | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isBusy, setIsBusy] = useState(false);
   const [showAddSheet, setShowAddSheet] = useState(false);
 
   const races = useRaceStore((s) => s.races);
@@ -60,6 +61,17 @@ export default function RaceDetailScreen() {
     if (segs.length > 0) {
       try {
         const s = await stitchRace(id);
+        // Also load points for unselected variants (for ETA display)
+        const { getRoutePoints } = await import("@/db/database");
+        const unselectedRouteIds = segs
+          .filter((sw) => !sw.segment.isSelected && !s.pointsByRouteId[sw.route.id])
+          .map((sw) => sw.route.id);
+        const unselectedPoints = await Promise.all(
+          unselectedRouteIds.map((rid) => getRoutePoints(rid)),
+        );
+        for (let i = 0; i < unselectedRouteIds.length; i++) {
+          s.pointsByRouteId[unselectedRouteIds[i]] = unselectedPoints[i];
+        }
         setStitched(s);
         // Inject per-segment points for mini map RouteLayer rendering
         const { useRouteStore } = await import("@/store/routeStore");
@@ -100,9 +112,11 @@ export default function RaceDetailScreen() {
 
   const handleAddSegment = useCallback(async (routeId: string) => {
     if (!id) return;
-    await addSegment(id, routeId);
     setShowAddSheet(false);
+    setIsBusy(true);
+    await addSegment(id, routeId);
     await loadData();
+    setIsBusy(false);
   }, [id, addSegment, loadData]);
 
   const handleRemoveSegment = useCallback(async (routeId: string) => {
@@ -116,8 +130,10 @@ export default function RaceDetailScreen() {
           text: "Remove",
           style: "destructive",
           onPress: async () => {
+            setIsBusy(true);
             await removeSegment(id, routeId);
             await loadData();
+            setIsBusy(false);
           },
         },
       ],
@@ -126,20 +142,26 @@ export default function RaceDetailScreen() {
 
   const handleSelectVariant = useCallback(async (routeId: string) => {
     if (!id) return;
+    setIsBusy(true);
     await selectVariant(id, routeId);
     await loadData();
+    setIsBusy(false);
   }, [id, selectVariant, loadData]);
 
   const handleReorder = useCallback(async (positions: { routeId: string; position: number }[]) => {
     if (!id) return;
+    setIsBusy(true);
     const { updateSegmentPositions } = await import("@/db/database");
     await updateSegmentPositions(id, positions);
     await loadData();
+    setIsBusy(false);
   }, [id, loadData]);
 
   const handleSetActive = useCallback(async () => {
     if (!id) return;
+    setIsBusy(true);
     await setActiveRace(id);
+    setIsBusy(false);
   }, [id, setActiveRace]);
 
   const handleDelete = useCallback(() => {
@@ -265,6 +287,7 @@ export default function RaceDetailScreen() {
         <View className="px-4">
           <SegmentList
             segmentsWithRoutes={segmentsWithRoutes}
+            pointsByRouteId={stitched?.pointsByRouteId ?? {}}
             onSelectVariant={handleSelectVariant}
             onReorder={handleReorder}
             onRemove={handleRemoveSegment}
@@ -323,6 +346,12 @@ export default function RaceDetailScreen() {
         onAdd={handleAddSegment}
         existingRouteIds={existingRouteIds}
       />
+
+      {isBusy && (
+        <View className="absolute inset-0 items-center justify-center z-40 bg-background/60">
+          <ActivityIndicator size="large" color={colors.accent} />
+        </View>
+      )}
     </>
   );
 }
