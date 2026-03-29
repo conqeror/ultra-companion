@@ -1,0 +1,2 @@
+tap --label 'Close POI list' --post-delay 0.5
+tap --label 'Cycle bottom panel mode' --post-delay 0.8

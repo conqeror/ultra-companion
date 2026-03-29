@@ -1,0 +1,1 @@
+swipe --start-x 195 --start-y 600 --end-x 195 --end-y 200 --duration 0.3 --post-delay 0.5

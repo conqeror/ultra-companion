@@ -29,6 +29,9 @@ yarn-error.*
 # Claude Code
 .claude/
 
+# AXe screenshots (generated)
+.axe-screenshots/
+
 # macOS
 .DS_Store
 *.pem

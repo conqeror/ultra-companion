@@ -1,0 +1,1 @@
+tap --label 'Toggle weather' --post-delay 1

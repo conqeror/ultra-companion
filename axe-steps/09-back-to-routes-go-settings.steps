@@ -1,0 +1,2 @@
+tap --label 'Routes' --post-delay 0.5
+tap --label 'Settings, tab, 3 of 3' --post-delay 1

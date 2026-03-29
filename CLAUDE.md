@@ -55,6 +55,18 @@ Detailed specs live in `docs/` — read these before starting any implementation
 - `npx expo run:ios` — build and run on iOS simulator
 - `npx tsc --noEmit` — type-check without emitting
 
+## UI Testing (AXe)
+
+AXe CLI (`axe`) automates the iOS simulator via Accessibility APIs. Use it to self-check UI after making changes.
+
+- `./scripts/smoke-test.sh` — navigate all tabs, take screenshots to `.axe-screenshots/`
+- Screenshots: read with `Read` tool to visually verify UI after changes
+- Works on the main dev simulator (iOS 26.1) — no separate device needed
+- `axe tap --label "Label" --udid $UDID` — tap by accessibility label
+- `axe screenshot --udid $UDID --output file.png` — capture screen
+- `axe describe-ui --udid $UDID` — dump accessibility tree (find labels/IDs)
+- Tab labels: `"Map, tab, 1 of 3"`, `"Routes, tab, 2 of 3"`, `"Settings, tab, 3 of 3"`
+
 ## Implementation Phases
 
 - [x] Phase 1: Map + GPS foundation

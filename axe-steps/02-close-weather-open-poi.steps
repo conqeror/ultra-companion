@@ -1,0 +1,2 @@
+tap --label 'Close weather' --post-delay 0.5
+tap --label 'Show POI list' --post-delay 1
