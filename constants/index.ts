@@ -78,7 +78,7 @@ export const DEFAULT_POWER_CONFIG: PowerModelConfig = {
   cda: 0.4,
   crr: 0.005,
   airDensity: 1.225,
-  maxDescentSpeedKmh: 60,
+  maxDescentSpeedKmh: 50,
   drivetrainEfficiency: 0.97,
 };
 

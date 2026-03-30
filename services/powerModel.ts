@@ -14,6 +14,11 @@ const NEWTON_TOLERANCE = 1e-6;
  * where F_resist = Crr * m * g * cos(θ) + m * g * sin(θ)
  *
  * Solved via Newton's method.
+ *
+ * Descent corrections (gradient < 0):
+ * - Power fades linearly from full at 0% to 0W at -8% (riders coast downhill)
+ * - CdA increases 1.5× (upright position, bags catch wind)
+ * - Steep descents (< -9%) apply a braking factor for switchbacks
  */
 export function solveVelocity(
   gradientFraction: number,
@@ -23,16 +28,33 @@ export function solveVelocity(
   const cosTheta = Math.cos(theta);
   const sinTheta = Math.sin(theta);
 
-  const pEff = config.powerWatts * config.drivetrainEfficiency;
-  const a = 0.5 * config.airDensity * config.cda; // coefficient of v³
-  const fResist = config.crr * config.totalMassKg * G * cosTheta
-    + config.totalMassKg * G * sinTheta;
+  // On descents riders coast (reduced power) and sit upright (higher drag)
+  const isDescending = gradientFraction < 0;
+  const effectivePower = isDescending
+    ? config.powerWatts * Math.max(0, 1 + gradientFraction / 0.08)
+    : config.powerWatts;
+  const effectiveCda = isDescending ? config.cda * 1.5 : config.cda;
+
+  const pEff = effectivePower * config.drivetrainEfficiency;
+  const a = 0.5 * config.airDensity * effectiveCda; // coefficient of v³
+  const fResist =
+    config.crr * config.totalMassKg * G * cosTheta +
+    config.totalMassKg * G * sinTheta;
 
   const maxDescentMs = config.maxDescentSpeedKmh / 3.6;
 
   // f(v) = a * v³ + fResist * v - pEff
   // f'(v) = 3 * a * v² + fResist
-  let v = 5.0; // initial guess m/s
+  //
+  // On descents fResist < 0, so the standard initial guess (5 m/s) causes
+  // Newton's method to diverge. Use the coasting equilibrium speed
+  // (gravity = drag, no pedaling) as a starting point instead.
+  let v: number;
+  if (fResist < 0) {
+    v = Math.sqrt(-fResist / a);
+  } else {
+    v = 5.0;
+  }
 
   for (let i = 0; i < NEWTON_MAX_ITER; i++) {
     const fv = a * v * v * v + fResist * v - pEff;
@@ -51,6 +73,13 @@ export function solveVelocity(
   // Apply bounds
   v = Math.max(v, MIN_SPEED_MS);
   v = Math.min(v, maxDescentMs);
+
+  // Steep descent braking: switchbacks limit achievable speed
+  if (gradientFraction < -0.09) {
+    const minDescentMs = 20 / 3.6;
+    const brakeFactor = Math.max(0.2, 1 + (gradientFraction + 0.09) * 10);
+    v = Math.max(v * brakeFactor, minDescentMs);
+  }
 
   return v;
 }
