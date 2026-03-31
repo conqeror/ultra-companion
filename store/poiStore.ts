@@ -5,6 +5,7 @@ import { DEFAULT_CORRIDOR_WIDTH_M, POI_CATEGORIES } from "@/constants";
 import { getPOIsForRoute } from "@/db/database";
 import { fetchAndStorePOIs } from "@/services/poiFetcher";
 import { getOpeningHoursStatus } from "@/services/openingHoursParser";
+import { usePanelStore } from "./panelStore";
 
 let storage: MMKV | null = null;
 
@@ -196,7 +197,10 @@ export const usePoiStore = create<POIState>((set, get) => ({
     });
   },
 
-  setSelectedPOI: (poi) => set({ selectedPOI: poi }),
+  setSelectedPOI: (poi) => {
+    set({ selectedPOI: poi });
+    usePanelStore.getState().setBottomSheet(poi ? "poi" : null);
+  },
   setShowPOIList: (show) => set({ showPOIList: show }),
 
   getVisiblePOIs: (routeId) => {

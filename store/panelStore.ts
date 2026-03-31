@@ -20,10 +20,17 @@ function readString(key: string): string | undefined {
   }
 }
 
+export type BottomSheet = "poi" | "weather" | null;
+
 interface PanelState {
   panelMode: PanelMode;
   cyclePanelMode: () => void;
   setPanelMode: (mode: PanelMode) => void;
+
+  /** Which overlay sheet is active — only one at a time */
+  bottomSheet: BottomSheet;
+  setBottomSheet: (sheet: BottomSheet) => void;
+  toggleBottomSheet: (sheet: "poi" | "weather") => void;
 }
 
 function readPanelMode(): PanelMode {
@@ -46,5 +53,13 @@ export const usePanelStore = create<PanelState>((set, get) => ({
   setPanelMode: (panelMode) => {
     try { getStorage().set("panelMode", panelMode); } catch {}
     set({ panelMode });
+  },
+
+  bottomSheet: null,
+
+  setBottomSheet: (sheet) => set({ bottomSheet: sheet }),
+
+  toggleBottomSheet: (sheet) => {
+    set((s) => ({ bottomSheet: s.bottomSheet === sheet ? null : sheet }));
   },
 }));

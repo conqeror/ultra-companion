@@ -53,7 +53,8 @@ export default function BottomPanel({ activeData }: BottomPanelProps) {
   const units = useSettingsStore((s) => s.units);
   const setSelectedPOI = usePoiStore((s) => s.setSelectedPOI);
 
-  const isVisible = panelMode !== "none";
+  const bottomSheet = usePanelStore((s) => s.bottomSheet);
+  const isVisible = panelMode !== "none" && bottomSheet == null;
 
   const isSnapped =
     isVisible &&

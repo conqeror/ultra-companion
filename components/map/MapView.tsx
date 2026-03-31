@@ -46,7 +46,6 @@ export default function MapScreen() {
   const mapRef = useRef<MapboxMapView>(null);
   const [hasGpsFix, setHasGpsFix] = useState(false);
   const [initialCameraSet, setInitialCameraSet] = useState(false);
-  const [showWeather, setShowWeather] = useState(false);
   const { height: screenHeight } = useWindowDimensions();
 
   const { followUser, userPosition, setFollowUser } = useMapStore();
@@ -54,7 +53,9 @@ export default function MapScreen() {
   const isRefreshing = useMapStore((s) => s.isRefreshing);
 
   const panelMode = usePanelStore((s) => s.panelMode);
-  const panelOpen = panelMode !== "none";
+  const bottomSheet = usePanelStore((s) => s.bottomSheet);
+  const toggleBottomSheet = usePanelStore((s) => s.toggleBottomSheet);
+  const panelOpen = panelMode !== "none" && bottomSheet == null;
   const panelHeight = Math.round(screenHeight * BOTTOM_PANEL_HEIGHT_RATIO);
 
   const routes = useRouteStore((s) => s.routes);
@@ -211,8 +212,8 @@ export default function MapScreen() {
     paddingTop: 0,
     paddingLeft: 0,
     paddingRight: 0,
-    paddingBottom: panelOpen ? panelHeight : 0,
-  }), [panelOpen, panelHeight]);
+    paddingBottom: panelHeight,
+  }), [panelHeight]);
 
   const pulsingConfig = useMemo(
     () => ({ isEnabled: true, color: themeColors.accent, radius: 40 }),
@@ -269,14 +270,16 @@ export default function MapScreen() {
         followUser={followUser}
         onRefreshPosition={handleRefreshPosition}
         isRefreshing={isRefreshing}
-        showWeather={showWeather}
-        onToggleWeather={() => setShowWeather((v) => !v)}
+        showWeather={bottomSheet === "weather"}
+        onToggleWeather={() => toggleBottomSheet("weather")}
         activeRouteIds={activeRouteIds}
         mapRef={mapRef}
         cameraRef={cameraRef}
       />
       <BottomPanel activeData={activeData} />
-      {showWeather && <WeatherBottomSheet onClose={() => setShowWeather(false)} />}
+      {bottomSheet === "weather" && (
+        <WeatherBottomSheet onClose={() => toggleBottomSheet("weather")} />
+      )}
       <POIDetailSheet />
       {activeRouteIds.length > 0 && (
         <POIListView

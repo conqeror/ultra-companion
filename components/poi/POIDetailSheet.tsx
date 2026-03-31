@@ -27,6 +27,7 @@ import { ohStatusColorKey } from "@/constants/poiHelpers";
 import { formatDistance, formatDuration, formatETA } from "@/utils/formatters";
 import { getOpeningHoursStatus, isOpenAt } from "@/services/openingHoursParser";
 import { useEtaStore } from "@/store/etaStore";
+import { usePanelStore } from "@/store/panelStore";
 
 const ICON_MAP: Record<string, React.ComponentType<any>> = {
   Droplets,
@@ -49,8 +50,9 @@ export default function POIDetailSheet() {
   const toggleStarred = usePoiStore((s) => s.toggleStarred);
   const starredPOIIds = usePoiStore((s) => s.starredPOIIds);
   const isStarred = selectedPOI ? starredPOIIds.has(selectedPOI.id) : false;
+  const bottomSheet = usePanelStore((s) => s.bottomSheet);
 
-  const isVisible = selectedPOI != null;
+  const isVisible = selectedPOI != null && bottomSheet === "poi";
 
   const catMeta = useMemo(
     () =>
