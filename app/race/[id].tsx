@@ -14,8 +14,8 @@ import { useThemeColors } from "@/theme";
 import { useRaceStore } from "@/store/raceStore";
 import { useRouteStore } from "@/store/routeStore";
 import { useSettingsStore } from "@/store/settingsStore";
-import { MAP_STYLE_URL } from "@/types";
 import type { Race, RaceSegmentWithRoute, StitchedRace } from "@/types";
+import { useMapStyle } from "@/hooks/useMapStyle";
 import { formatDistance, formatElevation } from "@/utils/formatters";
 import { computeBounds } from "@/utils/geo";
 import { stitchRace } from "@/services/stitchingService";
@@ -32,6 +32,7 @@ export default function RaceDetailScreen() {
   const { width: screenWidth } = useWindowDimensions();
   const cameraRef = useRef<Camera>(null);
   const colors = useThemeColors();
+  const mapStyle = useMapStyle();
 
   const [race, setRace] = useState<Race | null>(null);
   const [segmentsWithRoutes, setSegmentsWithRoutes] = useState<RaceSegmentWithRoute[]>([]);
@@ -223,7 +224,7 @@ export default function RaceDetailScreen() {
           <View className="h-[250px] mx-4 mt-4 rounded-xl overflow-hidden">
             <MapboxMapView
               style={{ flex: 1 }}
-              styleURL={MAP_STYLE_URL}
+              {...mapStyle.props}
               compassEnabled={false}
               scaleBarEnabled={false}
               rotateEnabled={false}
@@ -252,7 +253,7 @@ export default function RaceDetailScreen() {
                 if (!points) return null;
                 return (
                   <RouteLayer
-                    key={route.id}
+                    key={`${route.id}-${mapStyle.styleKey}`}
                     route={{ ...route, isActive: true }}
                     points={points}
                   />

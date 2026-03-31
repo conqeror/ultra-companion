@@ -12,7 +12,7 @@ import { useRouteStore } from "@/store/routeStore";
 import { useRaceStore } from "@/store/raceStore";
 import { usePanelStore } from "@/store/panelStore";
 import { useThemeColors } from "@/theme";
-import { MAP_STYLE_URL } from "@/types";
+import { useMapStyle } from "@/hooks/useMapStyle";
 import { DEFAULT_ZOOM, BOTTOM_PANEL_HEIGHT_RATIO, GPS_STALE_THRESHOLD_MS } from "@/constants";
 import MapControls from "./MapControls";
 import RouteLayer from "./RouteLayer";
@@ -41,6 +41,7 @@ try {
 
 export default function MapScreen() {
   const themeColors = useThemeColors();
+  const mapStyle = useMapStyle();
   const cameraRef = useRef<Camera>(null);
   const mapRef = useRef<MapboxMapView>(null);
   const [hasGpsFix, setHasGpsFix] = useState(false);
@@ -223,7 +224,7 @@ export default function MapScreen() {
       <MapboxMapView
         ref={mapRef}
         style={{ flex: 1 }}
-        styleURL={MAP_STYLE_URL}
+        {...mapStyle.props}
         compassEnabled={false}
         scaleBarEnabled={false}
         rotateEnabled={false}
@@ -247,14 +248,14 @@ export default function MapScreen() {
             const styledRoute = isActive !== route.isActive ? { ...route, isActive } : route;
             return (
               <RouteLayer
-                key={route.id}
+                key={`${route.id}-${mapStyle.styleKey}`}
                 route={styledRoute}
                 points={visibleRoutePoints[route.id]}
               />
             );
           })}
         {activeRouteIds.length > 0 && (
-          <POILayer routeIds={activeRouteIds} />
+          <POILayer key={mapStyle.styleKey} routeIds={activeRouteIds} />
         )}
         <LocationPuck
           puckBearing="heading"
@@ -271,6 +272,8 @@ export default function MapScreen() {
         showWeather={showWeather}
         onToggleWeather={() => setShowWeather((v) => !v)}
         activeRouteIds={activeRouteIds}
+        mapRef={mapRef}
+        cameraRef={cameraRef}
       />
       <BottomPanel activeData={activeData} />
       {showWeather && <WeatherBottomSheet onClose={() => setShowWeather(false)} />}

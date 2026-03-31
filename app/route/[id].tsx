@@ -13,8 +13,8 @@ import { useThemeColors } from "@/theme";
 import { useRouteStore } from "@/store/routeStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import { usePoiStore } from "@/store/poiStore";
-import { MAP_STYLE_URL } from "@/types";
 import type { RouteWithPoints } from "@/types";
+import { useMapStyle } from "@/hooks/useMapStyle";
 import { formatDistance, formatElevation } from "@/utils/formatters";
 import { computeElevationProgress, computeBounds } from "@/utils/geo";
 import ElevationProfile from "@/components/elevation/ElevationProfile";
@@ -27,6 +27,7 @@ export default function RouteDetailScreen() {
   const { width: screenWidth } = useWindowDimensions();
   const cameraRef = useRef<Camera>(null);
   const colors = useThemeColors();
+  const mapStyle = useMapStyle();
 
   const [route, setRoute] = useState<RouteWithPoints | null>(null);
   const [loading, setLoading] = useState(true);
@@ -107,7 +108,7 @@ export default function RouteDetailScreen() {
         <View className="h-[250px] mx-4 mt-4 rounded-xl overflow-hidden">
           <MapboxMapView
             style={{ flex: 1 }}
-            styleURL={MAP_STYLE_URL}
+            {...mapStyle.props}
             compassEnabled={false}
             scaleBarEnabled={false}
             rotateEnabled={false}
@@ -131,7 +132,7 @@ export default function RouteDetailScreen() {
                   : undefined
               }
             />
-            <RouteLayer route={route} points={route.points} />
+            <RouteLayer key={mapStyle.styleKey} route={route} points={route.points} />
           </MapboxMapView>
         </View>
 

@@ -1,11 +1,12 @@
 import React from "react";
 import { View, TouchableOpacity, useWindowDimensions } from "react-native";
 import { Text } from "@/components/ui/text";
-import { Locate, LocateFixed, Mountain, List, RefreshCw, CloudSun } from "lucide-react-native";
+import { Locate, LocateFixed, Mountain, List, RefreshCw, CloudSun, Plus, Minus } from "lucide-react-native";
 import Animated, { useAnimatedStyle, withRepeat, withTiming, Easing } from "react-native-reanimated";
 import { cn } from "@/lib/cn";
 import { useThemeColors } from "@/theme";
 import { usePanelStore } from "@/store/panelStore";
+import type { Camera, MapView as MapboxMapView } from "@rnmapbox/maps";
 import { usePoiStore } from "@/store/poiStore";
 import { BOTTOM_PANEL_HEIGHT_RATIO } from "@/constants";
 import PositionAgeIndicator from "./PositionAgeIndicator";
@@ -20,6 +21,8 @@ interface MapControlsProps {
   showWeather: boolean;
   onToggleWeather: () => void;
   activeRouteIds: string[];
+  mapRef?: React.RefObject<MapboxMapView | null>;
+  cameraRef?: React.RefObject<Camera | null>;
 }
 
 function PanelIcon({ mode, color }: { mode: PanelMode; color: string }) {
@@ -56,8 +59,19 @@ export default function MapControls({
   showWeather,
   onToggleWeather,
   activeRouteIds,
+  mapRef,
+  cameraRef,
 }: MapControlsProps) {
   const colors = useThemeColors();
+
+  const handleZoom = async (delta: number) => {
+    const zoom = await mapRef?.current?.getZoom();
+    if (zoom == null) return;
+    cameraRef?.current?.setCamera({
+      zoomLevel: zoom + delta,
+      animationDuration: 300,
+    });
+  };
   const panelMode = usePanelStore((s) => s.panelMode);
   const cyclePanelMode = usePanelStore((s) => s.cyclePanelMode);
   const panelOpen = panelMode !== "none";
@@ -117,6 +131,26 @@ export default function MapControls({
         >
           <CloudSun size={22} color={showWeather ? colors.accentForeground : colors.textPrimary} />
         </TouchableOpacity>
+
+        {mapRef && (
+          <View className="mt-3 rounded-xl overflow-hidden border border-border-subtle bg-card/95 shadow-md">
+            <TouchableOpacity
+              className="w-[52px] h-[40px] items-center justify-center"
+              onPress={() => handleZoom(1)}
+              accessibilityLabel="Zoom in"
+            >
+              <Plus size={20} color={colors.textPrimary} />
+            </TouchableOpacity>
+            <View className="h-[1px] bg-border-subtle" />
+            <TouchableOpacity
+              className="w-[52px] h-[40px] items-center justify-center"
+              onPress={() => handleZoom(-1)}
+              accessibilityLabel="Zoom out"
+            >
+              <Minus size={20} color={colors.textPrimary} />
+            </TouchableOpacity>
+          </View>
+        )}
 
         <PositionAgeIndicator />
         <ConnectivityIndicator />
