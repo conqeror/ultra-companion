@@ -76,11 +76,11 @@ AXe CLI (`axe`) automates the iOS simulator via Accessibility APIs. Use it to se
 - [x] Phase 4b: Offline support (tile download, storage management)
 - [x] Phase 5: Weather
 - [x] Phase 6: Route collections + stitching (races)
-- [ ] Phase 7: POI enhancements (starred POIs, open/closed highlighting)
-- [ ] Phase 8: Dark outdoor map style
+- [~] Phase 7: POI enhancements (starred POIs done, open/closed on map deferred)
+- [x] Phase 8: Dark outdoor map style
 
 ## Current Phase
 
-Phase 7 — POI enhancements. See `docs/ideas.md` for scope.
+Phase 7 — POI enhancements. See `docs/ideas.md` for remaining scope.
 
 When starting a phase, read the phase spec doc for detailed steps.
