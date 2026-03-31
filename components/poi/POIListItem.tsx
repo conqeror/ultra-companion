@@ -100,11 +100,8 @@ export default function POIListItem({
           </Text>
         </View>
         <View className="flex-row items-center mt-1">
-          <Text className="text-[12px] text-muted-foreground font-barlow">
-            {Math.round(poi.distanceFromRouteMeters)} m off route
-          </Text>
           {ohStatus && (
-            <View className="flex-row items-center ml-2">
+            <View className="flex-row items-center">
               <View
                 className="w-[6px] h-[6px] rounded-full"
                 style={{ backgroundColor: ohColor }}
@@ -114,8 +111,19 @@ export default function POIListItem({
                 style={{ color: ohColor }}
               >
                 {ohStatus.label}
+                {ohStatus.detail ? ` · ${ohStatus.detail}` : ""}
               </Text>
             </View>
+          )}
+          {ohStatus && poi.distanceFromRouteMeters > 50 && (
+            <Text className="text-[11px] text-muted-foreground/60 font-barlow ml-2">
+              {Math.round(poi.distanceFromRouteMeters)} m off
+            </Text>
+          )}
+          {!ohStatus && poi.distanceFromRouteMeters > 50 && (
+            <Text className="text-[11px] text-muted-foreground/60 font-barlow">
+              {Math.round(poi.distanceFromRouteMeters)} m off route
+            </Text>
           )}
         </View>
       </View>

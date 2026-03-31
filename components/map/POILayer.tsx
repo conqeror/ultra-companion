@@ -41,6 +41,7 @@ export default function POILayer({ routeIds }: POILayerProps) {
           category: poi.category,
           color: categoryColorMap[poi.category] ?? "#888888",
           name: poi.name ?? "",
+          starred: starredPOIIds.has(poi.id) ? 1 : 0,
         },
         geometry: {
           type: "Point",
@@ -48,7 +49,7 @@ export default function POILayer({ routeIds }: POILayerProps) {
         },
       })),
     }),
-    [visiblePOIs],
+    [visiblePOIs, starredPOIIds],
   );
 
   const handlePress = useCallback(
@@ -97,8 +98,30 @@ export default function POILayer({ routeIds }: POILayerProps) {
       onPress={handlePress}
       hitbox={{ width: 16, height: 16 }}
     >
+      {/* Starred POIs: gold ring, larger, visible from zoom 8 */}
+      <CircleLayer
+        id="poi-starred-outline"
+        filter={["==", ["get", "starred"], 1]}
+        style={{
+          circleRadius: 10,
+          circleColor: colors.warning,
+        }}
+        minZoomLevel={8}
+      />
+      <CircleLayer
+        id="poi-starred-fill"
+        filter={["==", ["get", "starred"], 1]}
+        style={{
+          circleRadius: 7,
+          circleColor: ["get", "color"],
+        }}
+        minZoomLevel={8}
+      />
+
+      {/* Regular POIs: surface-colored ring, visible from zoom 10 */}
       <CircleLayer
         id="poi-circles-outline"
+        filter={["==", ["get", "starred"], 0]}
         style={{
           circleRadius: 7,
           circleColor: colors.surface,
@@ -107,6 +130,7 @@ export default function POILayer({ routeIds }: POILayerProps) {
       />
       <CircleLayer
         id="poi-circles"
+        filter={["==", ["get", "starred"], 0]}
         style={{
           circleRadius: 5,
           circleColor: ["get", "color"],
