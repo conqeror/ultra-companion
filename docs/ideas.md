@@ -23,6 +23,8 @@ Dump for future feature ideas, UX improvements, and things to consider later.
 ### POI
 - Custom POI icons on the map (category-specific symbols instead of colored circles)
 - POI clustering at low zoom levels to reduce visual clutter
+- Google Places for gas stations & groceries — see `docs/google-places-plan.md`
+- "View in Google Maps" action on POI detail — deep link to Google Maps for a POI's coordinates, zero API cost
 
 ### Map
 - Accommodation POIs — add hotels/hostels/campsites from OSM via existing Overpass pipeline, plus a deep link to Booking.com search by coordinates when online. Booking.com API itself is not viable (requires affiliate programme, prohibits offline caching >24h)

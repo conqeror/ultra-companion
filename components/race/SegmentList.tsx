@@ -6,10 +6,11 @@ import {
   RenderItemParams,
 } from "react-native-draggable-flatlist";
 import { Text } from "@/components/ui/text";
-import { GripVertical, X } from "lucide-react-native";
+import { GripVertical, X, ChevronRight } from "lucide-react-native";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
 import { useThemeColors } from "@/theme";
+import { useRouter } from "expo-router";
 import { useSettingsStore } from "@/store/settingsStore";
 import { useEtaStore } from "@/store/etaStore";
 import { computeRouteETA } from "@/services/etaCalculator";
@@ -78,6 +79,7 @@ function SegmentRow({
 }) {
   const colors = useThemeColors();
   const units = useSettingsStore((s) => s.units);
+  const router = useRouter();
   const ridingTime = useSegmentTime(points);
 
   return (
@@ -116,12 +118,11 @@ function SegmentRow({
         </TouchableOpacity>
       )}
 
-      {/* Center: segment info */}
+      {/* Center: segment info — tap to open route detail */}
       <TouchableOpacity
         className="flex-1 mr-2"
-        onPress={onSelect}
-        activeOpacity={hasVariants && !isSelected ? 0.7 : 1}
-        disabled={isSelected || !hasVariants}
+        onPress={() => router.push(`/route/${sw.route.id}`)}
+        activeOpacity={0.7}
       >
         <Text
           className={cn(
@@ -142,7 +143,13 @@ function SegmentRow({
         </Text>
       </TouchableOpacity>
 
-      {/* Right: remove button */}
+      {/* Right: chevron + remove */}
+      <TouchableOpacity
+        className="w-[36px] h-[48px] items-center justify-center"
+        onPress={() => router.push(`/route/${sw.route.id}`)}
+      >
+        <ChevronRight size={18} color={colors.textTertiary} />
+      </TouchableOpacity>
       {(isSelected || hasVariants) && (
         <TouchableOpacity
           className="w-[48px] h-[48px] items-center justify-center"
