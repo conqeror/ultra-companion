@@ -8,7 +8,7 @@ export default {
     ],
   },
   migrations: {
-    "0000_misty_true_believers": `CREATE TABLE \`pois\` (
+    "m0000": `CREATE TABLE \`pois\` (
 	\`id\` text PRIMARY KEY NOT NULL,
 	\`sourceId\` text NOT NULL,
 	\`source\` text DEFAULT 'osm' NOT NULL,

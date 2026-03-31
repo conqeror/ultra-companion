@@ -13,12 +13,13 @@ const journal = JSON.parse(readFileSync(join(drizzleDir, "meta", "_journal.json"
 
 const sqlFiles = readdirSync(drizzleDir).filter((f) => f.endsWith(".sql")).sort();
 
-const migrationEntries = sqlFiles.map((file) => {
-  const tag = file.replace(".sql", "");
+const migrationEntries = sqlFiles.map((file, i) => {
   const sql = readFileSync(join(drizzleDir, file), "utf-8");
   // Escape backticks and ${} for template literal embedding
   const escaped = sql.replace(/\\/g, "\\\\").replace(/`/g, "\\`").replace(/\$\{/g, "\\${");
-  return `    "${tag}": \`${escaped}\``;
+  // Drizzle migrator looks up by `m${idx.padStart(4, '0')}`, not by tag name
+  const key = `m${String(i).padStart(4, "0")}`;
+  return `    "${key}": \`${escaped}\``;
 });
 
 const journalEntries = journal.entries.map(
