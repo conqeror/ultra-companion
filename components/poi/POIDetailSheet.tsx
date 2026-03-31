@@ -23,10 +23,11 @@ import { useThemeColors } from "@/theme";
 import { useSettingsStore } from "@/store/settingsStore";
 import { useRouteStore } from "@/store/routeStore";
 import { usePoiStore } from "@/store/poiStore";
+import { useActiveRouteData } from "@/hooks/useActiveRouteData";
 import { POI_CATEGORIES } from "@/constants";
 import { ohStatusColorKey } from "@/constants/poiHelpers";
 import { formatDistance, formatDuration, formatETA } from "@/utils/formatters";
-import { getOpeningHoursStatus, isOpenAt } from "@/services/openingHoursParser";
+import { getOpeningHoursStatus, isOpenAt, getDaySchedules } from "@/services/openingHoursParser";
 import { useEtaStore } from "@/store/etaStore";
 import { usePanelStore } from "@/store/panelStore";
 
@@ -66,13 +67,21 @@ export default function POIDetailSheet() {
 
   const IconComp = catMeta ? ICON_MAP[catMeta.iconName] : null;
 
+  const activeData = useActiveRouteData();
+
   const distAhead = useMemo(() => {
     if (!selectedPOI || !snappedPosition) return null;
-    return (
-      selectedPOI.distanceAlongRouteMeters -
-      snappedPosition.distanceAlongRouteMeters
-    );
-  }, [selectedPOI, snappedPosition]);
+    // In race mode, the POI's distanceAlongRouteMeters is per-segment.
+    // Add the segment offset to get the cumulative race distance.
+    let poiDist = selectedPOI.distanceAlongRouteMeters;
+    if (activeData?.segments) {
+      const seg = activeData.segments.find(
+        (s) => s.routeId === selectedPOI.nearestRouteId,
+      );
+      if (seg) poiDist = selectedPOI.distanceAlongRouteMeters + seg.distanceOffsetMeters;
+    }
+    return poiDist - snappedPosition.distanceAlongRouteMeters;
+  }, [selectedPOI, snappedPosition, activeData]);
 
   const getETAToPOI = useEtaStore((s) => s.getETAToPOI);
 
@@ -99,6 +108,11 @@ export default function POIDetailSheet() {
     return ohStatus.label;
   }, [ohStatus]);
 
+  const daySchedules = useMemo(
+    () => (openingHoursRaw ? getDaySchedules(openingHoursRaw) : null),
+    [openingHoursRaw],
+  );
+
   const etaOpenStatus = useMemo(() => {
     if (!etaResult || !openingHoursRaw) return null;
     return isOpenAt(openingHoursRaw, etaResult.eta);
@@ -107,6 +121,9 @@ export default function POIDetailSheet() {
   const address = useMemo(() => {
     if (!selectedPOI) return null;
     const t = selectedPOI.tags;
+    // Google POIs have formatted_address
+    if (t.formatted_address) return t.formatted_address;
+    // OSM POIs: assemble from addr:* tags
     const parts: string[] = [];
     if (t["addr:street"]) {
       const num = t["addr:housenumber"] ? ` ${t["addr:housenumber"]}` : "";
@@ -115,6 +132,8 @@ export default function POIDetailSheet() {
     if (t["addr:city"]) parts.push(t["addr:city"]);
     return parts.length > 0 ? parts.join(", ") : null;
   }, [selectedPOI]);
+
+  const isGooglePOI = selectedPOI?.source === "google";
 
   const phone =
     selectedPOI?.tags?.phone ?? selectedPOI?.tags?.["contact:phone"] ?? null;
@@ -241,6 +260,22 @@ export default function POIDetailSheet() {
           </View>
         )}
 
+        {/* Day schedules */}
+        {daySchedules && ohStatus?.detail !== "24/7" && (
+          <View className="ml-6 mt-1">
+            {daySchedules.map((ds) => (
+              <View key={ds.label} className="flex-row items-center mt-0.5">
+                <Text className="text-[13px] text-muted-foreground font-barlow-medium w-[72px]">
+                  {ds.label}
+                </Text>
+                <Text className="text-[13px] text-muted-foreground font-barlow-sc-medium">
+                  {ds.hours}
+                </Text>
+              </View>
+            ))}
+          </View>
+        )}
+
         {/* Address */}
         {address && (
           <View className="flex-row items-center mt-3">
@@ -253,12 +288,19 @@ export default function POIDetailSheet() {
 
         {/* Phone */}
         {phone && (
-          <View className="flex-row items-center mt-3 mb-4">
+          <View className="flex-row items-center mt-3">
             <Phone size={15} color={colors.textSecondary} />
             <Text className="ml-2 text-[14px] text-muted-foreground font-barlow">
               {phone}
             </Text>
           </View>
+        )}
+
+        {/* Google attribution */}
+        {isGooglePOI && (
+          <Text className="text-[11px] text-muted-foreground font-barlow mt-4 mb-4">
+            Powered by Google
+          </Text>
         )}
       </ScrollView>
     </Animated.View>

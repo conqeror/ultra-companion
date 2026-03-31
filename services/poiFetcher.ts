@@ -1,14 +1,86 @@
-import type { POI, RoutePoint } from "@/types";
+import Constants from "expo-constants";
+import type { POI, POISource, RoutePoint } from "@/types";
 import { fetchAllPOIs } from "./overpassClient";
-import { mapOverpassToPOIs } from "./poiClassifier";
-import { batchLookupElevations, coordKey } from "./elevationLookup";
+import { mapOverpassToPOIs, type ClassifiedPOI } from "./poiClassifier";
+import { fetchGooglePlacesPOIs } from "./googlePlacesClient";
 import { computePOIRouteAssociation } from "@/utils/geo";
-import { insertPOIs, deletePOIsForRoute } from "@/db/database";
-import { POI_MAX_ELEVATION_DIFF_M } from "@/constants";
+import {
+  insertPOIs,
+  deletePOIsBySource,
+} from "@/db/database";
+
+/** Associate classified POIs with route and filter by corridor */
+function associateAndFilter(
+  classified: ClassifiedPOI[],
+  routeId: string,
+  routePoints: RoutePoint[],
+  corridorWidthM: number,
+  source: POISource,
+): POI[] {
+  const pois: POI[] = [];
+  for (const c of classified) {
+    const assoc = computePOIRouteAssociation(c.latitude, c.longitude, routePoints);
+    if (assoc.distanceFromRouteMeters > corridorWidthM) continue;
+    pois.push({
+      id: `${routeId}_${c.sourceId}`,
+      sourceId: c.sourceId,
+      source,
+      name: c.name,
+      category: c.category,
+      latitude: c.latitude,
+      longitude: c.longitude,
+      tags: c.tags,
+      distanceFromRouteMeters: assoc.distanceFromRouteMeters,
+      distanceAlongRouteMeters: assoc.distanceAlongRouteMeters,
+      nearestRouteId: routeId,
+    });
+  }
+  return pois;
+}
+
+/** Fetch OSM POIs only (water, bike_shop, atm, pharmacy, toilet_shower, shelter) */
+export async function fetchOsmPOIs(
+  routeId: string,
+  routePoints: RoutePoint[],
+  corridorWidthM: number,
+  onProgress?: (phase: string, done: number, total: number) => void,
+): Promise<number> {
+  const elements = await fetchAllPOIs(routePoints, corridorWidthM, (done, total) => {
+    onProgress?.("Fetching", done, total);
+  });
+  const classified = mapOverpassToPOIs(elements);
+  onProgress?.("Processing", 0, 1);
+  const pois = associateAndFilter(classified, routeId, routePoints, corridorWidthM, "osm");
+  await deletePOIsBySource(routeId, "osm");
+  await insertPOIs(pois);
+  onProgress?.("Done", 1, 1);
+  return pois.length;
+}
+
+/** Fetch Google Places POIs only (gas_station, groceries) */
+export async function fetchGooglePOIs(
+  routeId: string,
+  routePoints: RoutePoint[],
+  corridorWidthM: number,
+  onProgress?: (phase: string, done: number, total: number) => void,
+): Promise<number> {
+  const apiKey = Constants.expoConfig?.extra?.googlePlacesApiKey as string | undefined;
+  if (!apiKey) throw new Error("Google Places API key not configured");
+
+  const classified = await fetchGooglePlacesPOIs(routePoints, apiKey, (done, total) => {
+    onProgress?.("Fetching", done, total);
+  });
+  onProgress?.("Processing", 0, 1);
+  const pois = associateAndFilter(classified, routeId, routePoints, corridorWidthM, "google");
+  await deletePOIsBySource(routeId, "google");
+  await insertPOIs(pois);
+  onProgress?.("Done", 1, 1);
+  return pois.length;
+}
 
 /**
- * Full POI fetch pipeline: fetch from Overpass → classify → associate with route →
- * elevation filter → store. Returns the number of POIs stored.
+ * Full POI fetch pipeline (both sources).
+ * Used by offline download to ensure all POIs exist.
  */
 export async function fetchAndStorePOIs(
   routeId: string,
@@ -16,104 +88,35 @@ export async function fetchAndStorePOIs(
   corridorWidthM: number,
   onProgress?: (phase: string, done: number, total: number) => void,
 ): Promise<number> {
-  // 1. Fetch raw elements from Overpass
   const elements = await fetchAllPOIs(routePoints, corridorWidthM, (done, total) => {
     onProgress?.("Fetching", done, total);
   });
+  const osmClassified = mapOverpassToPOIs(elements);
 
-  if (elements.length === 0) {
-    await deletePOIsForRoute(routeId);
-    return 0;
+  let googleClassified: ClassifiedPOI[] = [];
+  const apiKey = Constants.expoConfig?.extra?.googlePlacesApiKey as string | undefined;
+  if (apiKey) {
+    try {
+      googleClassified = await fetchGooglePlacesPOIs(routePoints, apiKey, (done, total) => {
+        onProgress?.("Google", done, total);
+      });
+    } catch (error) {
+      console.warn("Google Places fetch failed, continuing with OSM only:", error);
+    }
   }
 
-  // 2. Classify and extract
   onProgress?.("Processing", 0, 1);
-  const classified = mapOverpassToPOIs(elements);
+  const allOsm = associateAndFilter(osmClassified, routeId, routePoints, corridorWidthM, "osm");
+  const allGoogle = associateAndFilter(googleClassified, routeId, routePoints, corridorWidthM, "google");
 
-  // 3. Compute route associations and filter by corridor
-  const candidates: {
-    poi: POI;
-    nearestIndex: number;
-  }[] = [];
-
-  for (const c of classified) {
-    const assoc = computePOIRouteAssociation(
-      c.latitude,
-      c.longitude,
-      routePoints,
-    );
-
-    // Skip POIs outside the corridor (Overpass around is approximate for ways)
-    if (assoc.distanceFromRouteMeters > corridorWidthM) continue;
-
-    candidates.push({
-      poi: {
-        id: `${routeId}_${c.osmId}`,
-        osmId: c.osmId,
-        name: c.name,
-        category: c.category,
-        latitude: c.latitude,
-        longitude: c.longitude,
-        tags: c.tags,
-        distanceFromRouteMeters: assoc.distanceFromRouteMeters,
-        distanceAlongRouteMeters: assoc.distanceAlongRouteMeters,
-        nearestRouteId: routeId,
-      },
-      nearestIndex: assoc.nearestIndex,
-    });
+  // Use source-scoped deletes so a Google failure doesn't wipe existing Google data
+  await deletePOIsBySource(routeId, "osm");
+  if (allGoogle.length > 0 || googleClassified.length === 0) {
+    // Only clear Google POIs if we got fresh results or didn't attempt Google fetch
+    await deletePOIsBySource(routeId, "google");
   }
-
-  const pois = candidates.map((c) => c.poi);
-
-  // 5. Store: delete old, insert new
-  onProgress?.("Storing", 0, 1);
-  await deletePOIsForRoute(routeId);
+  const pois = [...allOsm, ...allGoogle];
   await insertPOIs(pois);
   onProgress?.("Done", 1, 1);
-
   return pois.length;
-}
-
-/**
- * Filter out POIs whose elevation differs from the route by more than the threshold.
- * Uses Open-Elevation API for POI elevations. Falls back to no filtering on API failure.
- */
-async function filterByElevation(
-  candidates: { poi: POI; nearestIndex: number }[],
-  routePoints: RoutePoint[],
-): Promise<POI[]> {
-  if (candidates.length === 0) return [];
-
-  // Check if route has elevation data at all
-  const hasRouteElevation = routePoints.some((p) => p.elevationMeters != null);
-  if (!hasRouteElevation) return candidates.map((c) => c.poi);
-
-  // Batch-query POI elevations
-  const coords = candidates.map((c) => ({
-    latitude: c.poi.latitude,
-    longitude: c.poi.longitude,
-  }));
-
-  const elevations = await batchLookupElevations(coords);
-
-  // If lookup returned nothing, skip filtering (best-effort)
-  if (elevations.size === 0) return candidates.map((c) => c.poi);
-
-  const result: POI[] = [];
-  for (const { poi, nearestIndex } of candidates) {
-    const poiElev = elevations.get(coordKey(poi.latitude, poi.longitude));
-    const routeElev = routePoints[nearestIndex]?.elevationMeters;
-
-    // If we can't determine either elevation, keep the POI
-    if (poiElev == null || routeElev == null) {
-      result.push(poi);
-      continue;
-    }
-
-    if (Math.abs(poiElev - routeElev) <= POI_MAX_ELEVATION_DIFF_M) {
-      result.push(poi);
-    }
-  }
-
-  return result;
 }

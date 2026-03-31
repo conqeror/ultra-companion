@@ -99,9 +99,6 @@ export function buildOverpassQuery(
   node["amenity"="drinking_water"](around:${r},${coords});
   node["natural"="spring"](around:${r},${coords});
   node["man_made"="water_tap"](around:${r},${coords});
-  node["shop"~"^(supermarket|convenience|grocery|bakery)$"](around:${r},${coords});
-  node["amenity"="fuel"](around:${r},${coords});
-  way["amenity"="fuel"](around:${r},${coords});
   node["shop"="bicycle"](around:${r},${coords});
   node["amenity"="bicycle_repair_station"](around:${r},${coords});
   node["amenity"~"^(atm|bank)$"](around:${r},${coords});

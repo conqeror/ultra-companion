@@ -189,6 +189,19 @@ export default function MapScreen() {
     }
   }, [refreshPosition, snapAfterRefresh, hasGpsFix]);
 
+  // Fly to selected POI
+  const selectedPOI = usePoiStore((s) => s.selectedPOI);
+  useEffect(() => {
+    if (selectedPOI) {
+      setFollowUser(false);
+      cameraRef.current?.setCamera({
+        centerCoordinate: [selectedPOI.longitude, selectedPOI.latitude],
+        zoomLevel: 14,
+        animationDuration: 500,
+      });
+    }
+  }, [selectedPOI]);
+
   const handleCenterUser = useCallback(() => {
     setFollowUser(true);
     if (userPosition) {
@@ -242,11 +255,9 @@ export default function MapScreen() {
           padding={cameraPadding}
         />
         {routes
-          .filter((r) => r.isVisible && visibleRoutePoints[r.id])
+          .filter((r) => r.isVisible && visibleRoutePoints[r.id] && (r.isActive || (activeRaceRouteIds?.has(r.id) ?? false)))
           .map((route) => {
-            // Mark routes as active if they're the standalone active route or part of the active race
-            const isActive = route.isActive || (activeRaceRouteIds?.has(route.id) ?? false);
-            const styledRoute = isActive !== route.isActive ? { ...route, isActive } : route;
+            const styledRoute = route.isActive ? route : { ...route, isActive: true };
             return (
               <RouteLayer
                 key={`${route.id}-${mapStyle.styleKey}`}

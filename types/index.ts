@@ -68,9 +68,12 @@ export type POICategory =
   | "toilet_shower"
   | "shelter";
 
+export type POISource = "osm" | "google";
+
 export interface POI {
   id: string;
-  osmId: string;
+  sourceId: string;
+  source: POISource;
   name: string | null;
   category: POICategory;
   latitude: number;

@@ -55,6 +55,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   extra: {
     mapboxAccessToken: process.env.MAPBOX_ACCESS_TOKEN,
+    googlePlacesApiKey: process.env.GOOGLE_PLACES_API_KEY,
     eas: {
       projectId: "cf1ced74-65cd-43ab-8521-6a76eea57adf",
     },

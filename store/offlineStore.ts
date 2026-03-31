@@ -107,8 +107,10 @@ export const useOfflineStore = create<OfflineState>((set, get) => ({
     try {
       const hasPOIs = await hasPOIsForRoute(routeId);
       if (!hasPOIs) {
+        const { fetchAndStorePOIs } = await import("@/services/poiFetcher");
         const { usePoiStore } = await import("@/store/poiStore");
-        await usePoiStore.getState().fetchPOIs(routeId, points);
+        const corridorWidthM = usePoiStore.getState().corridorWidthM;
+        await fetchAndStorePOIs(routeId, points, corridorWidthM);
       }
     } catch {}
 

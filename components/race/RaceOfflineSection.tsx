@@ -74,6 +74,8 @@ export default function RaceOfflineSection({ stitched }: RaceOfflineSectionProps
     setIsDownloading(false);
   }, [segments, routeInfo, stitched.pointsByRouteId, startDownload]);
 
+  const clearPOIs = usePoiStore((s) => s.clearPOIs);
+
   const handleDeleteAll = useCallback(() => {
     Alert.alert(
       "Delete All Offline Data",
@@ -86,12 +88,32 @@ export default function RaceOfflineSection({ stitched }: RaceOfflineSectionProps
           onPress: async () => {
             for (const seg of segments) {
               await deleteOfflineData(seg.routeId);
+              await clearPOIs(seg.routeId);
             }
           },
         },
       ],
     );
-  }, [segments, deleteOfflineData]);
+  }, [segments, deleteOfflineData, clearPOIs]);
+
+  const handleDeleteAllPOIs = useCallback(() => {
+    Alert.alert(
+      "Delete All POIs",
+      "Remove all POI data for all segments in this race?",
+      [
+        { text: "Keep", style: "cancel" },
+        {
+          text: "Delete All POIs",
+          style: "destructive",
+          onPress: async () => {
+            for (const seg of segments) {
+              await clearPOIs(seg.routeId);
+            }
+          },
+        },
+      ],
+    );
+  }, [segments, clearPOIs]);
 
   return (
     <View>
@@ -159,6 +181,17 @@ export default function RaceOfflineSection({ stitched }: RaceOfflineSectionProps
           />
         )}
       </View>
+
+      {stats.totalPOIs > 0 && (
+        <TouchableOpacity
+          className="px-4 py-2 min-h-[48px] justify-center"
+          onPress={handleDeleteAllPOIs}
+        >
+          <Text className="text-[15px] font-barlow-medium text-destructive">
+            Delete all POIs
+          </Text>
+        </TouchableOpacity>
+      )}
 
       {allReady && (
         <TouchableOpacity

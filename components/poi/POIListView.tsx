@@ -86,6 +86,11 @@ export default function POIListView({ routeIds, segments }: POIListViewProps) {
 
   const keyExtractor = useCallback((item: POI) => item.id, []);
 
+  const hasGooglePOIs = useMemo(
+    () => sortedPOIs.some((p) => p.source === "google"),
+    [sortedPOIs],
+  );
+
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [
       {
@@ -132,6 +137,13 @@ export default function POIListView({ routeIds, segments }: POIListViewProps) {
         renderItem={renderItem}
         keyExtractor={keyExtractor}
         contentContainerStyle={{ paddingBottom: 100 }}
+        ListFooterComponent={
+          hasGooglePOIs ? (
+            <Text className="text-[11px] text-muted-foreground font-barlow px-4 pt-3">
+              Powered by Google
+            </Text>
+          ) : null
+        }
       />
     </Animated.View>
   );

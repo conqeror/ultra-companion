@@ -8,7 +8,6 @@ import {
 import { useLocalSearchParams, Stack } from "expo-router";
 import { Camera, MapView as MapboxMapView } from "@rnmapbox/maps";
 import { Text } from "@/components/ui/text";
-import { Button } from "@/components/ui/button";
 import { useThemeColors } from "@/theme";
 import { useRouteStore } from "@/store/routeStore";
 import { useSettingsStore } from "@/store/settingsStore";
@@ -20,7 +19,7 @@ import { computeElevationProgress, computeBounds } from "@/utils/geo";
 import ElevationProfile from "@/components/elevation/ElevationProfile";
 import RouteLayer from "@/components/map/RouteLayer";
 import StatBox from "@/components/common/StatBox";
-import OfflineSection from "@/components/offline/OfflineSection";
+import DataSection from "@/components/route/DataSection";
 
 export default function RouteDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -35,12 +34,7 @@ export default function RouteDetailScreen() {
   const getRouteDetail = useRouteStore((s) => s.getRouteDetail);
   const snappedPosition = useRouteStore((s) => s.snappedPosition);
   const units = useSettingsStore((s) => s.units);
-  const fetchPOIs = usePoiStore((s) => s.fetchPOIs);
   const loadPOIs = usePoiStore((s) => s.loadPOIs);
-  const fetchStatus = usePoiStore((s) => id ? s.fetchStatus[id] : undefined);
-  const fetchProgress = usePoiStore((s) => s.fetchProgress);
-  const fetchError = usePoiStore((s) => s.fetchError);
-  const poiCount = usePoiStore((s) => id ? (s.pois[id]?.length ?? 0) : 0);
   const getStarredPOIs = usePoiStore((s) => s.getStarredPOIs);
   const starredPOIIds = usePoiStore((s) => s.starredPOIIds);
   const setSelectedPOI = usePoiStore((s) => s.setSelectedPOI);
@@ -168,52 +162,8 @@ export default function RouteDetailScreen() {
           />
         </View>
 
-        {/* Points of Interest */}
-        <Text className="text-[22px] font-barlow-semibold text-foreground px-4 mt-4 mb-3">
-          Points of Interest
-        </Text>
-
-        {/* Fetch button */}
-        <View className="px-4 mb-2">
-          <Button
-            onPress={() => {
-              if (route) fetchPOIs(id!, route.points);
-            }}
-            disabled={fetchStatus === "fetching"}
-            variant={poiCount > 0 ? "secondary" : "default"}
-            label={
-              fetchStatus === "fetching"
-                ? "Fetching POIs..."
-                : poiCount > 0
-                  ? "Refresh POIs"
-                  : "Fetch POIs"
-            }
-          />
-        </View>
-
-        {/* Fetch progress */}
-        {fetchStatus === "fetching" && fetchProgress && (
-          <Text className="text-[13px] text-muted-foreground px-4 mb-2 font-barlow">
-            {fetchProgress.phase}: {fetchProgress.done}/{fetchProgress.total}
-          </Text>
-        )}
-
-        {/* Fetch error */}
-        {fetchStatus === "error" && fetchError && (
-          <Text className="text-[13px] text-destructive px-4 mb-2 font-barlow">
-            {fetchError}
-          </Text>
-        )}
-
-        {/* POI count */}
-        {fetchStatus === "done" && poiCount > 0 && (
-          <Text className="text-[14px] text-muted-foreground px-4 mb-2 font-barlow">
-            {poiCount} POIs found along route
-          </Text>
-        )}
-
-        {/* Offline */}
-        <OfflineSection routeId={id!} points={route.points} />
+        {/* Data: Map tiles, Google Places, OSM */}
+        <DataSection routeId={id!} points={route.points} />
 
         {/* Progress (if snapped) */}
         {currentPointIndex != null && elevProgress && (
