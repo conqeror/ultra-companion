@@ -157,6 +157,8 @@ export const useRaceStore = create<RaceState>((set, get) => ({
         await get().loadStitchedRace(raceId);
       }
     }
+    // Update assignedRouteIds immediately so route list reflects the change
+    set({ assignedRouteIds: new Set([...get().assignedRouteIds, routeId]) });
   },
 
   removeSegment: async (raceId, routeId) => {
@@ -188,6 +190,9 @@ export const useRaceStore = create<RaceState>((set, get) => ({
     if (get().activeStitchedRace?.raceId === raceId) {
       await get().loadStitchedRace(raceId);
     }
+    // Refresh assignedRouteIds — route may still be in other races
+    const newAssigned = await getAllAssignedRouteIds();
+    set({ assignedRouteIds: newAssigned });
   },
 
   selectVariant: async (raceId, routeId) => {

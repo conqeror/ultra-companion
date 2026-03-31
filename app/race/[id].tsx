@@ -99,6 +99,22 @@ export default function RaceDetailScreen() {
     return computeBounds(stitched.points);
   }, [stitched]);
 
+  // Fit mini map camera when bounds change (defaultSettings only applies on mount)
+  useEffect(() => {
+    if (!bounds) return;
+    cameraRef.current?.setCamera({
+      bounds: {
+        ne: bounds.ne,
+        sw: bounds.sw,
+        paddingLeft: 40,
+        paddingRight: 40,
+        paddingTop: 40,
+        paddingBottom: 40,
+      },
+      animationDuration: 300,
+    });
+  }, [bounds]);
+
   // Get route points for each selected segment (for mini map RouteLayer)
   const selectedSegmentRoutes = useMemo(() => {
     return segmentsWithRoutes

@@ -22,7 +22,6 @@ import POIListView from "@/components/poi/POIListView";
 import BottomPanel from "./BottomPanel";
 import WeatherBottomSheet from "./WeatherBottomSheet";
 import { snapToRoute } from "@/services/routeSnapping";
-import { computeBounds } from "@/utils/geo";
 import { useActiveRouteData, getActiveRouteDataImperative } from "@/hooks/useActiveRouteData";
 import { usePoiStore } from "@/store/poiStore";
 import { useEtaStore } from "@/store/etaStore";
@@ -45,7 +44,6 @@ export default function MapScreen() {
   const cameraRef = useRef<Camera>(null);
   const mapRef = useRef<MapboxMapView>(null);
   const [hasGpsFix, setHasGpsFix] = useState(false);
-  const [initialCameraSet, setInitialCameraSet] = useState(false);
   const { height: screenHeight } = useWindowDimensions();
 
   const { followUser, userPosition, setFollowUser } = useMapStore();
@@ -81,12 +79,6 @@ export default function MapScreen() {
     return null;
   }, [activeData]);
 
-  // Compute active route bounds for initial camera
-  const activeRouteBounds = useMemo(() => {
-    if (!activeRoutePoints?.length) return null;
-    return computeBounds(activeRoutePoints);
-  }, [activeRoutePoints]);
-
   useEffect(() => {
     loadRoutes();
     loadRaces();
@@ -113,25 +105,6 @@ export default function MapScreen() {
       fetchWeather(activeData.id, activeRoutePoints, snappedPosition.pointIndex, cumulativeTime);
     }
   }, [activeData?.id, snappedPosition?.pointIndex, isConnected, cumulativeTime, fetchWeather]);
-
-  // Set initial camera once routes are loaded
-  useEffect(() => {
-    if (initialCameraSet) return;
-    if (activeRouteBounds) {
-      cameraRef.current?.setCamera({
-        bounds: {
-          ne: activeRouteBounds.ne,
-          sw: activeRouteBounds.sw,
-          paddingLeft: 40,
-          paddingRight: 40,
-          paddingTop: 40,
-          paddingBottom: 40,
-        },
-        animationDuration: 0,
-      });
-      setInitialCameraSet(true);
-    }
-  }, [activeRouteBounds, initialCameraSet]);
 
   // Snap eagerly when routes load (don't wait for next GPS refresh)
   useEffect(() => {
