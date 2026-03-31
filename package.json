@@ -6,7 +6,10 @@
     "start": "expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "db:generate": "drizzle-kit generate",
+    "db:bundle": "node scripts/bundle-migrations.mjs",
+    "db:migrate": "npm run db:generate && npm run db:bundle"
   },
   "dependencies": {
     "@react-navigation/native": "^7.1.33",

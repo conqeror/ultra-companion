@@ -1,8 +1,10 @@
 import { drizzle } from "drizzle-orm/expo-sqlite";
+import { migrate } from "drizzle-orm/expo-sqlite/migrator";
 import { openDatabaseSync } from "expo-sqlite";
 import { sql, eq, and, inArray, desc, asc, count, max } from "drizzle-orm";
 import { routes, routePoints, pois, races, raceSegments } from "./schema";
-import type { Route, RoutePoint, RouteWithPoints, POI, POICategory, Race, RaceSegment } from "@/types";
+import migrations from "../drizzle/migrations";
+import type { Route, RoutePoint, RouteWithPoints, POI, POICategory, POISource, Race, RaceSegment } from "@/types";
 
 // --- Database init ---
 
@@ -12,131 +14,8 @@ expoDb.execSync("PRAGMA foreign_keys = ON;");
 
 export const db = drizzle(expoDb, { schema: { routes, routePoints, pois, races, raceSegments } });
 
-// Create tables (Drizzle push is Node-only, so we use raw DDL for table creation)
-expoDb.execSync(`
-  CREATE TABLE IF NOT EXISTS routes (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    fileName TEXT NOT NULL,
-    color TEXT NOT NULL,
-    isActive INTEGER NOT NULL DEFAULT 0,
-    isVisible INTEGER NOT NULL DEFAULT 1,
-    totalDistanceMeters REAL NOT NULL,
-    totalAscentMeters REAL NOT NULL,
-    totalDescentMeters REAL NOT NULL,
-    pointCount INTEGER NOT NULL,
-    createdAt TEXT NOT NULL
-  );
-
-  CREATE TABLE IF NOT EXISTS route_points (
-    routeId TEXT NOT NULL REFERENCES routes(id) ON DELETE CASCADE,
-    idx INTEGER NOT NULL,
-    latitude REAL NOT NULL,
-    longitude REAL NOT NULL,
-    elevationMeters REAL,
-    distanceFromStartMeters REAL NOT NULL,
-    PRIMARY KEY (routeId, idx)
-  );
-
-  CREATE INDEX IF NOT EXISTS idx_route_points_route ON route_points(routeId);
-
-  CREATE TABLE IF NOT EXISTS pois (
-    id TEXT PRIMARY KEY,
-    sourceId TEXT NOT NULL,
-    source TEXT NOT NULL DEFAULT 'osm',
-    routeId TEXT NOT NULL REFERENCES routes(id) ON DELETE CASCADE,
-    name TEXT,
-    category TEXT NOT NULL,
-    latitude REAL NOT NULL,
-    longitude REAL NOT NULL,
-    tags TEXT NOT NULL,
-    distanceFromRouteMeters REAL NOT NULL,
-    distanceAlongRouteMeters REAL NOT NULL,
-    UNIQUE(routeId, sourceId)
-  );
-
-  CREATE INDEX IF NOT EXISTS idx_pois_route_category ON pois(routeId, category);
-  CREATE INDEX IF NOT EXISTS idx_pois_route_along ON pois(routeId, distanceAlongRouteMeters);
-
-  CREATE TABLE IF NOT EXISTS races (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    isActive INTEGER NOT NULL DEFAULT 0,
-    createdAt TEXT NOT NULL
-  );
-
-  CREATE TABLE IF NOT EXISTS race_segments (
-    raceId TEXT NOT NULL REFERENCES races(id) ON DELETE CASCADE,
-    routeId TEXT NOT NULL REFERENCES routes(id) ON DELETE CASCADE,
-    position INTEGER NOT NULL,
-    isSelected INTEGER NOT NULL DEFAULT 1,
-    PRIMARY KEY (raceId, routeId)
-  );
-
-  CREATE INDEX IF NOT EXISTS idx_race_segments_race_pos ON race_segments(raceId, position);
-`);
-
-// --- Helpers ---
-
-function toRoute(row: typeof routes.$inferSelect): Route {
-  return {
-    id: row.id,
-    name: row.name,
-    fileName: row.fileName,
-    color: row.color,
-    isActive: row.isActive,
-    isVisible: row.isVisible,
-    totalDistanceMeters: row.totalDistanceMeters,
-    totalAscentMeters: row.totalAscentMeters,
-    totalDescentMeters: row.totalDescentMeters,
-    pointCount: row.pointCount,
-    createdAt: row.createdAt,
-  };
-}
-
-function toPoint(row: typeof routePoints.$inferSelect): RoutePoint {
-  return {
-    latitude: row.latitude,
-    longitude: row.longitude,
-    elevationMeters: row.elevationMeters,
-    distanceFromStartMeters: row.distanceFromStartMeters,
-    index: row.idx,
-  };
-}
-
-function toPOI(row: typeof pois.$inferSelect): POI {
-  return {
-    id: row.id,
-    sourceId: row.sourceId,
-    source: row.source as POI["source"],
-    name: row.name,
-    category: row.category as POICategory,
-    latitude: row.latitude,
-    longitude: row.longitude,
-    tags: row.tags as Record<string, string>,
-    distanceFromRouteMeters: row.distanceFromRouteMeters,
-    distanceAlongRouteMeters: row.distanceAlongRouteMeters,
-    nearestRouteId: row.routeId,
-  };
-}
-
-function toRace(row: typeof races.$inferSelect): Race {
-  return {
-    id: row.id,
-    name: row.name,
-    isActive: row.isActive,
-    createdAt: row.createdAt,
-  };
-}
-
-function toRaceSegment(row: typeof raceSegments.$inferSelect): RaceSegment {
-  return {
-    raceId: row.raceId,
-    routeId: row.routeId,
-    position: row.position,
-    isSelected: row.isSelected,
-  };
-}
+// Apply schema from drizzle/migrations.ts (generated from db/schema.ts via `npm run db:migrate`)
+migrate(db, migrations);
 
 // --- Route CRUD ---
 
@@ -165,7 +44,7 @@ export async function insertRoute(
       tx.insert(routePoints).values(
         chunk.map((p) => ({
           routeId: route.id,
-          idx: p.index,
+          idx: p.idx,
           latitude: p.latitude,
           longitude: p.longitude,
           elevationMeters: p.elevationMeters,
@@ -177,13 +56,12 @@ export async function insertRoute(
 }
 
 export async function getAllRoutes(): Promise<Route[]> {
-  const rows = db.select().from(routes).orderBy(desc(routes.createdAt)).all();
-  return rows.map(toRoute);
+  return db.select().from(routes).orderBy(desc(routes.createdAt)).all();
 }
 
 export async function getRoute(routeId: string): Promise<Route | null> {
   const row = db.select().from(routes).where(eq(routes.id, routeId)).get();
-  return row ? toRoute(row) : null;
+  return row ?? null;
 }
 
 export async function getRouteWithPoints(routeId: string): Promise<RouteWithPoints | null> {
@@ -198,8 +76,8 @@ export async function getRouteWithPoints(routeId: string): Promise<RouteWithPoin
     .all();
 
   return {
-    ...toRoute(row),
-    points: pointRows.map(toPoint),
+    ...row,
+    points: pointRows,
   };
 }
 
@@ -235,10 +113,7 @@ export async function getRouteEndpoints(
     .get();
 
   if (!first || !last) return null;
-  return {
-    first: toPoint(first as typeof routePoints.$inferSelect),
-    last: toPoint(last as typeof routePoints.$inferSelect),
-  };
+  return { first, last };
 }
 
 export async function getRoutePoints(routeId: string): Promise<RoutePoint[]> {
@@ -248,7 +123,7 @@ export async function getRoutePoints(routeId: string): Promise<RoutePoint[]> {
     .where(eq(routePoints.routeId, routeId))
     .orderBy(asc(routePoints.idx))
     .all();
-  return rows.map(toPoint);
+  return rows;
 }
 
 export async function deleteRoute(routeId: string): Promise<void> {
@@ -290,7 +165,7 @@ export async function insertPOIs(newPois: POI[]): Promise<void> {
           id: p.id,
           sourceId: p.sourceId,
           source: p.source,
-          routeId: p.nearestRouteId,
+          routeId: p.routeId,
           name: p.name,
           category: p.category,
           latitude: p.latitude,
@@ -320,28 +195,28 @@ export async function getPOIsForRoute(
   categories?: POICategory[],
   maxDistFromRoute?: number,
 ): Promise<POI[]> {
-  let query = db.select().from(pois).where(eq(pois.routeId, routeId)).$dynamic();
+  const conditions = [eq(pois.routeId, routeId)];
 
   if (categories && categories.length > 0) {
-    query = query.where(and(eq(pois.routeId, routeId), inArray(pois.category, categories)));
+    conditions.push(inArray(pois.category, categories));
   }
-
   if (maxDistFromRoute != null) {
-    const existing = categories && categories.length > 0
-      ? and(eq(pois.routeId, routeId), inArray(pois.category, categories))
-      : eq(pois.routeId, routeId);
-    query = db.select().from(pois).where(and(existing, sql`${pois.distanceFromRouteMeters} <= ${maxDistFromRoute}`)).$dynamic();
+    conditions.push(sql`${pois.distanceFromRouteMeters} <= ${maxDistFromRoute}`);
   }
 
-  const rows = query.orderBy(asc(pois.distanceAlongRouteMeters)).all();
-  return rows.map(toPOI);
+  return db
+    .select()
+    .from(pois)
+    .where(and(...conditions))
+    .orderBy(asc(pois.distanceAlongRouteMeters))
+    .all();
 }
 
 export async function deletePOIsForRoute(routeId: string): Promise<void> {
   db.delete(pois).where(eq(pois.routeId, routeId)).run();
 }
 
-export async function deletePOIsBySource(routeId: string, source: string): Promise<void> {
+export async function deletePOIsBySource(routeId: string, source: POISource): Promise<void> {
   db.delete(pois).where(and(eq(pois.routeId, routeId), eq(pois.source, source))).run();
 }
 
@@ -382,8 +257,7 @@ export async function insertRace(race: Race): Promise<void> {
 }
 
 export async function getAllRaces(): Promise<Race[]> {
-  const rows = db.select().from(races).orderBy(desc(races.createdAt)).all();
-  return rows.map(toRace);
+  return db.select().from(races).orderBy(desc(races.createdAt)).all();
 }
 
 export async function deleteRace(raceId: string): Promise<void> {
@@ -436,7 +310,7 @@ export async function getRaceSegments(
     .where(eq(raceSegments.raceId, raceId))
     .orderBy(asc(raceSegments.position), desc(raceSegments.isSelected))
     .all();
-  return rows.map(toRaceSegment);
+  return rows;
 }
 
 export async function selectVariant(

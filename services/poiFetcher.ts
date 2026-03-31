@@ -32,7 +32,7 @@ function associateAndFilter(
       tags: c.tags,
       distanceFromRouteMeters: assoc.distanceFromRouteMeters,
       distanceAlongRouteMeters: assoc.distanceAlongRouteMeters,
-      nearestRouteId: routeId,
+      routeId,
     });
   }
   return pois;

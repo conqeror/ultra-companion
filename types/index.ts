@@ -18,7 +18,7 @@ export interface RoutePoint {
   longitude: number;
   elevationMeters: number | null;
   distanceFromStartMeters: number;
-  index: number;
+  idx: number;
 }
 
 export interface Route {
@@ -81,7 +81,7 @@ export interface POI {
   tags: Record<string, string>;
   distanceFromRouteMeters: number;
   distanceAlongRouteMeters: number;
-  nearestRouteId: string;
+  routeId: string;
 }
 
 export interface POICategoryMeta {

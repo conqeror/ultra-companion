@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { createMMKV, type MMKV } from "react-native-mmkv";
 import type { POI, POICategory, POIFetchStatus, POISource, RoutePoint } from "@/types";
 import { DEFAULT_CORRIDOR_WIDTH_M, POI_CATEGORIES } from "@/constants";
-import { getPOIsForRoute, getPOICountsBySource, deletePOIsBySource, deletePOIsForRoute } from "@/db/database";
+import { getPOIsForRoute, deletePOIsBySource, deletePOIsForRoute } from "@/db/database";
 import { fetchOsmPOIs, fetchGooglePOIs } from "@/services/poiFetcher";
 import { getOpeningHoursStatus } from "@/services/openingHoursParser";
 import { usePanelStore } from "./panelStore";
@@ -129,15 +129,18 @@ export const usePoiStore = create<POIState>((set, get) => ({
     if (existing) return;
     const pois = await getPOIsForRoute(routeId);
     if (pois.length > 0) {
-      // Also hydrate source info from MMKV
       const osmInfo = readSourceInfo(routeId, "osm");
       const googleInfo = readSourceInfo(routeId, "google");
-      // Update counts from actual DB data
-      const counts = await getPOICountsBySource(routeId);
-      osmInfo.count = counts.osm;
-      googleInfo.count = counts.google;
-      if (counts.osm > 0 && osmInfo.status === "idle") osmInfo.status = "done";
-      if (counts.google > 0 && googleInfo.status === "idle") googleInfo.status = "done";
+      // Derive counts from fetched data instead of a separate DB query
+      let osmCount = 0, googleCount = 0;
+      for (const p of pois) {
+        if (p.source === "google") googleCount++;
+        else osmCount++;
+      }
+      osmInfo.count = osmCount;
+      googleInfo.count = googleCount;
+      if (osmCount > 0 && osmInfo.status === "idle") osmInfo.status = "done";
+      if (googleCount > 0 && googleInfo.status === "idle") googleInfo.status = "done";
 
       set((s) => ({
         pois: { ...s.pois, [routeId]: pois },

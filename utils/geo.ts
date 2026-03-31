@@ -72,7 +72,7 @@ export function computeRouteStats(
       longitude: coord.longitude,
       elevationMeters: coord.elevation,
       distanceFromStartMeters: totalDistance,
-      index: i,
+      idx: i,
     };
   });
 
@@ -180,7 +180,7 @@ export function extractRouteSlice(
   return slice.map((p, i) => ({
     ...p,
     distanceFromStartMeters: p.distanceFromStartMeters - startDist,
-    index: i,
+    idx: i,
   }));
 }
 

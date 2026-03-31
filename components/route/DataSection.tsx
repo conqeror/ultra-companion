@@ -2,15 +2,11 @@ import React from "react";
 import { View, Alert } from "react-native";
 import { Text } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
-import type { OfflineRouteInfo, RoutePoint } from "@/types";
+import type { RoutePoint } from "@/types";
 import { usePoiStore, DEFAULT_SOURCE_INFO, type SourceInfo } from "@/store/poiStore";
 import { useOfflineStore } from "@/store/offlineStore";
 import { formatFileSize } from "@/utils/formatters";
 import { estimateDownloadSize } from "@/services/offlineTiles";
-
-const DEFAULT_TILE_INFO: OfflineRouteInfo = {
-  status: "idle", percentage: 0, downloadedBytes: 0, estimatedBytes: 0, downloadedAt: null, error: null,
-};
 
 interface DataSectionProps {
   routeId: string;
@@ -29,7 +25,7 @@ function formatDate(iso: string): string {
 export default function DataSection({ routeId, points }: DataSectionProps) {
 
   // Map tiles state
-  const tileInfo = useOfflineStore((s) => s.routeInfo[routeId]) ?? DEFAULT_TILE_INFO;
+  const tileInfo = useOfflineStore((s) => s.getRouteInfo(routeId));
   const isConnected = useOfflineStore((s) => s.isConnected);
   const startTileDownload = useOfflineStore((s) => s.startDownload);
   const deleteTiles = useOfflineStore((s) => s.deleteOfflineData);

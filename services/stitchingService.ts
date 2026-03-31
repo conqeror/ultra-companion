@@ -33,7 +33,7 @@ export async function stitchRace(raceId: string): Promise<StitchedRace> {
         longitude: pt.longitude,
         elevationMeters: pt.elevationMeters,
         distanceFromStartMeters: pt.distanceFromStartMeters + cumulativeDistance,
-        index: globalIndex,
+        idx: globalIndex,
       });
       globalIndex++;
     }

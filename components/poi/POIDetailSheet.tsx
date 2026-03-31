@@ -76,7 +76,7 @@ export default function POIDetailSheet() {
     let poiDist = selectedPOI.distanceAlongRouteMeters;
     if (activeData?.segments) {
       const seg = activeData.segments.find(
-        (s) => s.routeId === selectedPOI.nearestRouteId,
+        (s) => s.routeId === selectedPOI.routeId,
       );
       if (seg) poiDist = selectedPOI.distanceAlongRouteMeters + seg.distanceOffsetMeters;
     }

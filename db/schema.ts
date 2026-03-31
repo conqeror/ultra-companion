@@ -1,4 +1,5 @@
-import { sqliteTable, text, integer, real, index, unique } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, real, index, unique, primaryKey } from "drizzle-orm/sqlite-core";
+import type { POICategory, POISource } from "@/types";
 
 // --- Routes ---
 
@@ -28,7 +29,7 @@ export const routePoints = sqliteTable("route_points", {
   elevationMeters: real("elevationMeters"),
   distanceFromStartMeters: real("distanceFromStartMeters").notNull(),
 }, (table) => [
-  index("idx_route_points_route").on(table.routeId),
+  primaryKey({ columns: [table.routeId, table.idx] }),
 ]);
 
 // --- POIs ---
@@ -36,12 +37,12 @@ export const routePoints = sqliteTable("route_points", {
 export const pois = sqliteTable("pois", {
   id: text("id").primaryKey(),
   sourceId: text("sourceId").notNull(),
-  source: text("source").notNull().default("osm"),
+  source: text("source").notNull().default("osm").$type<POISource>(),
   routeId: text("routeId")
     .notNull()
     .references(() => routes.id, { onDelete: "cascade" }),
   name: text("name"),
-  category: text("category").notNull(),
+  category: text("category").notNull().$type<POICategory>(),
   latitude: real("latitude").notNull(),
   longitude: real("longitude").notNull(),
   tags: text("tags", { mode: "json" }).notNull().$type<Record<string, string>>(),
@@ -50,6 +51,7 @@ export const pois = sqliteTable("pois", {
 }, (table) => [
   index("idx_pois_route_category").on(table.routeId, table.category),
   index("idx_pois_route_along").on(table.routeId, table.distanceAlongRouteMeters),
+  index("idx_pois_route_source").on(table.routeId, table.source),
   unique("uq_pois_route_source").on(table.routeId, table.sourceId),
 ]);
 
@@ -74,5 +76,6 @@ export const raceSegments = sqliteTable("race_segments", {
   position: integer("position").notNull(),
   isSelected: integer("isSelected", { mode: "boolean" }).notNull().default(true),
 }, (table) => [
+  primaryKey({ columns: [table.raceId, table.routeId] }),
   index("idx_race_segments_race_pos").on(table.raceId, table.position),
 ]);
