@@ -13,6 +13,7 @@
     "@rnmapbox/maps": "^10.3.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "drizzle-orm": "^0.45.2",
     "expo": "~55.0.8",
     "expo-constants": "~55.0.9",
     "expo-document-picker": "~55.0.9",
@@ -30,7 +31,6 @@
     "fast-xml-parser": "^5.5.9",
     "lucide-react-native": "^1.7.0",
     "nativewind": "^4.2.3",
-    "opening_hours": "^3.12.0",
     "react": "19.2.0",
     "react-dom": "19.2.0",
     "react-native": "0.83.2",
@@ -49,6 +49,7 @@
   },
   "devDependencies": {
     "@types/react": "~19.2.2",
+    "drizzle-kit": "^0.31.10",
     "typescript": "~5.9.2"
   },
   "private": true
