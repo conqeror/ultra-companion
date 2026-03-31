@@ -25,7 +25,7 @@ Dump for future feature ideas, UX improvements, and things to consider later.
 - POI clustering at low zoom levels to reduce visual clutter
 
 ### Map
-- Booking.com integration — pull accommodation availability/prices for POIs along the route (low priority)
+- Accommodation POIs — add hotels/hostels/campsites from OSM via existing Overpass pipeline, plus a deep link to Booking.com search by coordinates when online. Booking.com API itself is not viable (requires affiliate programme, prohibits offline caching >24h)
 
 ### Planning
 - Sleep planner — suggest optimal sleep stops based on route profile, accommodation POIs, and target daily distance (needs research on what inputs/heuristics make sense)

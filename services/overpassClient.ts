@@ -107,6 +107,12 @@ export function buildOverpassQuery(
   node["amenity"~"^(atm|bank)$"](around:${r},${coords});
   node["amenity"="pharmacy"](around:${r},${coords});
   node["amenity"~"^(toilets|shower)$"](around:${r},${coords});
+  node["amenity"="shelter"]["shelter_type"!="public_transport"](around:${r},${coords});
+  way["amenity"="shelter"]["shelter_type"!="public_transport"](around:${r},${coords});
+  node["tourism"="wilderness_hut"](around:${r},${coords});
+  way["tourism"="wilderness_hut"](around:${r},${coords});
+  node["tourism"="alpine_hut"](around:${r},${coords});
+  way["tourism"="alpine_hut"](around:${r},${coords});
 );
 out center body;`;
 }

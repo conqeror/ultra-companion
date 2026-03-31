@@ -11,6 +11,7 @@ import {
   Banknote,
   Cross,
   ShowerHead,
+  Tent,
 } from "lucide-react-native";
 import { Star } from "lucide-react-native";
 import { useThemeColors } from "@/theme";
@@ -33,6 +34,7 @@ const ICON_MAP: Record<string, React.ComponentType<any>> = {
   Banknote,
   Cross,
   ShowerHead,
+  Tent,
 };
 
 interface POIListItemProps {

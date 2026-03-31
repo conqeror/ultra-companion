@@ -17,6 +17,7 @@ import {
   Banknote,
   Cross,
   ShowerHead,
+  Tent,
 } from "lucide-react-native";
 import { useThemeColors } from "@/theme";
 import { useSettingsStore } from "@/store/settingsStore";
@@ -39,6 +40,7 @@ const ICON_MAP: Record<string, React.ComponentType<any>> = {
   Banknote,
   Cross,
   ShowerHead,
+  Tent,
 };
 
 export default function POIDetailSheet() {

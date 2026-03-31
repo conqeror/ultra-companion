@@ -41,6 +41,13 @@ const TAG_RULES: {
     category: "toilet_shower",
     check: (t) => t.amenity === "toilets" || t.amenity === "shower",
   },
+  {
+    category: "shelter",
+    check: (t) =>
+      (t.amenity === "shelter" && t.shelter_type !== "public_transport") ||
+      t.tourism === "wilderness_hut" ||
+      t.tourism === "alpine_hut",
+  },
 ];
 
 /** Classify a single Overpass element into a POI category */

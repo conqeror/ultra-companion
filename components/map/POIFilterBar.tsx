@@ -9,6 +9,7 @@ import {
   Banknote,
   Cross,
   ShowerHead,
+  Tent,
   Clock,
 } from "lucide-react-native";
 import { cn } from "@/lib/cn";
@@ -25,6 +26,7 @@ const ICON_MAP: Record<string, React.ComponentType<any>> = {
   Banknote,
   Cross,
   ShowerHead,
+  Tent,
 };
 
 interface POIFilterBarProps {

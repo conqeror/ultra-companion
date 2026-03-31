@@ -44,6 +44,7 @@ export const POI_CATEGORIES: POICategoryMeta[] = [
   { key: "atm", label: "ATM", color: "#EAB308", iconName: "Banknote" },
   { key: "pharmacy", label: "Pharmacy", color: "#EF4444", iconName: "Cross" },
   { key: "toilet_shower", label: "WC", color: "#6366F1", iconName: "ShowerHead" },
+  { key: "shelter", label: "Shelter", color: "#8B5CF6", iconName: "Tent" },
 ];
 
 /** How far behind the rider a POI remains visible in the list */

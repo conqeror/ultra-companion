@@ -65,7 +65,8 @@ export type POICategory =
   | "bike_shop"
   | "atm"
   | "pharmacy"
-  | "toilet_shower";
+  | "toilet_shower"
+  | "shelter";
 
 export interface POI {
   id: string;
