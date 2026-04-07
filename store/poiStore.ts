@@ -274,7 +274,7 @@ export const usePoiStore = create<POIState>((set, get) => ({
 
   setSelectedPOI: (poi) => {
     set({ selectedPOI: poi });
-    usePanelStore.getState().setBottomSheet(poi ? "poi" : null);
+    if (poi) usePanelStore.getState().setPanelTab("pois");
   },
   setShowPOIList: (show) => set({ showPOIList: show }),
 

@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { createMMKV, type MMKV } from "react-native-mmkv";
-import type { PanelMode } from "@/types";
+import type { PanelMode, PanelTab } from "@/types";
 import { PANEL_MODES } from "@/constants";
 
 let storage: MMKV | null = null;
@@ -20,25 +20,30 @@ function readString(key: string): string | undefined {
   }
 }
 
-export type BottomSheet = "poi" | "weather" | "climb" | null;
-
 interface PanelState {
   panelMode: PanelMode;
   cyclePanelMode: () => void;
   setPanelMode: (mode: PanelMode) => void;
 
-  /** Which overlay sheet is active — only one at a time */
-  bottomSheet: BottomSheet;
-  setBottomSheet: (sheet: BottomSheet) => void;
-  toggleBottomSheet: (sheet: "poi" | "weather") => void;
+  /** Which tab is active in the bottom panel */
+  panelTab: PanelTab;
+  setPanelTab: (tab: PanelTab) => void;
 }
 
 const DEFAULT_PANEL_MODE: PanelMode = "upcoming-50";
+
+const PANEL_TABS: PanelTab[] = ["profile", "weather", "climbs", "pois"];
 
 function readPanelMode(): PanelMode {
   const raw = readString("panelMode");
   if (raw && (PANEL_MODES as readonly string[]).includes(raw)) return raw as PanelMode;
   return DEFAULT_PANEL_MODE;
+}
+
+function readPanelTab(): PanelTab {
+  const raw = readString("panelTab");
+  if (raw && PANEL_TABS.includes(raw as PanelTab)) return raw as PanelTab;
+  return "profile";
 }
 
 export const usePanelStore = create<PanelState>((set, get) => ({
@@ -57,11 +62,10 @@ export const usePanelStore = create<PanelState>((set, get) => ({
     set({ panelMode });
   },
 
-  bottomSheet: null,
+  panelTab: readPanelTab(),
 
-  setBottomSheet: (sheet) => set({ bottomSheet: sheet }),
-
-  toggleBottomSheet: (sheet) => {
-    set((s) => ({ bottomSheet: s.bottomSheet === sheet ? null : sheet }));
+  setPanelTab: (panelTab) => {
+    try { getStorage().set("panelTab", panelTab); } catch {}
+    set({ panelTab });
   },
 }));

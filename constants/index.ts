@@ -17,7 +17,7 @@ export const ELEVATION_CHART_MAX_POINTS = 500;
 // --- Phase 2b: Bottom panel ---
 
 /** Panel height as fraction of screen height */
-export const BOTTOM_PANEL_HEIGHT_RATIO = 0.25;
+export const BOTTOM_PANEL_HEIGHT_RATIO = 0.35;
 
 /** Fraction of chart width to show behind current position */
 export const LOOK_BACK_RATIO = 0.25;

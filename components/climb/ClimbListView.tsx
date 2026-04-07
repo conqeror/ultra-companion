@@ -64,15 +64,15 @@ export default function ClimbListView({ routeIds, segments }: ClimbListViewProps
     }
   }, [showClimbList]);
 
-  const setBottomSheet = usePanelStore((s) => s.setBottomSheet);
+  const setPanelTab = usePanelStore((s) => s.setPanelTab);
 
   const handlePress = useCallback(
     (climb: Climb) => {
       setSelectedClimb(climb);
       setShowClimbList(false);
-      setBottomSheet("climb");
+      setPanelTab("climbs");
     },
-    [setSelectedClimb, setShowClimbList, setBottomSheet],
+    [setSelectedClimb, setShowClimbList, setPanelTab],
   );
 
   const renderItem = useCallback(

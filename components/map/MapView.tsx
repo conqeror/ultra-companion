@@ -1,5 +1,6 @@
 import React, { useRef, useCallback, useEffect, useState, useMemo } from "react";
 import { View, AppState, useWindowDimensions } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Mapbox, {
   Camera,
   UserTrackingMode,
@@ -18,12 +19,10 @@ import MapControls from "./MapControls";
 import RouteLayer from "./RouteLayer";
 import POILayer from "./POILayer";
 import ClimbHighlightLayer from "./ClimbHighlightLayer";
-import POIDetailSheet from "@/components/poi/POIDetailSheet";
 import POIListView from "@/components/poi/POIListView";
 import ClimbListView from "@/components/climb/ClimbListView";
-import ClimbBottomSheet from "@/components/climb/ClimbDetailSheet";
-import BottomPanel from "./BottomPanel";
-import WeatherBottomSheet from "./WeatherBottomSheet";
+import TabbedBottomPanel from "./TabbedBottomPanel";
+import { resolveActiveClimb } from "@/utils/climbSelect";
 import { snapToRoute } from "@/services/routeSnapping";
 import { useActiveRouteData, getActiveRouteDataImperative } from "@/hooks/useActiveRouteData";
 import { usePoiStore } from "@/store/poiStore";
@@ -52,8 +51,9 @@ export default function MapScreen() {
 
   const { followUser, userPosition, setFollowUser } = useMapStore();
   const refreshPosition = useMapStore((s) => s.refreshPosition);
-  const bottomSheet = usePanelStore((s) => s.bottomSheet);
-  const panelHeight = Math.round(screenHeight * BOTTOM_PANEL_HEIGHT_RATIO);
+  const panelTab = usePanelStore((s) => s.panelTab);
+  const { bottom: safeBottom } = useSafeAreaInsets();
+  const panelHeight = Math.round(screenHeight * BOTTOM_PANEL_HEIGHT_RATIO) + safeBottom;
 
   const routes = useRouteStore((s) => s.routes);
   const visibleRoutePoints = useRouteStore((s) => s.visibleRoutePoints);
@@ -237,18 +237,12 @@ export default function MapScreen() {
     return renderedRoutes.map((r) => r.id).sort().join(",") + `-${mapStyle.styleKey}`;
   }, [renderedRoutes, mapStyle.styleKey]);
 
-  // Climb to highlight on the map — mirrors ClimbBottomSheet auto-select
+  // Climb to highlight on the map — active when Climbs tab is selected
   const highlightedClimb = useMemo(() => {
-    if (bottomSheet !== "climb") return null;
-    if (selectedClimb) return selectedClimb;
+    if (panelTab !== "climbs") return null;
     const displayed = getClimbsForDisplay(activeRouteIds, activeData?.segments ?? null);
-    if (displayed.length === 0) return null;
-    const dist = snappedPosition?.distanceAlongRouteMeters;
-    if (dist == null) return displayed[0];
-    const current = displayed.find((c) => dist >= c.startDistanceMeters && dist <= c.endDistanceMeters);
-    if (current) return current;
-    return displayed.find((c) => c.startDistanceMeters > dist) ?? displayed[displayed.length - 1];
-  }, [bottomSheet, selectedClimb, activeRouteIds, activeData?.segments, snappedPosition?.distanceAlongRouteMeters, allClimbData]);
+    return resolveActiveClimb(displayed, snappedPosition?.distanceAlongRouteMeters ?? null, selectedClimb);
+  }, [panelTab, selectedClimb, activeRouteIds, activeData?.segments, snappedPosition?.distanceAlongRouteMeters, allClimbData]);
 
   // Fly to highlighted climb bounds
   useEffect(() => {
@@ -270,13 +264,12 @@ export default function MapScreen() {
     if (!found) return;
 
     setFollowUser(false);
-    // The climb panel covers the bottom ~45% of the screen.
-    // Use the camera padding already set for the panel so fitBounds
-    // fills the visible area above it, plus some breathing room.
+    // Camera padding already accounts for the panel, so fitBounds
+    // only needs breathing room around the climb bounds.
     cameraRef.current?.fitBounds(
       [maxLon, maxLat],
       [minLon, minLat],
-      [60, 25, Math.round(screenHeight * 0.22), 25],
+      [60, 40, 40, 40],
       500,
     );
   }, [highlightedClimb?.id]);
@@ -330,19 +323,8 @@ export default function MapScreen() {
         />
       </MapboxMapView>
 
-      <MapControls
-        onLocate={handleLocate}
-        activeRouteIds={activeRouteIds}
-      />
-      <BottomPanel activeData={activeData} />
-      {bottomSheet === "weather" && <WeatherBottomSheet />}
-      {bottomSheet === "climb" && activeRouteIds.length > 0 && (
-        <ClimbBottomSheet
-          routeIds={activeRouteIds}
-          segments={activeData?.segments ?? null}
-        />
-      )}
-      <POIDetailSheet />
+      <MapControls onLocate={handleLocate} />
+      <TabbedBottomPanel activeData={activeData} />
       {activeRouteIds.length > 0 && (
         <POIListView
           routeIds={activeRouteIds}

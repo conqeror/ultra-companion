@@ -55,6 +55,8 @@ export type PanelMode =
   | "upcoming-100"
   | "upcoming-200";
 
+export type PanelTab = "profile" | "weather" | "climbs" | "pois";
+
 // --- Phase 3: POI types ---
 
 export type POICategory =
