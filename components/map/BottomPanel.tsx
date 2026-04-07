@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import { View, StyleSheet, useWindowDimensions } from "react-native";
+import { View, TouchableOpacity, StyleSheet, useWindowDimensions } from "react-native";
 import Animated, {
   useAnimatedStyle,
   withTiming,
@@ -11,12 +11,14 @@ import { usePanelStore } from "@/store/panelStore";
 import { useRouteStore } from "@/store/routeStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import { usePoiStore } from "@/store/poiStore";
+import { useClimbStore } from "@/store/climbStore";
 import { useEtaStore } from "@/store/etaStore";
 import { BOTTOM_PANEL_HEIGHT_RATIO } from "@/constants";
-import { computeElevationProgress, computeSliceAscent } from "@/utils/geo";
+import { computeElevationProgress, computeSliceAscent, extractRouteSlice } from "@/utils/geo";
 import { formatDistance, formatElevation, formatDuration, formatETA } from "@/utils/formatters";
 import { stitchPOIs } from "@/services/stitchingService";
 import UpcomingElevation from "./UpcomingElevation";
+import ElevationProfile from "@/components/elevation/ElevationProfile";
 import type { RoutePoint, PanelMode, POI, ActiveRouteData } from "@/types";
 
 const MAX_SNAP_DISTANCE_M = 1000;
@@ -74,6 +76,72 @@ export default function BottomPanel({ activeData }: BottomPanelProps) {
     }
     return getStarredPOIs(activeRouteIds[0]);
   }, [activeId, activeRouteIds, activeSegments, getStarredPOIs, starredPOIIds]);
+
+  // Current climb mode
+  const currentClimbId = useClimbStore((s) => s.currentClimbId);
+  const isClimbZoomed = useClimbStore((s) => s.isClimbZoomed);
+  const setClimbZoomed = useClimbStore((s) => s.setClimbZoomed);
+
+  // Climbs for the elevation chart
+  const getClimbsForDisplay = useClimbStore((s) => s.getClimbsForDisplay);
+  const allClimbs = useClimbStore((s) => s.climbs);
+  const climbsForChart = useMemo(() => {
+    if (!activeId || activeRouteIds.length === 0) return [];
+    return getClimbsForDisplay(activeRouteIds, activeSegments);
+  }, [activeId, activeRouteIds, activeSegments, getClimbsForDisplay, allClimbs]);
+
+  // Current climb data for zoom mode
+  const currentClimb = useMemo(() => {
+    if (!currentClimbId) return null;
+    return climbsForChart.find((c) => c.id === currentClimbId) ?? null;
+  }, [currentClimbId, climbsForChart]);
+
+  const climbSlice = useMemo(() => {
+    if (!currentClimb || !activeRoutePoints?.length) return null;
+    const padding = 500; // 500m before and after
+    const startDist = Math.max(0, currentClimb.startDistanceMeters - padding);
+
+    // Find start index
+    let startIdx = 0;
+    for (let i = 0; i < activeRoutePoints.length; i++) {
+      if (activeRoutePoints[i].distanceFromStartMeters >= startDist) {
+        startIdx = Math.max(0, i - 1);
+        break;
+      }
+    }
+
+    const totalSliceM = (currentClimb.endDistanceMeters + padding) - activeRoutePoints[startIdx].distanceFromStartMeters;
+    const sliced = extractRouteSlice(activeRoutePoints, startIdx, totalSliceM);
+
+    // Find current position index in slice
+    let currentIdxInSlice: number | undefined;
+    if (isSnapped) {
+      currentIdxInSlice = snappedPosition!.pointIndex - startIdx;
+      if (currentIdxInSlice < 0 || currentIdxInSlice >= sliced.length) {
+        currentIdxInSlice = undefined;
+      }
+    }
+
+    return {
+      points: sliced,
+      currentIdxInSlice,
+      offsetMeters: activeRoutePoints[startIdx].distanceFromStartMeters,
+    };
+  }, [currentClimb, activeRoutePoints, isSnapped, snappedPosition]);
+
+  // Climb progress stats — uses actual route point data for accurate remaining ascent
+  const climbProgressText = useMemo(() => {
+    if (!currentClimb || !isSnapped || !snappedPosition || !activeRoutePoints?.length) return null;
+    const currentDist = snappedPosition.distanceAlongRouteMeters;
+    const distToTop = currentClimb.endDistanceMeters - currentDist;
+    if (distToTop <= 0) return null;
+
+    const ascentRemaining = computeSliceAscent(activeRoutePoints, snappedPosition.pointIndex, currentClimb.endDistanceMeters);
+
+    return `↑ ${formatElevation(ascentRemaining, units)} remaining  ·  ${formatDistance(distToTop, units)} to top  ·  ${currentClimb.averageGradientPercent}% avg`;
+  }, [currentClimb, isSnapped, snappedPosition, activeRoutePoints, units]);
+
+  const showClimbZoom = isClimbZoomed && currentClimb && climbSlice && climbSlice.points.length > 1;
 
   // ETA to end of route
   const getETAToDistance = useEtaStore((s) => s.getETAToDistance);
@@ -136,8 +204,9 @@ export default function BottomPanel({ activeData }: BottomPanelProps) {
   // When not snapped, default to route start (index 0)
   const effectivePointIndex = isSnapped ? snappedPosition!.pointIndex : 0;
 
-  const showStats = !!statsText;
-  const headerHeight = showStats ? STATS_ROW_HEIGHT : 0;
+  const showClimbHeader = showClimbZoom && !!climbProgressText;
+  const showStats = !showClimbZoom && !!statsText;
+  const headerHeight = (showStats || showClimbHeader) ? STATS_ROW_HEIGHT : 0;
   const chartHeight = panelHeight - headerHeight;
   const chartWidth = screenWidth - 16;
 
@@ -146,6 +215,21 @@ export default function BottomPanel({ activeData }: BottomPanelProps) {
       className={PANEL_CLASS}
       style={[{ height: panelHeight, backgroundColor: colors.surface }, animatedStyle]}
     >
+      {showClimbHeader && (
+        <TouchableOpacity
+          className="justify-center items-center"
+          style={[
+            { height: STATS_ROW_HEIGHT },
+            { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+          ]}
+          onPress={() => setClimbZoomed(false)}
+          accessibilityLabel="Exit climb zoom"
+        >
+          <Text className="text-[13px] text-foreground font-barlow-sc-semibold">
+            {climbProgressText}
+          </Text>
+        </TouchableOpacity>
+      )}
       {showStats && (
         <View
           className="justify-center items-center"
@@ -159,19 +243,33 @@ export default function BottomPanel({ activeData }: BottomPanelProps) {
           </Text>
         </View>
       )}
-      <UpcomingElevation
-        points={activeRoutePoints}
-        currentPointIndex={effectivePointIndex}
-        lookAhead={lookAhead}
-        units={units}
-        width={chartWidth}
-        height={chartHeight}
-        pois={poisForChart}
-        onPOIPress={(poi) => {
-          const raw = usePoiStore.getState().pois[poi.routeId]?.find((p) => p.id === poi.id);
-          setSelectedPOI(raw ?? poi);
-        }}
-      />
+      {showClimbZoom ? (
+        <ElevationProfile
+          points={climbSlice!.points}
+          units={units}
+          width={chartWidth}
+          height={chartHeight}
+          currentPointIndex={climbSlice!.currentIdxInSlice}
+          showLegend={false}
+          distanceOffsetMeters={climbSlice!.offsetMeters}
+          climbs={climbsForChart}
+        />
+      ) : (
+        <UpcomingElevation
+          points={activeRoutePoints}
+          currentPointIndex={effectivePointIndex}
+          lookAhead={lookAhead}
+          units={units}
+          width={chartWidth}
+          height={chartHeight}
+          pois={poisForChart}
+          climbs={climbsForChart}
+          onPOIPress={(poi) => {
+            const raw = usePoiStore.getState().pois[poi.routeId]?.find((p) => p.id === poi.id);
+            setSelectedPOI(raw ?? poi);
+          }}
+        />
+      )}
     </Animated.View>
   );
 }

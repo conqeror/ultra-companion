@@ -14,6 +14,7 @@ import { useThemeColors } from "@/theme";
 import { useCollectionStore } from "@/store/collectionStore";
 import { useRouteStore } from "@/store/routeStore";
 import { useSettingsStore } from "@/store/settingsStore";
+import { useClimbStore } from "@/store/climbStore";
 import type { Collection, CollectionSegmentWithRoute, StitchedCollection } from "@/types";
 import { useMapStyle } from "@/hooks/useMapStyle";
 import { formatDistance, formatElevation } from "@/utils/formatters";
@@ -200,6 +201,25 @@ export default function CollectionDetailScreen() {
     );
   }, [id, collection, deleteCollection, router]);
 
+  // Load climbs for all segments
+  const loadClimbs = useClimbStore((s) => s.loadClimbs);
+  const getClimbsForDisplay = useClimbStore((s) => s.getClimbsForDisplay);
+  const allClimbs = useClimbStore((s) => s.climbs);
+
+  useEffect(() => {
+    if (stitched) {
+      for (const seg of stitched.segments) {
+        loadClimbs(seg.routeId);
+      }
+    }
+  }, [stitched, loadClimbs]);
+
+  const collectionClimbs = useMemo(() => {
+    if (!stitched) return [];
+    const routeIds = stitched.segments.map((s) => s.routeId);
+    return getClimbsForDisplay(routeIds, stitched.segments);
+  }, [stitched, getClimbsForDisplay, allClimbs]);
+
   // Segment boundaries for elevation profile
   const segmentBoundaries = useMemo(() => {
     if (!stitched?.segments || stitched.segments.length <= 1) return undefined;
@@ -332,6 +352,7 @@ export default function CollectionDetailScreen() {
                 width={chartWidth}
                 height={chartHeight}
                 segmentBoundaries={segmentBoundaries}
+                climbs={collectionClimbs}
               />
             </View>
           </>

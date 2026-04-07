@@ -4,7 +4,7 @@ import { Text } from "@/components/ui/text";
 import ElevationProfile from "@/components/elevation/ElevationProfile";
 import { extractRouteSlice } from "@/utils/geo";
 import { LOOK_BACK_RATIO } from "@/constants";
-import type { RoutePoint, UnitSystem, POI } from "@/types";
+import type { RoutePoint, UnitSystem, POI, Climb } from "@/types";
 
 interface UpcomingElevationProps {
   points: RoutePoint[];
@@ -18,6 +18,8 @@ interface UpcomingElevationProps {
   pois?: POI[];
   /** Called when a POI marker is tapped */
   onPOIPress?: (poi: POI) => void;
+  /** Climbs to render as shading */
+  climbs?: Climb[];
 }
 
 export default function UpcomingElevation({
@@ -29,6 +31,7 @@ export default function UpcomingElevation({
   height,
   pois,
   onPOIPress,
+  climbs,
 }: UpcomingElevationProps) {
   const { slicedPoints, currentIdxInSlice, offsetMeters, sliceEndDist } = useMemo(() => {
     if (points.length < 2)
@@ -70,6 +73,16 @@ export default function UpcomingElevation({
     );
   }, [pois, offsetMeters, sliceEndDist]);
 
+  // Filter climbs to visible slice range
+  const visibleClimbs = useMemo(() => {
+    if (!climbs) return undefined;
+    return climbs.filter(
+      (c) =>
+        c.endDistanceMeters >= offsetMeters &&
+        c.startDistanceMeters <= sliceEndDist,
+    );
+  }, [climbs, offsetMeters, sliceEndDist]);
+
   if (slicedPoints.length <= 1) {
     return (
       <View className="flex-1 items-center justify-center">
@@ -91,6 +104,7 @@ export default function UpcomingElevation({
       distanceOffsetMeters={offsetMeters}
       pois={visiblePOIs}
       onPOIPress={onPOIPress}
+      climbs={visibleClimbs}
     />
   );
 }

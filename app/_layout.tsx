@@ -62,6 +62,13 @@ export default function RootLayout() {
     return unsubscribe;
   }, []);
 
+  // Re-detect climbs if algorithm version changed
+  useEffect(() => {
+    import("@/services/climbDetector").then(({ redetectClimbsIfNeeded }) => {
+      redetectClimbsIfNeeded().catch(console.warn);
+    });
+  }, []);
+
   if (!fontsLoaded && !fontError) {
     return null;
   }

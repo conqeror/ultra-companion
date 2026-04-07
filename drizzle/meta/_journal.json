@@ -8,6 +8,13 @@
       "when": 1774960304141,
       "tag": "0000_misty_true_believers",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1774960400000,
+      "tag": "0001_add_climbs",
+      "breakpoints": true
     }
   ]
 }

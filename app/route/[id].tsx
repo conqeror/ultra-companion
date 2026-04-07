@@ -12,6 +12,7 @@ import { useThemeColors } from "@/theme";
 import { useRouteStore } from "@/store/routeStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import { usePoiStore } from "@/store/poiStore";
+import { useClimbStore } from "@/store/climbStore";
 import type { RouteWithPoints } from "@/types";
 import { useMapStyle } from "@/hooks/useMapStyle";
 import { formatDistance, formatElevation } from "@/utils/formatters";
@@ -48,9 +49,15 @@ export default function RouteDetailScreen() {
     })();
   }, [id, getRouteDetail]);
 
+  const loadClimbs = useClimbStore((s) => s.loadClimbs);
+  const routeClimbs = useClimbStore((s) => id ? s.climbs[id] ?? [] : []);
+
   useEffect(() => {
-    if (id) loadPOIs(id);
-  }, [id, loadPOIs]);
+    if (id) {
+      loadPOIs(id);
+      loadClimbs(id);
+    }
+  }, [id, loadPOIs, loadClimbs]);
 
   const currentPointIndex = useMemo(() => {
     if (snappedPosition?.routeId === id) return snappedPosition.pointIndex;
@@ -159,6 +166,7 @@ export default function RouteDetailScreen() {
             currentPointIndex={currentPointIndex}
             pois={chartPOIs}
             onPOIPress={setSelectedPOI}
+            climbs={routeClimbs}
           />
         </View>
 

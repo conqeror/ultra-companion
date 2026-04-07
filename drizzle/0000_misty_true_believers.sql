@@ -17,18 +17,18 @@ CREATE INDEX `idx_pois_route_category` ON `pois` (`routeId`,`category`);--> stat
 CREATE INDEX `idx_pois_route_along` ON `pois` (`routeId`,`distanceAlongRouteMeters`);--> statement-breakpoint
 CREATE INDEX `idx_pois_route_source` ON `pois` (`routeId`,`source`);--> statement-breakpoint
 CREATE UNIQUE INDEX `uq_pois_route_source` ON `pois` (`routeId`,`sourceId`);--> statement-breakpoint
-CREATE TABLE `race_segments` (
-	`raceId` text NOT NULL,
+CREATE TABLE `collection_segments` (
+	`collectionId` text NOT NULL,
 	`routeId` text NOT NULL,
 	`position` integer NOT NULL,
 	`isSelected` integer DEFAULT true NOT NULL,
-	PRIMARY KEY(`raceId`, `routeId`),
-	FOREIGN KEY (`raceId`) REFERENCES `races`(`id`) ON UPDATE no action ON DELETE cascade,
+	PRIMARY KEY(`collectionId`, `routeId`),
+	FOREIGN KEY (`collectionId`) REFERENCES `collections`(`id`) ON UPDATE no action ON DELETE cascade,
 	FOREIGN KEY (`routeId`) REFERENCES `routes`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
-CREATE INDEX `idx_race_segments_race_pos` ON `race_segments` (`raceId`,`position`);--> statement-breakpoint
-CREATE TABLE `races` (
+CREATE INDEX `idx_collection_segments_col_pos` ON `collection_segments` (`collectionId`,`position`);--> statement-breakpoint
+CREATE TABLE `collections` (
 	`id` text PRIMARY KEY NOT NULL,
 	`name` text NOT NULL,
 	`isActive` integer DEFAULT false NOT NULL,

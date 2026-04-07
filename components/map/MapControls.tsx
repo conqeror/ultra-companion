@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from "react";
 import { View, TouchableOpacity, useWindowDimensions } from "react-native";
 import { Text } from "@/components/ui/text";
-import { Locate, LocateFixed, List, RefreshCw, CloudSun } from "lucide-react-native";
+import { Locate, LocateFixed, List, RefreshCw, CloudSun, Mountain } from "lucide-react-native";
 import Animated, { useAnimatedStyle, withRepeat, withTiming, Easing } from "react-native-reanimated";
 import { cn } from "@/lib/cn";
 import { useThemeColors } from "@/theme";
 import { usePanelStore } from "@/store/panelStore";
 import { usePoiStore } from "@/store/poiStore";
+import { useClimbStore } from "@/store/climbStore";
 import { useMapStore } from "@/store/mapStore";
 import { formatTimeDelta } from "@/utils/formatters";
 import {
@@ -74,12 +75,18 @@ export default function MapControls({
   const bottomSheet = usePanelStore((s) => s.bottomSheet);
   const setBottomSheet = usePanelStore((s) => s.setBottomSheet);
   const showWeather = bottomSheet === "weather";
-  const showElevation = !showWeather;
+  const showClimb = bottomSheet === "climb";
+  const showElevation = !showWeather && !showClimb;
 
   const hasPOIs = usePoiStore((s) =>
     activeRouteIds.some((id) => (s.pois[id]?.length ?? 0) > 0),
   );
   const setShowPOIList = usePoiStore((s) => s.setShowPOIList);
+
+  const hasClimbs = useClimbStore((s) =>
+    activeRouteIds.some((id) => (s.climbs[id]?.length ?? 0) > 0),
+  );
+  const setSelectedClimb = useClimbStore((s) => s.setSelectedClimb);
 
   const { height: screenHeight } = useWindowDimensions();
   const panelHeight = Math.round(screenHeight * BOTTOM_PANEL_HEIGHT_RATIO);
@@ -98,7 +105,7 @@ export default function MapControls({
   );
 
   const handleElevationPress = () => {
-    if (showWeather) {
+    if (showWeather || showClimb) {
       setBottomSheet(null);
     } else {
       cyclePanelMode();
@@ -148,14 +155,33 @@ export default function MapControls({
         </View>
       )}
 
-      {/* Weather + Elevation — bottom-right */}
+      {/* Climb + Weather + Elevation — bottom-right */}
       <View className="absolute right-4 items-center" style={{ bottom: buttonBottom }}>
+        {hasClimbs && (
+          <TouchableOpacity
+            className={cn(
+              "w-[52px] h-[52px] rounded-xl items-center justify-center shadow-md mb-3",
+              showClimb ? "bg-primary" : "bg-card/95 border border-border-subtle",
+            )}
+            onPress={() => {
+              if (showClimb) {
+                setBottomSheet(null);
+              } else {
+                setSelectedClimb(null); // clear manual selection, let auto-select pick
+                setBottomSheet("climb");
+              }
+            }}
+            accessibilityLabel="Show climb info"
+          >
+            <Mountain size={22} color={showClimb ? colors.accentForeground : colors.textPrimary} />
+          </TouchableOpacity>
+        )}
         <TouchableOpacity
           className={cn(
             "w-[52px] h-[52px] rounded-xl items-center justify-center shadow-md",
             showWeather ? "bg-primary" : "bg-card/95 border border-border-subtle",
           )}
-          onPress={() => setBottomSheet("weather")}
+          onPress={() => setBottomSheet(showWeather ? null : "weather")}
           accessibilityLabel="Show weather"
         >
           <CloudSun size={22} color={showWeather ? colors.accentForeground : colors.textPrimary} />

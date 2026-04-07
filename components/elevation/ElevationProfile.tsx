@@ -7,7 +7,8 @@ import { ELEVATION_STOPS } from "@/theme/elevation";
 import { formatDistance, formatElevation } from "@/utils/formatters";
 import { getOpeningHoursStatus } from "@/services/openingHoursParser";
 import { categoryColor, categoryLetter, ohStatusColorKey } from "@/constants/poiHelpers";
-import type { RoutePoint, UnitSystem, POI } from "@/types";
+import { climbDifficultyColor } from "@/constants/climbHelpers";
+import type { RoutePoint, UnitSystem, POI, Climb } from "@/types";
 
 interface SegmentBoundary {
   distanceMeters: number;
@@ -29,6 +30,8 @@ interface ElevationProfileProps {
   onPOIPress?: (poi: POI) => void;
   /** Vertical boundary lines at segment junctions (for stitched collections) */
   segmentBoundaries?: SegmentBoundary[];
+  /** Climbs to render as colored shading regions */
+  climbs?: Climb[];
 }
 
 const PADDING = { top: 16, right: 16, bottom: 28, left: 48 };
@@ -118,6 +121,7 @@ export default function ElevationProfile({
   pois,
   onPOIPress,
   segmentBoundaries,
+  climbs,
 }: ElevationProfileProps) {
   const colors = useThemeColors();
   const chartWidth = width - PADDING.left - PADDING.right;
@@ -278,6 +282,42 @@ export default function ElevationProfile({
     return markers;
   }, [pois, samples, totalDist, distanceOffsetMeters, xScale, yScale, colors]);
 
+  // Compute climb shading regions
+  const climbRegions = useMemo(() => {
+    if (!climbs || climbs.length === 0 || samples.length === 0 || totalDist === 0) return [];
+
+    return climbs.map((climb) => {
+      const localStart = climb.startDistanceMeters - distanceOffsetMeters;
+      const localEnd = climb.endDistanceMeters - distanceOffsetMeters;
+      const visStart = Math.max(0, localStart);
+      const visEnd = Math.min(totalDist, localEnd);
+      if (visStart >= visEnd) return null;
+
+      const color = climbDifficultyColor(climb.difficultyScore);
+
+      // Build fill path: trace elevation line from visStart to visEnd, then close to X-axis
+      let d = "";
+      const startX = xScale(visStart);
+      const startElev = interpolateElevation(samples, visStart);
+      d = `M${startX},${yScale(startElev)}`;
+
+      for (const s of samples) {
+        if (s.distance <= visStart) continue;
+        if (s.distance >= visEnd) break;
+        d += ` L${xScale(s.distance)},${yScale(s.elevation)}`;
+      }
+
+      const endX = xScale(visEnd);
+      const endElev = interpolateElevation(samples, visEnd);
+      d += ` L${endX},${yScale(endElev)}`;
+
+      const axisY = PADDING.top + chartHeight;
+      d += ` L${endX},${axisY} L${startX},${axisY} Z`;
+
+      return { id: climb.id, color, fillPath: d };
+    }).filter(Boolean) as { id: string; color: string; fillPath: string }[];
+  }, [climbs, samples, totalDist, distanceOffsetMeters, xScale, yScale, chartHeight]);
+
   if (points.length === 0) {
     return (
       <View className="bg-surface" style={{ width, height }}>
@@ -331,6 +371,16 @@ export default function ElevationProfile({
         {/* Fill area */}
         <Path d={fillPath} fill="url(#elevFill)" />
 
+        {/* Climb shading */}
+        {climbRegions.map((region) => (
+          <Path
+            key={`climb-${region.id}`}
+            d={region.fillPath}
+            fill={region.color}
+            opacity={0.2}
+          />
+        ))}
+
         {/* Single path with blended gradient stroke */}
         <Path
           d={linePath}
@@ -360,7 +410,7 @@ export default function ElevationProfile({
         {segmentBoundaries?.map((b, i) => {
           const localDist = b.distanceMeters - distanceOffsetMeters;
           if (localDist <= 0 || localDist >= totalDist) return null;
-          const bx = PADDING.left + xScale(localDist);
+          const bx = xScale(localDist);
           return (
             <Line
               key={`seg-boundary-${i}`}

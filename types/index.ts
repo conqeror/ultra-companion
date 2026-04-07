@@ -216,6 +216,25 @@ export interface ActiveRouteData {
   routeIds: string[];
 }
 
+// --- Climb Detection ---
+
+export interface Climb {
+  id: string;
+  routeId: string;
+  name: string | null;
+  startDistanceMeters: number;
+  endDistanceMeters: number;
+  lengthMeters: number;
+  totalAscentMeters: number;
+  startElevationMeters: number;
+  endElevationMeters: number;
+  averageGradientPercent: number;
+  maxGradientPercent: number;
+  difficultyScore: number;
+}
+
+export type ClimbDifficulty = "low" | "medium" | "hard";
+
 // --- Phase 4b: Offline ---
 
 export type OfflinePackStatus = "idle" | "downloading" | "complete" | "error";

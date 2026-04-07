@@ -20,7 +20,7 @@ function readString(key: string): string | undefined {
   }
 }
 
-export type BottomSheet = "poi" | "weather" | null;
+export type BottomSheet = "poi" | "weather" | "climb" | null;
 
 interface PanelState {
   panelMode: PanelMode;

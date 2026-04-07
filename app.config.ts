@@ -23,7 +23,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   ios: {
     supportsTablet: false,
-    bundleIdentifier: "com.ultra.companion",
+    bundleIdentifier: "com.conqeror.ultracompanion",
     infoPlist: {
       NSLocationWhenInUseUsageDescription:
         "Ultra Companion needs your location to show your position on the map during rides.",

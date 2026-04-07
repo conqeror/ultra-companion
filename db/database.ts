@@ -2,9 +2,9 @@ import { drizzle } from "drizzle-orm/expo-sqlite";
 import { migrate } from "drizzle-orm/expo-sqlite/migrator";
 import { openDatabaseSync } from "expo-sqlite";
 import { sql, eq, and, inArray, desc, asc, count, max } from "drizzle-orm";
-import { routes, routePoints, pois, collections, collectionSegments } from "./schema";
+import { routes, routePoints, pois, collections, collectionSegments, climbs } from "./schema";
 import migrations from "../drizzle/migrations";
-import type { Route, RoutePoint, RouteWithPoints, POI, POICategory, POISource, Collection, CollectionSegment } from "@/types";
+import type { Route, RoutePoint, RouteWithPoints, POI, POICategory, POISource, Collection, CollectionSegment, Climb } from "@/types";
 
 // --- Database init ---
 
@@ -12,7 +12,7 @@ const expoDb = openDatabaseSync("ultra.db");
 expoDb.execSync("PRAGMA journal_mode = WAL;");
 expoDb.execSync("PRAGMA foreign_keys = ON;");
 
-export const db = drizzle(expoDb, { schema: { routes, routePoints, pois, collections, collectionSegments } });
+export const db = drizzle(expoDb, { schema: { routes, routePoints, pois, collections, collectionSegments, climbs } });
 
 // Apply schema from drizzle/migrations.ts (generated from db/schema.ts via `npm run db:migrate`)
 migrate(db, migrations);
@@ -243,6 +243,51 @@ export async function getPOICountsBySource(routeId: string): Promise<{ osm: numb
     else osm += row.cnt;
   }
   return { osm, google };
+}
+
+// --- Climb CRUD ---
+
+export async function insertClimbs(newClimbs: Climb[]): Promise<void> {
+  if (newClimbs.length === 0) return;
+  db.transaction((tx) => {
+    const CHUNK = 500;
+    for (let i = 0; i < newClimbs.length; i += CHUNK) {
+      const chunk = newClimbs.slice(i, i + CHUNK);
+      tx.insert(climbs).values(
+        chunk.map((c) => ({
+          id: c.id,
+          routeId: c.routeId,
+          name: c.name,
+          startDistanceMeters: c.startDistanceMeters,
+          endDistanceMeters: c.endDistanceMeters,
+          lengthMeters: c.lengthMeters,
+          totalAscentMeters: c.totalAscentMeters,
+          startElevationMeters: c.startElevationMeters,
+          endElevationMeters: c.endElevationMeters,
+          averageGradientPercent: c.averageGradientPercent,
+          maxGradientPercent: c.maxGradientPercent,
+          difficultyScore: c.difficultyScore,
+        })),
+      ).run();
+    }
+  });
+}
+
+export async function getClimbsForRoute(routeId: string): Promise<Climb[]> {
+  return db
+    .select()
+    .from(climbs)
+    .where(eq(climbs.routeId, routeId))
+    .orderBy(asc(climbs.startDistanceMeters))
+    .all();
+}
+
+export async function deleteClimbsForRoute(routeId: string): Promise<void> {
+  db.delete(climbs).where(eq(climbs.routeId, routeId)).run();
+}
+
+export async function updateClimbName(climbId: string, name: string | null): Promise<void> {
+  db.update(climbs).set({ name }).where(eq(climbs.id, climbId)).run();
 }
 
 // --- Collection CRUD ---

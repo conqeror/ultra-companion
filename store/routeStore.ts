@@ -14,7 +14,7 @@ import { parseGPX } from "@/services/gpxParser";
 import { parseKML } from "@/services/kmlParser";
 import { INACTIVE_ROUTE_COLOR } from "@/constants";
 import { generateId } from "@/utils/generateId";
-import type { Route, RouteWithPoints, RoutePoint, SnappedPosition } from "@/types";
+import type { Route, RouteWithPoints, RoutePoint, SnappedPosition, Climb } from "@/types";
 
 interface RouteState {
   routes: Route[];
@@ -100,6 +100,19 @@ export const useRouteStore = create<RouteState>((set, get) => ({
       };
 
       await insertRoute(route, parsed.points);
+
+      // Detect and store climbs
+      const { detectClimbs } = await import("@/services/climbDetector");
+      const { insertClimbs } = await import("@/db/database");
+      const detected = detectClimbs(parsed.points);
+      const climbRecords: Climb[] = detected.map((c) => ({
+        ...c,
+        id: generateId(),
+        routeId: route.id,
+        name: null,
+      }));
+      await insertClimbs(climbRecords);
+
       set({ isLoading: false });
       await get().loadRoutes();
     } catch (e: any) {

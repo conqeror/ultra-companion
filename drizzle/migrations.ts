@@ -5,6 +5,7 @@ export default {
   journal: {
     entries: [
       { idx: 0, when: 1774960304141, tag: "0000_misty_true_believers", breakpoints: true },
+      { idx: 1, when: 1774960400000, tag: "0001_add_climbs", breakpoints: true },
     ],
   },
   migrations: {
@@ -69,6 +70,24 @@ CREATE TABLE \`routes\` (
 	\`pointCount\` integer NOT NULL,
 	\`createdAt\` text NOT NULL
 );
+`,
+    "m0001": `CREATE TABLE \`climbs\` (
+	\`id\` text PRIMARY KEY NOT NULL,
+	\`routeId\` text NOT NULL,
+	\`name\` text,
+	\`startDistanceMeters\` real NOT NULL,
+	\`endDistanceMeters\` real NOT NULL,
+	\`lengthMeters\` real NOT NULL,
+	\`totalAscentMeters\` real NOT NULL,
+	\`startElevationMeters\` real NOT NULL,
+	\`endElevationMeters\` real NOT NULL,
+	\`averageGradientPercent\` real NOT NULL,
+	\`maxGradientPercent\` real NOT NULL,
+	\`difficultyScore\` real NOT NULL,
+	FOREIGN KEY (\`routeId\`) REFERENCES \`routes\`(\`id\`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE INDEX \`idx_climbs_route_distance\` ON \`climbs\` (\`routeId\`,\`startDistanceMeters\`);
 `,
   },
 };

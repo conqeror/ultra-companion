@@ -1,6 +1,27 @@
 import { sqliteTable, text, integer, real, index, unique, primaryKey } from "drizzle-orm/sqlite-core";
 import type { POICategory, POISource } from "@/types";
 
+// --- Climbs ---
+
+export const climbs = sqliteTable("climbs", {
+  id: text("id").primaryKey(),
+  routeId: text("routeId")
+    .notNull()
+    .references(() => routes.id, { onDelete: "cascade" }),
+  name: text("name"),
+  startDistanceMeters: real("startDistanceMeters").notNull(),
+  endDistanceMeters: real("endDistanceMeters").notNull(),
+  lengthMeters: real("lengthMeters").notNull(),
+  totalAscentMeters: real("totalAscentMeters").notNull(),
+  startElevationMeters: real("startElevationMeters").notNull(),
+  endElevationMeters: real("endElevationMeters").notNull(),
+  averageGradientPercent: real("averageGradientPercent").notNull(),
+  maxGradientPercent: real("maxGradientPercent").notNull(),
+  difficultyScore: real("difficultyScore").notNull(),
+}, (table) => [
+  index("idx_climbs_route_distance").on(table.routeId, table.startDistanceMeters),
+]);
+
 // --- Routes ---
 
 export const routes = sqliteTable("routes", {

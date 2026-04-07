@@ -19,11 +19,14 @@ import RouteLayer from "./RouteLayer";
 import POILayer from "./POILayer";
 import POIDetailSheet from "@/components/poi/POIDetailSheet";
 import POIListView from "@/components/poi/POIListView";
+import ClimbListView from "@/components/climb/ClimbListView";
+import ClimbBottomSheet from "@/components/climb/ClimbDetailSheet";
 import BottomPanel from "./BottomPanel";
 import WeatherBottomSheet from "./WeatherBottomSheet";
 import { snapToRoute } from "@/services/routeSnapping";
 import { useActiveRouteData, getActiveRouteDataImperative } from "@/hooks/useActiveRouteData";
 import { usePoiStore } from "@/store/poiStore";
+import { useClimbStore } from "@/store/climbStore";
 import { useEtaStore } from "@/store/etaStore";
 import { useWeatherStore } from "@/store/weatherStore";
 import { useOfflineStore } from "@/store/offlineStore";
@@ -79,14 +82,18 @@ export default function MapScreen() {
     loadCollections();
   }, [loadRoutes, loadCollections]);
 
-  // Load POIs and compute ETA when active context changes
+  const loadClimbs = useClimbStore((s) => s.loadClimbs);
+  const updateCurrentClimb = useClimbStore((s) => s.updateCurrentClimb);
+
+  // Load POIs and climbs when active context changes
   useEffect(() => {
     if (activeData) {
       for (const routeId of activeData.routeIds) {
         loadPOIs(routeId);
+        loadClimbs(routeId);
       }
     }
-  }, [activeData?.id, loadPOIs]);
+  }, [activeData?.id, loadPOIs, loadClimbs]);
 
   useEffect(() => {
     if (activeData && activeRoutePoints?.length) {
@@ -148,6 +155,17 @@ export default function MapScreen() {
     });
     return () => subscription.remove();
   }, [refreshPosition, snapAfterRefresh, hasGpsFix]);
+
+  // Track current climb based on snapped position
+  useEffect(() => {
+    if (snappedPosition && activeData) {
+      updateCurrentClimb(
+        snappedPosition.distanceAlongRouteMeters,
+        activeData.routeIds,
+        activeData.segments,
+      );
+    }
+  }, [snappedPosition?.distanceAlongRouteMeters, activeData?.id, updateCurrentClimb]);
 
   // Fly to selected POI
   const selectedPOI = usePoiStore((s) => s.selectedPOI);
@@ -263,9 +281,21 @@ export default function MapScreen() {
       />
       <BottomPanel activeData={activeData} />
       {bottomSheet === "weather" && <WeatherBottomSheet />}
+      {bottomSheet === "climb" && activeRouteIds.length > 0 && (
+        <ClimbBottomSheet
+          routeIds={activeRouteIds}
+          segments={activeData?.segments ?? null}
+        />
+      )}
       <POIDetailSheet />
       {activeRouteIds.length > 0 && (
         <POIListView
+          routeIds={activeRouteIds}
+          segments={activeData?.segments ?? null}
+        />
+      )}
+      {activeRouteIds.length > 0 && (
+        <ClimbListView
           routeIds={activeRouteIds}
           segments={activeData?.segments ?? null}
         />
