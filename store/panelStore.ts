@@ -33,10 +33,12 @@ interface PanelState {
   toggleBottomSheet: (sheet: "poi" | "weather") => void;
 }
 
+const DEFAULT_PANEL_MODE: PanelMode = "upcoming-50";
+
 function readPanelMode(): PanelMode {
   const raw = readString("panelMode");
   if (raw && (PANEL_MODES as readonly string[]).includes(raw)) return raw as PanelMode;
-  return "none";
+  return DEFAULT_PANEL_MODE;
 }
 
 export const usePanelStore = create<PanelState>((set, get) => ({

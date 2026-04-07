@@ -76,7 +76,7 @@ const WeatherCell = React.memo(function WeatherCell({ point, colors }: WeatherCe
         {formatHour(point.time)}
       </Text>
 
-      <View className="mt-1.5 mb-1">
+      <View className="mt-2 mb-1">
         <WeatherIcon code={point.weatherCode} size={22} color={colors.textSecondary} />
       </View>
 
@@ -87,7 +87,7 @@ const WeatherCell = React.memo(function WeatherCell({ point, colors }: WeatherCe
       {point.precipitationMm > 0 && (
         <View className="flex-row items-center mt-1">
           <Droplets size={10} color={colors.accent} />
-          <Text className="text-[11px] font-barlow-sc-medium ml-0.5" style={{ color: colors.accent }}>
+          <Text className="text-[11px] font-barlow-sc-medium ml-1" style={{ color: colors.accent }}>
             {point.precipitationMm.toFixed(1)}
           </Text>
         </View>
@@ -97,7 +97,7 @@ const WeatherCell = React.memo(function WeatherCell({ point, colors }: WeatherCe
         <View style={{ transform: [{ rotate: `${rotation}deg` }] }}>
           <ArrowUp size={12} color={wColor} />
         </View>
-        <Text className="text-[11px] font-barlow-sc-medium ml-0.5" style={{ color: wColor }}>
+        <Text className="text-[11px] font-barlow-sc-medium ml-1" style={{ color: wColor }}>
           {Math.round(point.windSpeedKmh)}
         </Text>
       </View>
@@ -145,34 +145,32 @@ export default function WeatherPanel() {
   return (
     <View>
       {/* Header: current summary */}
-      <View
-        className="flex-row items-center justify-between px-3 py-1"
-        style={{ borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border }}
-      >
-        <View className="flex-row items-center gap-2">
-          {current && (
-            <>
-              <WeatherIcon code={current.weatherCode} size={16} color={colors.textPrimary} />
-              <Text className="text-[14px] font-barlow-semibold text-foreground">
-                {formatTemp(current.temperatureC)}
+      {current && (
+        <View
+          className="flex-row items-center px-4 py-3"
+          style={{ borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border }}
+        >
+          <WeatherIcon code={current.weatherCode} size={28} color={colors.textPrimary} />
+          <Text className="text-[26px] font-barlow-sc-semibold text-foreground ml-2">
+            {formatTemp(current.temperatureC)}
+          </Text>
+          <View className="ml-3 flex-1">
+            <Text className="text-[13px] font-barlow-medium text-muted-foreground">
+              {weatherInfo?.label}
+            </Text>
+            {current.windSpeedKmh > 0 && (
+              <Text className="text-[13px] font-barlow-sc-medium" style={{ color: windColor(currentWindRel, colors) }}>
+                {currentWindRel ? windRelativeLabel(currentWindRel) : ""} {Math.round(current.windSpeedKmh)} km/h
               </Text>
-              <Text className="text-[12px] font-barlow-medium text-muted-foreground">
-                {weatherInfo?.label}
-              </Text>
-              {current.windSpeedKmh > 0 && (
-                <Text className="text-[12px] font-barlow-sc-medium" style={{ color: windColor(currentWindRel, colors) }}>
-                  {currentWindRel ? windRelativeLabel(currentWindRel) : ""} {Math.round(current.windSpeedKmh)} km/h
-                </Text>
-              )}
-            </>
+            )}
+          </View>
+          {fetchedAt && (
+            <Text className="text-[11px] font-barlow-medium text-muted-foreground">
+              {formatTimeAgo(fetchedAt)}
+            </Text>
           )}
         </View>
-        {fetchedAt && (
-          <Text className="text-[10px] font-barlow-medium text-muted-foreground">
-            {formatTimeAgo(fetchedAt)}
-          </Text>
-        )}
-      </View>
+      )}
 
       {/* Hourly timeline */}
       <ScrollView

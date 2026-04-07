@@ -50,10 +50,8 @@ export default function MapScreen() {
   const refreshPosition = useMapStore((s) => s.refreshPosition);
   const isRefreshing = useMapStore((s) => s.isRefreshing);
 
-  const panelMode = usePanelStore((s) => s.panelMode);
   const bottomSheet = usePanelStore((s) => s.bottomSheet);
-  const toggleBottomSheet = usePanelStore((s) => s.toggleBottomSheet);
-  const panelOpen = panelMode !== "none" && bottomSheet == null;
+  const setBottomSheet = usePanelStore((s) => s.setBottomSheet);
   const panelHeight = Math.round(screenHeight * BOTTOM_PANEL_HEIGHT_RATIO);
 
   const routes = useRouteStore((s) => s.routes);
@@ -154,14 +152,6 @@ export default function MapScreen() {
     return () => subscription.remove();
   }, [refreshPosition, snapAfterRefresh, hasGpsFix]);
 
-  const handleRefreshPosition = useCallback(async () => {
-    const position = await refreshPosition();
-    if (position) {
-      if (!hasGpsFix) setHasGpsFix(true);
-      snapAfterRefresh(position);
-    }
-  }, [refreshPosition, snapAfterRefresh, hasGpsFix]);
-
   // Fly to selected POI
   const selectedPOI = usePoiStore((s) => s.selectedPOI);
   useEffect(() => {
@@ -175,15 +165,27 @@ export default function MapScreen() {
     }
   }, [selectedPOI]);
 
-  const handleCenterUser = useCallback(() => {
+  const handleLocate = useCallback(async () => {
     setFollowUser(true);
-    if (userPosition) {
+    // Center on current position immediately (if available)
+    const currentPos = useMapStore.getState().userPosition;
+    if (currentPos) {
       cameraRef.current?.setCamera({
-        centerCoordinate: [userPosition.longitude, userPosition.latitude],
+        centerCoordinate: [currentPos.longitude, currentPos.latitude],
         animationDuration: 500,
       });
     }
-  }, [setFollowUser, userPosition]);
+    // Then refresh GPS for a fresh fix
+    const position = await refreshPosition();
+    if (position) {
+      if (!hasGpsFix) setHasGpsFix(true);
+      snapAfterRefresh(position);
+      cameraRef.current?.setCamera({
+        centerCoordinate: [position.longitude, position.latitude],
+        animationDuration: 500,
+      });
+    }
+  }, [setFollowUser, refreshPosition, snapAfterRefresh, hasGpsFix]);
 
   const handleTouchStart = useCallback(() => {
     if (followUser) {
@@ -260,20 +262,16 @@ export default function MapScreen() {
       </MapboxMapView>
 
       <MapControls
-        onCenterUser={handleCenterUser}
+        onLocate={handleLocate}
         followUser={followUser}
-        onRefreshPosition={handleRefreshPosition}
         isRefreshing={isRefreshing}
         showWeather={bottomSheet === "weather"}
-        onToggleWeather={() => toggleBottomSheet("weather")}
+        onShowWeather={() => setBottomSheet("weather")}
+        onShowElevation={() => setBottomSheet(null)}
         activeRouteIds={activeRouteIds}
-        mapRef={mapRef}
-        cameraRef={cameraRef}
       />
       <BottomPanel activeData={activeData} />
-      {bottomSheet === "weather" && (
-        <WeatherBottomSheet onClose={() => toggleBottomSheet("weather")} />
-      )}
+      {bottomSheet === "weather" && <WeatherBottomSheet />}
       <POIDetailSheet />
       {activeRouteIds.length > 0 && (
         <POIListView

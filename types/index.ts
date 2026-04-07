@@ -49,7 +49,6 @@ export interface SnappedPosition {
 // --- Phase 2b: Panel types ---
 
 export type PanelMode =
-  | "none"
   | "upcoming-10"
   | "upcoming-25"
   | "upcoming-50"

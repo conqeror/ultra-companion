@@ -1,34 +1,27 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { View, TouchableOpacity, useWindowDimensions } from "react-native";
 import { Text } from "@/components/ui/text";
-import { Locate, LocateFixed, Mountain, List, RefreshCw, CloudSun, Plus, Minus } from "lucide-react-native";
+import { Locate, LocateFixed, List, RefreshCw, CloudSun } from "lucide-react-native";
 import Animated, { useAnimatedStyle, withRepeat, withTiming, Easing } from "react-native-reanimated";
 import { cn } from "@/lib/cn";
 import { useThemeColors } from "@/theme";
 import { usePanelStore } from "@/store/panelStore";
-import type { Camera, MapView as MapboxMapView } from "@rnmapbox/maps";
 import { usePoiStore } from "@/store/poiStore";
-import { BOTTOM_PANEL_HEIGHT_RATIO } from "@/constants";
-import PositionAgeIndicator from "./PositionAgeIndicator";
-import ConnectivityIndicator from "./ConnectivityIndicator";
-import type { PanelMode } from "@/types";
+import { useMapStore } from "@/store/mapStore";
+import {
+  BOTTOM_PANEL_HEIGHT_RATIO,
+  POSITION_AGE_VISIBLE_THRESHOLD_MS,
+  GPS_STALE_THRESHOLD_MS,
+} from "@/constants";
 
 interface MapControlsProps {
-  onCenterUser: () => void;
+  onLocate: () => void;
   followUser: boolean;
-  onRefreshPosition: () => void;
   isRefreshing: boolean;
   showWeather: boolean;
-  onToggleWeather: () => void;
+  onShowWeather: () => void;
+  onShowElevation: () => void;
   activeRouteIds: string[];
-  mapRef?: React.RefObject<MapboxMapView | null>;
-  cameraRef?: React.RefObject<Camera | null>;
-}
-
-function PanelIcon({ mode, color }: { mode: PanelMode; color: string }) {
-  if (mode === "none") return <Mountain size={22} color={color} />;
-  const km = mode.replace("upcoming-", "");
-  return <Text style={{ color }} className="text-base font-barlow-bold">{km}</Text>;
 }
 
 function SpinningRefreshIcon({ color }: { color: string }) {
@@ -46,35 +39,48 @@ function SpinningRefreshIcon({ color }: { color: string }) {
 
   return (
     <Animated.View style={spinStyle}>
-      <RefreshCw size={22} color={color} />
+      <RefreshCw size={20} color={color} />
     </Animated.View>
   );
 }
 
+function usePositionAge() {
+  const userPosition = useMapStore((s) => s.userPosition);
+  const [, setTick] = useState(0);
+
+  const ageMs = userPosition ? Date.now() - userPosition.timestamp : 0;
+  const shouldShow = userPosition != null && ageMs >= POSITION_AGE_VISIBLE_THRESHOLD_MS;
+  const isStale = ageMs >= GPS_STALE_THRESHOLD_MS;
+
+  useEffect(() => {
+    if (!shouldShow) return;
+    const interval = setInterval(() => setTick((t) => t + 1), 30_000);
+    return () => clearInterval(interval);
+  }, [shouldShow]);
+
+  if (!shouldShow || !userPosition) return null;
+
+  const minutes = Math.floor(ageMs / 60_000);
+  const label = minutes < 60 ? `${minutes}m` : `${Math.floor(minutes / 60)}h`;
+
+  return { label, isStale };
+}
+
 export default function MapControls({
-  onCenterUser,
+  onLocate,
   followUser,
-  onRefreshPosition,
   isRefreshing,
   showWeather,
-  onToggleWeather,
+  onShowWeather,
+  onShowElevation,
   activeRouteIds,
-  mapRef,
-  cameraRef,
 }: MapControlsProps) {
   const colors = useThemeColors();
+  const positionAge = usePositionAge();
 
-  const handleZoom = async (delta: number) => {
-    const zoom = await mapRef?.current?.getZoom();
-    if (zoom == null) return;
-    cameraRef?.current?.setCamera({
-      zoomLevel: zoom + delta,
-      animationDuration: 300,
-    });
-  };
   const panelMode = usePanelStore((s) => s.panelMode);
   const cyclePanelMode = usePanelStore((s) => s.cyclePanelMode);
-  const panelOpen = panelMode !== "none";
+  const showElevation = !showWeather;
 
   const hasPOIs = usePoiStore((s) =>
     activeRouteIds.some((id) => (s.pois[id]?.length ?? 0) > 0),
@@ -84,81 +90,62 @@ export default function MapControls({
   const { height: screenHeight } = useWindowDimensions();
   const panelHeight = Math.round(screenHeight * BOTTOM_PANEL_HEIGHT_RATIO);
   const TAB_BAR_CLEARANCE = 16;
-  const elevButtonBottom = panelOpen ? panelHeight + TAB_BAR_CLEARANCE : TAB_BAR_CLEARANCE;
+  const buttonBottom = panelHeight + TAB_BAR_CLEARANCE;
 
   const locateColor = followUser ? colors.accentForeground : colors.textPrimary;
-  const panelColor = panelOpen ? colors.accentForeground : colors.textPrimary;
+  const elevColor = showElevation ? colors.accentForeground : colors.textPrimary;
+
+  const locateIcon = isRefreshing ? (
+    <SpinningRefreshIcon color={followUser ? colors.accentForeground : colors.accent} />
+  ) : followUser ? (
+    <LocateFixed size={positionAge ? 20 : 24} color={locateColor} />
+  ) : (
+    <Locate size={positionAge ? 20 : 24} color={locateColor} />
+  );
+
+  const handleElevationPress = () => {
+    if (showWeather) {
+      // Switch from weather to elevation
+      onShowElevation();
+    } else {
+      // Already on elevation — cycle distance
+      cyclePanelMode();
+    }
+  };
+
+  const km = panelMode.replace("upcoming-", "");
 
   return (
     <>
-      {/* Location + refresh controls — top-right */}
+      {/* Locate — standalone, top-right */}
       <View className="absolute right-4 top-[120px] items-center">
         <TouchableOpacity
           className={cn(
-            "w-[52px] h-[52px] rounded-xl items-center justify-center shadow-md",
+            "w-[52px] rounded-xl items-center justify-center shadow-md",
             followUser ? "bg-primary" : "bg-card/95 border border-border-subtle",
+            positionAge ? "py-2" : "h-[52px]",
           )}
-          onPress={onCenterUser}
+          onPress={onLocate}
           accessibilityLabel="Center on my location"
         >
-          {followUser ? (
-            <LocateFixed size={24} color={locateColor} />
-          ) : (
-            <Locate size={24} color={locateColor} />
-          )}
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          className="w-[52px] h-[52px] rounded-xl items-center justify-center shadow-md bg-card/95 border border-border-subtle mt-3"
-          onPress={onRefreshPosition}
-          disabled={isRefreshing}
-          accessibilityLabel="Refresh GPS position"
-        >
-          {isRefreshing ? (
-            <SpinningRefreshIcon color={colors.accent} />
-          ) : (
-            <RefreshCw size={22} color={colors.textPrimary} />
-          )}
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          className={cn(
-            "w-[52px] h-[52px] rounded-xl items-center justify-center shadow-md mt-3",
-            showWeather ? "bg-primary" : "bg-card/95 border border-border-subtle",
-          )}
-          onPress={onToggleWeather}
-          accessibilityLabel="Toggle weather"
-        >
-          <CloudSun size={22} color={showWeather ? colors.accentForeground : colors.textPrimary} />
-        </TouchableOpacity>
-
-        {mapRef && (
-          <View className="mt-3 rounded-xl overflow-hidden border border-border-subtle bg-card/95 shadow-md">
-            <TouchableOpacity
-              className="w-[52px] h-[40px] items-center justify-center"
-              onPress={() => handleZoom(1)}
-              accessibilityLabel="Zoom in"
+          {locateIcon}
+          {positionAge && !isRefreshing && (
+            <Text
+              className="text-[10px] font-barlow-semibold mt-1"
+              style={{ color: positionAge.isStale
+                ? colors.warning
+                : followUser ? colors.accentForeground : colors.textTertiary
+              }}
             >
-              <Plus size={20} color={colors.textPrimary} />
-            </TouchableOpacity>
-            <View className="h-[1px] bg-border-subtle" />
-            <TouchableOpacity
-              className="w-[52px] h-[40px] items-center justify-center"
-              onPress={() => handleZoom(-1)}
-              accessibilityLabel="Zoom out"
-            >
-              <Minus size={20} color={colors.textPrimary} />
-            </TouchableOpacity>
-          </View>
-        )}
-
-        <PositionAgeIndicator />
-        <ConnectivityIndicator />
+              {positionAge.label}
+            </Text>
+          )}
+        </TouchableOpacity>
       </View>
 
-      {/* POI list button — bottom-left, above panel/tab bar */}
+      {/* POI list button — bottom-left, above panel */}
       {hasPOIs && (
-        <View className="absolute left-4" style={{ bottom: elevButtonBottom }}>
+        <View className="absolute left-4" style={{ bottom: buttonBottom }}>
           <TouchableOpacity
             className="w-[52px] h-[52px] rounded-xl items-center justify-center shadow-md bg-card/95 border border-border-subtle"
             onPress={() => setShowPOIList(true)}
@@ -169,17 +156,28 @@ export default function MapControls({
         </View>
       )}
 
-      {/* Elevation panel control — bottom-right, above panel/tab bar */}
-      <View className="absolute right-4" style={{ bottom: elevButtonBottom }}>
+      {/* Weather + Elevation — switch, bottom-right */}
+      <View className="absolute right-4 items-center" style={{ bottom: buttonBottom }}>
         <TouchableOpacity
           className={cn(
             "w-[52px] h-[52px] rounded-xl items-center justify-center shadow-md",
-            panelOpen ? "bg-primary" : "bg-card/95 border border-border-subtle",
+            showWeather ? "bg-primary" : "bg-card/95 border border-border-subtle",
           )}
-          onPress={cyclePanelMode}
-          accessibilityLabel="Cycle bottom panel mode"
+          onPress={onShowWeather}
+          accessibilityLabel="Show weather"
         >
-          <PanelIcon mode={panelMode} color={panelColor} />
+          <CloudSun size={22} color={showWeather ? colors.accentForeground : colors.textPrimary} />
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          className={cn(
+            "w-[52px] h-[52px] rounded-xl items-center justify-center shadow-md mt-3",
+            showElevation ? "bg-primary" : "bg-card/95 border border-border-subtle",
+          )}
+          onPress={handleElevationPress}
+          accessibilityLabel="Show elevation profile"
+        >
+          <Text style={{ color: elevColor }} className="text-base font-barlow-bold">{km}</Text>
         </TouchableOpacity>
       </View>
     </>

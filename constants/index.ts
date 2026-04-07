@@ -24,7 +24,6 @@ export const LOOK_BACK_RATIO = 0.25;
 
 /** Panel modes in cycle order */
 export const PANEL_MODES = [
-  "none",
   "upcoming-10",
   "upcoming-25",
   "upcoming-50",
