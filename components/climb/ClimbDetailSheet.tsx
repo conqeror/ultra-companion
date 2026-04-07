@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { View, TouchableOpacity, TextInput as RNTextInput, useWindowDimensions, ScrollView } from "react-native";
+import { View, TouchableOpacity, TextInput as RNTextInput, useWindowDimensions } from "react-native";
 import { Text } from "@/components/ui/text";
 import { Mountain, Pencil, Check } from "lucide-react-native";
 import { useThemeColors } from "@/theme";
@@ -114,6 +114,8 @@ export default function ClimbBottomSheet({ routeIds, segments }: ClimbBottomShee
     if (editingClimb) {
       const trimmed = editName.trim() || null;
       renameClimb(editingClimb.id, editingClimb.routeId, trimmed);
+      // Pin the updated climb so the name shows immediately
+      setSelectedClimb({ ...editingClimb, name: trimmed });
     }
     setIsEditing(false);
     setEditingClimb(null);
@@ -135,7 +137,7 @@ export default function ClimbBottomSheet({ routeIds, segments }: ClimbBottomShee
       className="absolute bottom-0 left-0 right-0 rounded-t-2xl shadow-lg overflow-hidden z-20"
       style={{ backgroundColor: colors.surface }}
     >
-      <ScrollView>
+      <View>
         {/* Header */}
         <View className="px-4 pt-3 pb-1">
           <View className="flex-row items-center justify-between">
@@ -149,6 +151,7 @@ export default function ClimbBottomSheet({ routeIds, segments }: ClimbBottomShee
                     placeholder="Climb name"
                     placeholderTextColor={colors.textTertiary}
                     autoFocus
+                    autoCorrect={false}
                     returnKeyType="done"
                     onSubmitEditing={handleSaveName}
                   />
@@ -240,7 +243,7 @@ export default function ClimbBottomSheet({ routeIds, segments }: ClimbBottomShee
             </Text>
           )}
         </View>
-      </ScrollView>
+      </View>
     </View>
   );
 }

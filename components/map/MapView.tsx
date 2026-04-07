@@ -17,6 +17,7 @@ import { DEFAULT_ZOOM, BOTTOM_PANEL_HEIGHT_RATIO, GPS_STALE_THRESHOLD_MS } from 
 import MapControls from "./MapControls";
 import RouteLayer from "./RouteLayer";
 import POILayer from "./POILayer";
+import ClimbHighlightLayer from "./ClimbHighlightLayer";
 import POIDetailSheet from "@/components/poi/POIDetailSheet";
 import POIListView from "@/components/poi/POIListView";
 import ClimbListView from "@/components/climb/ClimbListView";
@@ -84,6 +85,9 @@ export default function MapScreen() {
 
   const loadClimbs = useClimbStore((s) => s.loadClimbs);
   const updateCurrentClimb = useClimbStore((s) => s.updateCurrentClimb);
+  const selectedClimb = useClimbStore((s) => s.selectedClimb);
+  const getClimbsForDisplay = useClimbStore((s) => s.getClimbsForDisplay);
+  const allClimbData = useClimbStore((s) => s.climbs);
 
   // Load POIs and climbs when active context changes
   useEffect(() => {
@@ -233,6 +237,50 @@ export default function MapScreen() {
     return renderedRoutes.map((r) => r.id).sort().join(",") + `-${mapStyle.styleKey}`;
   }, [renderedRoutes, mapStyle.styleKey]);
 
+  // Climb to highlight on the map — mirrors ClimbBottomSheet auto-select
+  const highlightedClimb = useMemo(() => {
+    if (bottomSheet !== "climb") return null;
+    if (selectedClimb) return selectedClimb;
+    const displayed = getClimbsForDisplay(activeRouteIds, activeData?.segments ?? null);
+    if (displayed.length === 0) return null;
+    const dist = snappedPosition?.distanceAlongRouteMeters;
+    if (dist == null) return displayed[0];
+    const current = displayed.find((c) => dist >= c.startDistanceMeters && dist <= c.endDistanceMeters);
+    if (current) return current;
+    return displayed.find((c) => c.startDistanceMeters > dist) ?? displayed[displayed.length - 1];
+  }, [bottomSheet, selectedClimb, activeRouteIds, activeData?.segments, snappedPosition?.distanceAlongRouteMeters, allClimbData]);
+
+  // Fly to highlighted climb bounds
+  useEffect(() => {
+    if (!highlightedClimb || !activeRoutePoints?.length) return;
+    const climbStart = highlightedClimb.startDistanceMeters;
+    const climbEnd = highlightedClimb.endDistanceMeters;
+
+    let minLat = 90, maxLat = -90, minLon = 180, maxLon = -180;
+    let found = false;
+    for (const p of activeRoutePoints) {
+      if (p.distanceFromStartMeters < climbStart) continue;
+      if (p.distanceFromStartMeters > climbEnd) break;
+      found = true;
+      if (p.latitude < minLat) minLat = p.latitude;
+      if (p.latitude > maxLat) maxLat = p.latitude;
+      if (p.longitude < minLon) minLon = p.longitude;
+      if (p.longitude > maxLon) maxLon = p.longitude;
+    }
+    if (!found) return;
+
+    setFollowUser(false);
+    // The climb panel covers the bottom ~45% of the screen.
+    // Use the camera padding already set for the panel so fitBounds
+    // fills the visible area above it, plus some breathing room.
+    cameraRef.current?.fitBounds(
+      [maxLon, maxLat],
+      [minLon, minLat],
+      [60, 25, Math.round(screenHeight * 0.22), 25],
+      500,
+    );
+  }, [highlightedClimb?.id]);
+
   return (
     <View className="flex-1">
       <MapboxMapView
@@ -261,11 +309,18 @@ export default function MapScreen() {
                 key={`${route.id}-${mapStyle.styleKey}`}
                 route={styledRoute}
                 points={visibleRoutePoints[route.id]}
+                dimmed={highlightedClimb != null}
               />
             );
           })}
         {activeRouteIds.length > 0 && (
           <POILayer key={mapStyle.styleKey} routeIds={activeRouteIds} />
+        )}
+        {highlightedClimb && activeRoutePoints && (
+          <ClimbHighlightLayer
+            climb={highlightedClimb}
+            points={activeRoutePoints}
+          />
         )}
         <LocationPuck
           key={`puck-${renderedRouteKey}`}

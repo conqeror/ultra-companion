@@ -8,9 +8,11 @@ import type { Route, RoutePoint } from "@/types";
 interface RouteLayerProps {
   route: Route;
   points: RoutePoint[];
+  /** Dim the route line (e.g. when a climb highlight is shown on top) */
+  dimmed?: boolean;
 }
 
-export default function RouteLayer({ route, points }: RouteLayerProps) {
+export default function RouteLayer({ route, points, dimmed }: RouteLayerProps) {
   const colors = useThemeColors();
   const geoJSON = useMemo(() => routeToGeoJSON(points), [points]);
 
@@ -23,12 +25,12 @@ export default function RouteLayer({ route, points }: RouteLayerProps) {
   }), [colors.surface, route.isActive]);
 
   const lineStyle = useMemo(() => ({
-    lineColor: route.isActive ? ACTIVE_ROUTE_COLOR : INACTIVE_ROUTE_COLOR,
+    lineColor: route.isActive && !dimmed ? ACTIVE_ROUTE_COLOR : INACTIVE_ROUTE_COLOR,
     lineWidth: 4,
-    lineOpacity: route.isActive ? 1 : 0.6,
+    lineOpacity: route.isActive && !dimmed ? 1 : 0.6,
     lineCap: "round" as const,
     lineJoin: "round" as const,
-  }), [route.isActive]);
+  }), [route.isActive, dimmed]);
 
   if (points.length < 2) return null;
 
