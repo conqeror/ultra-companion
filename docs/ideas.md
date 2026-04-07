@@ -4,6 +4,19 @@ Dump for future feature ideas, UX improvements, and things to consider later.
 
 ## Next Up
 
+### Phase 9 — Usability & Surface Data
+
+**Quick wins:**
+- Rename "races" → "collections" throughout the app (UI labels, code, types, stores, DB)
+- POI text search — filter POI list by name (e.g., searching for a specific shop)
+
+**Medium effort:**
+- ETAs in POI list — show estimated riding time and ETA next to each POI in the list view (ETA calculator already exists from Phase 4a)
+- Open GPX with app — register as a handler for `.gpx` files so the app appears in iOS share sheet / "Open with" menu, auto-import on open
+
+**Larger scope:**
+- Surface type (paved/unpaved) on map + elevation profile — query OSM `surface` tags along the route via Overpass, render as different line styles (e.g., dashed for gravel/unpaved) on both map and elevation chart
+
 ### POI Enhancements (remaining)
 - Opening hours on map — dim closed POIs, highlight open ones (deferred — needs more thought on UX)
 

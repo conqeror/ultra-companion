@@ -16,19 +16,6 @@ const TAG_RULES: {
       t.man_made === "water_tap",
   },
   {
-    category: "bike_shop",
-    check: (t) =>
-      t.shop === "bicycle" || t.amenity === "bicycle_repair_station",
-  },
-  {
-    category: "atm",
-    check: (t) => t.amenity === "atm" || t.amenity === "bank",
-  },
-  {
-    category: "pharmacy",
-    check: (t) => t.amenity === "pharmacy",
-  },
-  {
     category: "toilet_shower",
     check: (t) => t.amenity === "toilets" || t.amenity === "shower",
   },

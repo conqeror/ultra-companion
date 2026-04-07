@@ -7,42 +7,18 @@ import Animated, {
 } from "react-native-reanimated";
 import { Text } from "@/components/ui/text";
 import { X, MapPin, Clock, Phone, Star } from "lucide-react-native";
-import {
-  Droplets,
-  ShoppingCart,
-  Fuel,
-  Coffee,
-  Bed,
-  Wrench,
-  Banknote,
-  Cross,
-  ShowerHead,
-  Tent,
-} from "lucide-react-native";
 import { useThemeColors } from "@/theme";
 import { useSettingsStore } from "@/store/settingsStore";
 import { useRouteStore } from "@/store/routeStore";
 import { usePoiStore } from "@/store/poiStore";
-import { useActiveRouteData } from "@/hooks/useActiveRouteData";
 import { POI_CATEGORIES } from "@/constants";
+import { POI_ICON_MAP } from "@/constants/poiIcons";
 import { ohStatusColorKey } from "@/constants/poiHelpers";
 import { formatDistance, formatDuration, formatETA } from "@/utils/formatters";
 import { getOpeningHoursStatus, isOpenAt, getDaySchedules } from "@/services/openingHoursParser";
 import { useEtaStore } from "@/store/etaStore";
 import { usePanelStore } from "@/store/panelStore";
-
-const ICON_MAP: Record<string, React.ComponentType<any>> = {
-  Droplets,
-  ShoppingCart,
-  Fuel,
-  Coffee,
-  Bed,
-  Wrench,
-  Banknote,
-  Cross,
-  ShowerHead,
-  Tent,
-};
+import { useActiveRouteData } from "@/hooks/useActiveRouteData";
 
 export default function POIDetailSheet() {
   const colors = useThemeColors();
@@ -65,20 +41,20 @@ export default function POIDetailSheet() {
     [selectedPOI],
   );
 
-  const IconComp = catMeta ? ICON_MAP[catMeta.iconName] : null;
+  const IconComp = catMeta ? POI_ICON_MAP[catMeta.iconName] : null;
 
   const activeData = useActiveRouteData();
 
   const distAhead = useMemo(() => {
     if (!selectedPOI || !snappedPosition) return null;
-    // In race mode, the POI's distanceAlongRouteMeters is per-segment.
-    // Add the segment offset to get the cumulative race distance.
+    // In collection mode, snappedPosition uses cumulative distances (stitched points),
+    // but the raw POI has per-segment distance. Apply the segment offset.
     let poiDist = selectedPOI.distanceAlongRouteMeters;
     if (activeData?.segments) {
       const seg = activeData.segments.find(
         (s) => s.routeId === selectedPOI.routeId,
       );
-      if (seg) poiDist = selectedPOI.distanceAlongRouteMeters + seg.distanceOffsetMeters;
+      if (seg) poiDist += seg.distanceOffsetMeters;
     }
     return poiDist - snappedPosition.distanceAlongRouteMeters;
   }, [selectedPOI, snappedPosition, activeData]);

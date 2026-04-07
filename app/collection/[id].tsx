@@ -11,22 +11,22 @@ import { Camera, MapView as MapboxMapView } from "@rnmapbox/maps";
 import { Text } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
 import { useThemeColors } from "@/theme";
-import { useRaceStore } from "@/store/raceStore";
+import { useCollectionStore } from "@/store/collectionStore";
 import { useRouteStore } from "@/store/routeStore";
 import { useSettingsStore } from "@/store/settingsStore";
-import type { Race, RaceSegmentWithRoute, StitchedRace } from "@/types";
+import type { Collection, CollectionSegmentWithRoute, StitchedCollection } from "@/types";
 import { useMapStyle } from "@/hooks/useMapStyle";
 import { formatDistance, formatElevation } from "@/utils/formatters";
 import { computeBounds } from "@/utils/geo";
-import { stitchRace } from "@/services/stitchingService";
+import { stitchCollection } from "@/services/stitchingService";
 import ElevationProfile from "@/components/elevation/ElevationProfile";
 import RouteLayer from "@/components/map/RouteLayer";
 import StatBox from "@/components/common/StatBox";
-import SegmentList from "@/components/race/SegmentList";
-import AddSegmentSheet from "@/components/race/AddSegmentSheet";
-import RaceOfflineSection from "@/components/race/RaceOfflineSection";
+import SegmentList from "@/components/collection/SegmentList";
+import AddSegmentSheet from "@/components/collection/AddSegmentSheet";
+import CollectionOfflineSection from "@/components/collection/CollectionOfflineSection";
 
-export default function RaceDetailScreen() {
+export default function CollectionDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { width: screenWidth } = useWindowDimensions();
@@ -34,34 +34,34 @@ export default function RaceDetailScreen() {
   const colors = useThemeColors();
   const mapStyle = useMapStyle();
 
-  const [race, setRace] = useState<Race | null>(null);
-  const [segmentsWithRoutes, setSegmentsWithRoutes] = useState<RaceSegmentWithRoute[]>([]);
-  const [stitched, setStitched] = useState<StitchedRace | null>(null);
+  const [collection, setCollection] = useState<Collection | null>(null);
+  const [segmentsWithRoutes, setSegmentsWithRoutes] = useState<CollectionSegmentWithRoute[]>([]);
+  const [stitched, setStitched] = useState<StitchedCollection | null>(null);
   const [loading, setLoading] = useState(true);
   const [isBusy, setIsBusy] = useState(false);
   const [showAddSheet, setShowAddSheet] = useState(false);
 
-  const races = useRaceStore((s) => s.races);
-  const getRaceSegmentsWithRoutes = useRaceStore((s) => s.getRaceSegmentsWithRoutes);
-  const addSegment = useRaceStore((s) => s.addSegment);
-  const removeSegment = useRaceStore((s) => s.removeSegment);
-  const selectVariant = useRaceStore((s) => s.selectVariant);
-  const setActiveRace = useRaceStore((s) => s.setActiveRace);
-  const deleteRace = useRaceStore((s) => s.deleteRace);
+  const collections = useCollectionStore((s) => s.collections);
+  const getCollectionSegmentsWithRoutes = useCollectionStore((s) => s.getCollectionSegmentsWithRoutes);
+  const addSegment = useCollectionStore((s) => s.addSegment);
+  const removeSegment = useCollectionStore((s) => s.removeSegment);
+  const selectVariant = useCollectionStore((s) => s.selectVariant);
+  const setActiveCollection = useCollectionStore((s) => s.setActiveCollection);
+  const deleteCollection = useCollectionStore((s) => s.deleteCollection);
   const visibleRoutePoints = useRouteStore((s) => s.visibleRoutePoints);
   const units = useSettingsStore((s) => s.units);
 
   const loadData = useCallback(async () => {
     if (!id) return;
-    const raceData = races.find((r) => r.id === id);
-    setRace(raceData ?? null);
+    const collectionData = collections.find((c) => c.id === id);
+    setCollection(collectionData ?? null);
 
-    const segs = await getRaceSegmentsWithRoutes(id);
+    const segs = await getCollectionSegmentsWithRoutes(id);
     setSegmentsWithRoutes(segs);
 
     if (segs.length > 0) {
       try {
-        const s = await stitchRace(id);
+        const s = await stitchCollection(id);
         // Also load points for unselected variants (for ETA display)
         const { getRoutePoints } = await import("@/db/database");
         const unselectedRouteIds = segs
@@ -88,7 +88,7 @@ export default function RaceDetailScreen() {
       setStitched(null);
     }
     setLoading(false);
-  }, [id, races, getRaceSegmentsWithRoutes]);
+  }, [id, collections, getCollectionSegmentsWithRoutes]);
 
   useEffect(() => {
     loadData();
@@ -140,7 +140,7 @@ export default function RaceDetailScreen() {
     if (!id) return;
     Alert.alert(
       "Remove Segment",
-      "Remove this segment from the race?",
+      "Remove this segment from the collection?",
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -177,28 +177,28 @@ export default function RaceDetailScreen() {
   const handleSetActive = useCallback(async () => {
     if (!id) return;
     setIsBusy(true);
-    await setActiveRace(id);
+    await setActiveCollection(id);
     setIsBusy(false);
-  }, [id, setActiveRace]);
+  }, [id, setActiveCollection]);
 
   const handleDelete = useCallback(() => {
-    if (!id || !race) return;
+    if (!id || !collection) return;
     Alert.alert(
-      "Delete Race",
-      `Delete "${race.name}"? Routes will not be deleted.`,
+      "Delete Collection",
+      `Delete "${collection.name}"? Routes will not be deleted.`,
       [
         { text: "Cancel", style: "cancel" },
         {
           text: "Delete",
           style: "destructive",
           onPress: async () => {
-            await deleteRace(id);
+            await deleteCollection(id);
             router.back();
           },
         },
       ],
     );
-  }, [id, race, deleteRace, router]);
+  }, [id, collection, deleteCollection, router]);
 
   // Segment boundaries for elevation profile
   const segmentBoundaries = useMemo(() => {
@@ -217,10 +217,10 @@ export default function RaceDetailScreen() {
     );
   }
 
-  if (!race) {
+  if (!collection) {
     return (
       <View className="flex-1 items-center justify-center bg-background">
-        <Text className="text-[17px] text-muted-foreground">Race not found</Text>
+        <Text className="text-[17px] text-muted-foreground">Collection not found</Text>
       </View>
     );
   }
@@ -230,7 +230,7 @@ export default function RaceDetailScreen() {
 
   return (
     <>
-      <Stack.Screen options={{ title: race.name }} />
+      <Stack.Screen options={{ title: collection.name }} />
       <NestableScrollContainer
         className="flex-1 bg-background"
         contentContainerStyle={{ paddingBottom: 48 }}
@@ -339,20 +339,20 @@ export default function RaceDetailScreen() {
 
         {/* Offline */}
         {stitched && stitched.segments.length > 0 && (
-          <RaceOfflineSection stitched={stitched} />
+          <CollectionOfflineSection stitched={stitched} />
         )}
 
         {/* Actions */}
         <View className="px-4 mt-6 gap-3">
           <Button
             onPress={handleSetActive}
-            disabled={race.isActive || segmentsWithRoutes.length === 0}
-            label={race.isActive ? "Active" : "Set Active"}
+            disabled={collection.isActive || segmentsWithRoutes.length === 0}
+            label={collection.isActive ? "Active" : "Set Active"}
           />
           <Button
             variant="destructive"
             onPress={handleDelete}
-            label="Delete Race"
+            label="Delete Collection"
           />
         </View>
       </NestableScrollContainer>

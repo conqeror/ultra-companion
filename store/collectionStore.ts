@@ -1,13 +1,13 @@
 import { create } from "zustand";
 import {
-  getAllRaces,
-  insertRace as dbInsertRace,
-  deleteRace as dbDeleteRace,
-  renameRace as dbRenameRace,
-  setActiveRace as dbSetActiveRace,
-  insertRaceSegment,
-  deleteRaceSegment as dbDeleteRaceSegment,
-  getRaceSegments,
+  getAllCollections,
+  insertCollection as dbInsertCollection,
+  deleteCollection as dbDeleteCollection,
+  renameCollection as dbRenameCollection,
+  setActiveCollection as dbSetActiveCollection,
+  insertCollectionSegment,
+  deleteCollectionSegment as dbDeleteCollectionSegment,
+  getCollectionSegments,
   selectVariant as dbSelectVariant,
   updateSegmentPositions as dbUpdateSegmentPositions,
   getMaxSegmentPosition,
@@ -16,94 +16,94 @@ import {
   getAllAssignedRouteIds,
   setRoutesVisible,
 } from "@/db/database";
-import { stitchRace } from "@/services/stitchingService";
+import { stitchCollection } from "@/services/stitchingService";
 import { generateId } from "@/utils/generateId";
 import { haversineDistance } from "@/utils/geo";
-import type { Race, RaceSegment, RaceSegmentWithRoute, RoutePoint, StitchedRace } from "@/types";
+import type { Collection, CollectionSegment, CollectionSegmentWithRoute, RoutePoint, StitchedCollection } from "@/types";
 
 /** Max distance (meters) between start/end points to consider two routes as variants */
 const VARIANT_THRESHOLD_M = 5_000;
 
-interface RaceState {
-  races: Race[];
-  activeStitchedRace: StitchedRace | null;
+interface CollectionState {
+  collections: Collection[];
+  activeStitchedCollection: StitchedCollection | null;
   assignedRouteIds: Set<string>;
   isLoading: boolean;
 
-  loadRaces: () => Promise<void>;
-  createRace: (name: string) => Promise<string>;
-  deleteRace: (id: string) => Promise<void>;
-  renameRace: (id: string, name: string) => Promise<void>;
+  loadCollections: () => Promise<void>;
+  createCollection: (name: string) => Promise<string>;
+  deleteCollection: (id: string) => Promise<void>;
+  renameCollection: (id: string, name: string) => Promise<void>;
 
-  addSegment: (raceId: string, routeId: string) => Promise<void>;
-  removeSegment: (raceId: string, routeId: string) => Promise<void>;
-  selectVariant: (raceId: string, routeId: string) => Promise<void>;
+  addSegment: (collectionId: string, routeId: string) => Promise<void>;
+  removeSegment: (collectionId: string, routeId: string) => Promise<void>;
+  selectVariant: (collectionId: string, routeId: string) => Promise<void>;
 
-  setActiveRace: (id: string) => Promise<void>;
-  loadStitchedRace: (id: string) => Promise<void>;
+  setActiveCollection: (id: string) => Promise<void>;
+  loadStitchedCollection: (id: string) => Promise<void>;
   clearActiveStitched: () => void;
-  getRaceSegmentsWithRoutes: (id: string) => Promise<RaceSegmentWithRoute[]>;
+  getCollectionSegmentsWithRoutes: (id: string) => Promise<CollectionSegmentWithRoute[]>;
 }
 
-export const useRaceStore = create<RaceState>((set, get) => ({
-  races: [],
-  activeStitchedRace: null,
+export const useCollectionStore = create<CollectionState>((set, get) => ({
+  collections: [],
+  activeStitchedCollection: null,
   assignedRouteIds: new Set<string>(),
   isLoading: false,
 
-  loadRaces: async () => {
+  loadCollections: async () => {
     try {
-      const [races, assignedRouteIds] = await Promise.all([
-        getAllRaces(),
+      const [collections, assignedRouteIds] = await Promise.all([
+        getAllCollections(),
         getAllAssignedRouteIds(),
       ]);
-      set({ races, assignedRouteIds });
-      // If there's an active race, load its stitched data
-      const active = races.find((r) => r.isActive);
+      set({ collections, assignedRouteIds });
+      // If there's an active collection, load its stitched data
+      const active = collections.find((c) => c.isActive);
       if (active) {
-        await get().loadStitchedRace(active.id);
+        await get().loadStitchedCollection(active.id);
       } else {
-        set({ activeStitchedRace: null });
+        set({ activeStitchedCollection: null });
       }
     } catch (e: any) {
-      console.warn("Failed to load races:", e);
+      console.warn("Failed to load collections:", e);
     }
   },
 
-  createRace: async (name) => {
+  createCollection: async (name) => {
     const id = generateId();
-    const race: Race = {
+    const collection: Collection = {
       id,
       name,
       isActive: false,
       createdAt: new Date().toISOString(),
     };
-    await dbInsertRace(race);
-    await get().loadRaces();
+    await dbInsertCollection(collection);
+    await get().loadCollections();
     return id;
   },
 
-  deleteRace: async (id) => {
-    await dbDeleteRace(id);
-    if (get().activeStitchedRace?.raceId === id) {
-      set({ activeStitchedRace: null });
+  deleteCollection: async (id) => {
+    await dbDeleteCollection(id);
+    if (get().activeStitchedCollection?.collectionId === id) {
+      set({ activeStitchedCollection: null });
     }
-    await get().loadRaces();
+    await get().loadCollections();
   },
 
-  renameRace: async (id, name) => {
-    await dbRenameRace(id, name);
-    await get().loadRaces();
+  renameCollection: async (id, name) => {
+    await dbRenameCollection(id, name);
+    await get().loadCollections();
   },
 
-  addSegment: async (raceId, routeId) => {
+  addSegment: async (collectionId, routeId) => {
     // Auto-detect if the new route is a variant of an existing segment
     // by comparing start/end points
     const newEndpoints = await getRouteEndpoints(routeId);
     let matchedPosition: number | null = null;
 
     if (newEndpoints) {
-      const existingSegments = await getRaceSegments(raceId);
+      const existingSegments = await getCollectionSegments(collectionId);
       const selectedByPosition = new Map<number, string>();
       for (const seg of existingSegments) {
         if (seg.isSelected && !selectedByPosition.has(seg.position)) {
@@ -138,33 +138,33 @@ export const useRaceStore = create<RaceState>((set, get) => ({
 
     if (matchedPosition != null) {
       // Add as unselected variant at the matched position
-      await insertRaceSegment({
-        raceId,
+      await insertCollectionSegment({
+        collectionId,
         routeId,
         position: matchedPosition,
         isSelected: false,
       });
     } else {
       // Add as new position at the end
-      const maxPos = await getMaxSegmentPosition(raceId);
-      await insertRaceSegment({
-        raceId,
+      const maxPos = await getMaxSegmentPosition(collectionId);
+      await insertCollectionSegment({
+        collectionId,
         routeId,
         position: maxPos + 1,
         isSelected: true,
       });
-      if (get().activeStitchedRace?.raceId === raceId) {
-        await get().loadStitchedRace(raceId);
+      if (get().activeStitchedCollection?.collectionId === collectionId) {
+        await get().loadStitchedCollection(collectionId);
       }
     }
     // Update assignedRouteIds immediately so route list reflects the change
     set({ assignedRouteIds: new Set([...get().assignedRouteIds, routeId]) });
   },
 
-  removeSegment: async (raceId, routeId) => {
-    await dbDeleteRaceSegment(raceId, routeId);
+  removeSegment: async (collectionId, routeId) => {
+    await dbDeleteCollectionSegment(collectionId, routeId);
     // Normalize positions: get remaining segments, re-number
-    const segments = await getRaceSegments(raceId);
+    const segments = await getCollectionSegments(collectionId);
     const positions = [...new Set(segments.map((s) => s.position))].sort((a, b) => a - b);
     const updates: { routeId: string; position: number }[] = [];
     for (let i = 0; i < positions.length; i++) {
@@ -176,50 +176,50 @@ export const useRaceStore = create<RaceState>((set, get) => ({
       }
     }
     if (updates.length > 0) {
-      await dbUpdateSegmentPositions(raceId, updates);
+      await dbUpdateSegmentPositions(collectionId, updates);
     }
     // Ensure each position still has a selected variant
-    const updatedSegments = await getRaceSegments(raceId);
+    const updatedSegments = await getCollectionSegments(collectionId);
     const positionSet = [...new Set(updatedSegments.map((s) => s.position))];
     for (const pos of positionSet) {
       const atPos = updatedSegments.filter((s) => s.position === pos);
       if (atPos.length > 0 && !atPos.some((s) => s.isSelected)) {
-        await dbSelectVariant(raceId, atPos[0].routeId);
+        await dbSelectVariant(collectionId, atPos[0].routeId);
       }
     }
-    if (get().activeStitchedRace?.raceId === raceId) {
-      await get().loadStitchedRace(raceId);
+    if (get().activeStitchedCollection?.collectionId === collectionId) {
+      await get().loadStitchedCollection(collectionId);
     }
-    // Refresh assignedRouteIds — route may still be in other races
+    // Refresh assignedRouteIds — route may still be in other collections
     const newAssigned = await getAllAssignedRouteIds();
     set({ assignedRouteIds: newAssigned });
   },
 
-  selectVariant: async (raceId, routeId) => {
-    await dbSelectVariant(raceId, routeId);
-    if (get().activeStitchedRace?.raceId === raceId) {
-      await get().loadStitchedRace(raceId);
+  selectVariant: async (collectionId, routeId) => {
+    await dbSelectVariant(collectionId, routeId);
+    if (get().activeStitchedCollection?.collectionId === collectionId) {
+      await get().loadStitchedCollection(collectionId);
     }
   },
 
-  setActiveRace: async (id) => {
+  setActiveCollection: async (id) => {
     set({ isLoading: true });
-    await dbSetActiveRace(id);
+    await dbSetActiveCollection(id);
     // Make all selected segment routes visible in a single query
-    const segments = await getRaceSegments(id);
+    const segments = await getCollectionSegments(id);
     const selectedRouteIds = segments.filter((s) => s.isSelected).map((s) => s.routeId);
     await setRoutesVisible(selectedRouteIds);
     // Reload route store to clear route isActive flags and pick up visibility changes
     const { useRouteStore } = await import("@/store/routeStore");
     await useRouteStore.getState().loadRoutes();
-    await get().loadRaces();
+    await get().loadCollections();
     set({ isLoading: false });
   },
 
-  loadStitchedRace: async (id) => {
+  loadStitchedCollection: async (id) => {
     try {
-      const stitched = await stitchRace(id);
-      set({ activeStitchedRace: stitched });
+      const stitched = await stitchCollection(id);
+      set({ activeStitchedCollection: stitched });
       // Inject stitched + per-segment points into routeStore so etaStore and RouteLayer work
       const { useRouteStore } = await import("@/store/routeStore");
       const current = { ...useRouteStore.getState().visibleRoutePoints };
@@ -229,16 +229,16 @@ export const useRaceStore = create<RaceState>((set, get) => ({
       }
       useRouteStore.setState({ visibleRoutePoints: current });
     } catch (e: any) {
-      console.warn("Failed to stitch race:", e);
+      console.warn("Failed to stitch collection:", e);
     }
   },
 
-  clearActiveStitched: () => set({ activeStitchedRace: null }),
+  clearActiveStitched: () => set({ activeStitchedCollection: null }),
 
-  getRaceSegmentsWithRoutes: async (id) => {
-    const segments = await getRaceSegments(id);
+  getCollectionSegmentsWithRoutes: async (id) => {
+    const segments = await getCollectionSegments(id);
     const routes = await Promise.all(segments.map((s) => getRoute(s.routeId)));
-    const results: RaceSegmentWithRoute[] = [];
+    const results: CollectionSegmentWithRoute[] = [];
     for (let i = 0; i < segments.length; i++) {
       const route = routes[i];
       if (route) {

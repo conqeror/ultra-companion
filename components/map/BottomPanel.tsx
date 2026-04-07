@@ -69,7 +69,7 @@ export default function BottomPanel({ activeData }: BottomPanelProps) {
   const poisForChart = useMemo(() => {
     if (!activeId || activeRouteIds.length === 0) return [];
     if (activeSegments) {
-      // Race: stitch starred POIs with distance offsets
+      // Collection: stitch starred POIs with distance offsets
       const poisByRoute: Record<string, POI[]> = {};
       for (const routeId of activeRouteIds) {
         poisByRoute[routeId] = getStarredPOIs(routeId);
@@ -86,7 +86,7 @@ export default function BottomPanel({ activeData }: BottomPanelProps) {
 
   const whatsNextItems = useMemo(() => {
     if (!isSnapped || !activeId) return [];
-    // For races: combine next POIs from all segments with distance offsets
+    // For collections: combine next POIs from all segments with distance offsets
     let nextPOIs: Partial<Record<string, POI>> = {};
     if (activeSegments) {
       for (const seg of activeSegments) {
@@ -110,7 +110,7 @@ export default function BottomPanel({ activeData }: BottomPanelProps) {
     } else {
       nextPOIs = getNextPOIPerCategory(activeRouteIds[0], snappedPosition!.distanceAlongRouteMeters);
     }
-    const items: { poi: POI; label: string; distText: string; etaText: string | null }[] = [];
+    const items: { poi: POI; rawPoi: POI; label: string; distText: string; etaText: string | null }[] = [];
 
     for (const catKey of WHATS_NEXT_CATEGORIES) {
       const poi = nextPOIs[catKey];
@@ -119,9 +119,12 @@ export default function BottomPanel({ activeData }: BottomPanelProps) {
       const dist = poi.distanceAlongRouteMeters - snappedPosition!.distanceAlongRouteMeters;
       if (dist <= 0) continue;
 
+      // Look up raw (non-stitched) POI for selection
+      const rawPoi = usePoiStore.getState().pois[poi.routeId]?.find((p) => p.id === poi.id) ?? poi;
       const eta = getETAToPOI(poi);
       items.push({
         poi,
+        rawPoi,
         label: catMeta?.label ?? catKey,
         distText: formatDistance(dist, units),
         etaText: eta && eta.ridingTimeSeconds > 0 ? `~${formatDuration(eta.ridingTimeSeconds)}` : null,
@@ -228,7 +231,7 @@ export default function BottomPanel({ activeData }: BottomPanelProps) {
             <TouchableOpacity
               key={item.poi.id}
               className="flex-row items-center"
-              onPress={() => setSelectedPOI(item.poi)}
+              onPress={() => setSelectedPOI(item.rawPoi)}
             >
               <Text className="text-[11px] font-barlow-semibold text-primary">
                 {item.label}
@@ -253,7 +256,10 @@ export default function BottomPanel({ activeData }: BottomPanelProps) {
         width={chartWidth}
         height={chartHeight}
         pois={poisForChart}
-        onPOIPress={setSelectedPOI}
+        onPOIPress={(poi) => {
+          const raw = usePoiStore.getState().pois[poi.routeId]?.find((p) => p.id === poi.id);
+          setSelectedPOI(raw ?? poi);
+        }}
       />
     </Animated.View>
   );

@@ -14,15 +14,15 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
 import { useRouteStore } from "@/store/routeStore";
-import { useRaceStore } from "@/store/raceStore";
+import { useCollectionStore } from "@/store/collectionStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import { useOfflineStore } from "@/store/offlineStore";
 import { ACTIVE_ROUTE_COLOR, INACTIVE_ROUTE_COLOR } from "@/constants";
 import { formatDistance, formatElevation } from "@/utils/formatters";
 import { useThemeColors } from "@/theme";
-import type { Route, Race } from "@/types";
+import type { Route, Collection } from "@/types";
 
-type SectionItem = { type: "race"; data: Race } | { type: "route"; data: Route };
+type SectionItem = { type: "collection"; data: Collection } | { type: "route"; data: Route };
 
 export default function RoutesScreen() {
   const router = useRouter();
@@ -39,21 +39,21 @@ export default function RoutesScreen() {
     clearError,
   } = useRouteStore();
 
-  const races = useRaceStore((s) => s.races);
-  const loadRaces = useRaceStore((s) => s.loadRaces);
-  const createRace = useRaceStore((s) => s.createRace);
-  const deleteRace = useRaceStore((s) => s.deleteRace);
-  const setActiveRace = useRaceStore((s) => s.setActiveRace);
-  const activeStitchedRace = useRaceStore((s) => s.activeStitchedRace);
-  const assignedRouteIds = useRaceStore((s) => s.assignedRouteIds);
+  const collections = useCollectionStore((s) => s.collections);
+  const loadCollections = useCollectionStore((s) => s.loadCollections);
+  const createCollection = useCollectionStore((s) => s.createCollection);
+  const deleteCollection = useCollectionStore((s) => s.deleteCollection);
+  const setActiveCollection = useCollectionStore((s) => s.setActiveCollection);
+  const activeStitchedCollection = useCollectionStore((s) => s.activeStitchedCollection);
+  const assignedRouteIds = useCollectionStore((s) => s.assignedRouteIds);
 
   const units = useSettingsStore((s) => s.units);
   const isRouteOfflineReady = useOfflineStore((s) => s.isRouteOfflineReady);
 
   useEffect(() => {
     loadRoutes();
-    loadRaces();
-  }, [loadRoutes, loadRaces]);
+    loadCollections();
+  }, [loadRoutes, loadCollections]);
 
   useEffect(() => {
     if (error) {
@@ -79,42 +79,42 @@ export default function RoutesScreen() {
     [deleteRoute],
   );
 
-  const handleDeleteRace = useCallback(
-    (race: Race) => {
+  const handleDeleteCollection = useCallback(
+    (collection: Collection) => {
       Alert.alert(
-        "Delete Race",
-        `Delete "${race.name}"? Routes will not be deleted.`,
+        "Delete Collection",
+        `Delete "${collection.name}"? Routes will not be deleted.`,
         [
           { text: "Cancel", style: "cancel" },
           {
             text: "Delete",
             style: "destructive",
-            onPress: () => deleteRace(race.id),
+            onPress: () => deleteCollection(collection.id),
           },
         ],
       );
     },
-    [deleteRace],
+    [deleteCollection],
   );
 
-  const handleCreateRace = useCallback(() => {
+  const handleCreateCollection = useCallback(() => {
     Alert.prompt(
-      "New Race",
-      "Enter a name for the race",
+      "New Collection",
+      "Enter a name for the collection",
       [
         { text: "Cancel", style: "cancel" },
         {
           text: "Create",
           onPress: async (name?: string) => {
             if (!name?.trim()) return;
-            const id = await createRace(name.trim());
-            router.push(`/race/${id}`);
+            const id = await createCollection(name.trim());
+            router.push(`/collection/${id}` as any);
           },
         },
       ],
       "plain-text",
     );
-  }, [createRace, router]);
+  }, [createCollection, router]);
 
   const borderColor = colors.border;
 
@@ -125,10 +125,10 @@ export default function RoutesScreen() {
 
   const sections = useMemo(() => {
     const s = [];
-    if (races.length > 0) {
+    if (collections.length > 0) {
       s.push({
-        title: "Races",
-        data: races.map((r): SectionItem => ({ type: "race" as const, data: r })),
+        title: "Collections",
+        data: collections.map((c): SectionItem => ({ type: "collection" as const, data: c })),
       });
     }
     if (unassignedRoutes.length > 0) {
@@ -138,29 +138,29 @@ export default function RoutesScreen() {
       });
     }
     return s;
-  }, [races, unassignedRoutes]);
+  }, [collections, unassignedRoutes]);
 
   const renderItem = useCallback(
     ({ item }: { item: SectionItem }) => {
-      if (item.type === "race") {
-        const race = item.data;
-        const stitched = race.isActive ? activeStitchedRace : null;
+      if (item.type === "collection") {
+        const collection = item.data;
+        const stitched = collection.isActive ? activeStitchedCollection : null;
         const segmentCount = stitched?.segments.length;
         return (
           <TouchableOpacity
             activeOpacity={0.7}
-            onPress={() => router.push(`/race/${race.id}` as any)}
+            onPress={() => router.push(`/collection/${collection.id}` as any)}
           >
             <Card className="mb-3">
               <View className="flex-row items-center mb-2">
                 <View
                   className="w-3 h-3 rounded-full mr-3"
-                  style={{ backgroundColor: race.isActive ? ACTIVE_ROUTE_COLOR : INACTIVE_ROUTE_COLOR }}
+                  style={{ backgroundColor: collection.isActive ? ACTIVE_ROUTE_COLOR : INACTIVE_ROUTE_COLOR }}
                 />
                 <Text className="flex-1 text-[17px] font-barlow-semibold text-foreground" numberOfLines={1}>
-                  {race.name}
+                  {collection.name}
                 </Text>
-                {race.isActive && <Badge label="Active" className="ml-2" />}
+                {collection.isActive && <Badge label="Active" className="ml-2" />}
               </View>
 
               {stitched && (
@@ -188,21 +188,21 @@ export default function RoutesScreen() {
                 style={{ borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: borderColor }}
               >
                 <TouchableOpacity
-                  className={cn("min-h-[48px] justify-center", race.isActive && "opacity-50")}
-                  onPress={() => !race.isActive && setActiveRace(race.id)}
+                  className={cn("min-h-[48px] justify-center", collection.isActive && "opacity-50")}
+                  onPress={() => !collection.isActive && setActiveCollection(collection.id)}
                   hitSlop={8}
                 >
                   <Text className={cn(
                     "text-[15px] font-barlow-medium",
-                    race.isActive ? "text-muted-foreground" : "text-primary",
+                    collection.isActive ? "text-muted-foreground" : "text-primary",
                   )}>
-                    {race.isActive ? "Active" : "Set Active"}
+                    {collection.isActive ? "Active" : "Set Active"}
                   </Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
                   className="min-h-[48px] justify-center"
-                  onPress={() => handleDeleteRace(race)}
+                  onPress={() => handleDeleteCollection(collection)}
                   hitSlop={8}
                 >
                   <Text className="text-[15px] font-barlow-medium text-destructive">
@@ -289,7 +289,7 @@ export default function RoutesScreen() {
         </TouchableOpacity>
       );
     },
-    [units, router, setActiveRoute, setActiveRace, toggleVisibility, handleDeleteRoute, handleDeleteRace, borderColor, isRouteOfflineReady, activeStitchedRace],
+    [units, router, setActiveRoute, setActiveCollection, toggleVisibility, handleDeleteRoute, handleDeleteCollection, borderColor, isRouteOfflineReady, activeStitchedCollection],
   );
 
   const renderSectionHeader = useCallback(
@@ -303,7 +303,7 @@ export default function RoutesScreen() {
     [],
   );
 
-  const isEmpty = unassignedRoutes.length === 0 && races.length === 0 && !isLoading;
+  const isEmpty = unassignedRoutes.length === 0 && collections.length === 0 && !isLoading;
 
   return (
     <View className="flex-1 bg-background">
@@ -331,8 +331,8 @@ export default function RoutesScreen() {
         <Button
           className="flex-1"
           variant="secondary"
-          onPress={handleCreateRace}
-          label="New Race"
+          onPress={handleCreateCollection}
+          label="New Collection"
         />
         <Button
           className="flex-1"

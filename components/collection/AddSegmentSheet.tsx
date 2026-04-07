@@ -49,19 +49,19 @@ export default function AddSegmentSheet({
 
   const renderItem = useCallback(
     ({ item: route }: { item: Route }) => {
-      const isInRace = existingRouteIds.has(route.id);
+      const isInCollection = existingRouteIds.has(route.id);
       return (
         <TouchableOpacity
           className="flex-row items-center px-4 py-3 min-h-[56px]"
-          onPress={() => !isInRace && onAdd(route.id)}
-          disabled={isInRace}
+          onPress={() => !isInCollection && onAdd(route.id)}
+          disabled={isInCollection}
           activeOpacity={0.7}
         >
           <View className="flex-1 mr-3">
             <Text
               className={cn(
                 "text-[15px] font-barlow-medium",
-                isInRace ? "text-muted-foreground" : "text-foreground",
+                isInCollection ? "text-muted-foreground" : "text-foreground",
               )}
               numberOfLines={1}
             >
@@ -73,7 +73,7 @@ export default function AddSegmentSheet({
               ↑ {formatElevation(route.totalAscentMeters, units)}
             </Text>
           </View>
-          {isInRace && <Check size={18} color={colors.positive} />}
+          {isInCollection && <Check size={18} color={colors.positive} />}
         </TouchableOpacity>
       );
     },

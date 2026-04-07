@@ -40,9 +40,7 @@ export const POI_CATEGORIES: POICategoryMeta[] = [
   { key: "water", label: "Water", color: "#3B82F6", iconName: "Droplets" },
   { key: "groceries", label: "Groceries", color: "#22C55E", iconName: "ShoppingCart" },
   { key: "gas_station", label: "Gas Station", color: "#F97316", iconName: "Fuel" },
-  { key: "bike_shop", label: "Bike Shop", color: "#14B8A6", iconName: "Wrench" },
-  { key: "atm", label: "ATM", color: "#EAB308", iconName: "Banknote" },
-  { key: "pharmacy", label: "Pharmacy", color: "#EF4444", iconName: "Cross" },
+  { key: "bakery", label: "Bakery", color: "#EAB308", iconName: "Croissant" },
   { key: "toilet_shower", label: "WC", color: "#6366F1", iconName: "ShowerHead" },
   { key: "shelter", label: "Shelter", color: "#8B5CF6", iconName: "Tent" },
 ];
@@ -53,7 +51,11 @@ export const POI_BEHIND_THRESHOLD_M = 1000;
 export const DEFAULT_CORRIDOR_WIDTH_M = 1000;
 export const MAX_CORRIDOR_WIDTH_M = 10000;
 export const MIN_CORRIDOR_WIDTH_M = 500;
-export const OVERPASS_API_URL = "https://overpass-api.de/api/interpreter";
+export const OVERPASS_API_URLS = [
+  "https://overpass-api.de/api/interpreter",
+  "https://overpass.kumi.systems/api/interpreter",
+  "https://overpass.private.coffee/api/interpreter",
+];
 export const OVERPASS_SEGMENT_LENGTH_M = 50_000;
 export const OVERPASS_RETRY_DELAYS = [2000, 5000, 15000];
 
@@ -109,3 +111,6 @@ export const OFFLINE_MAX_ZOOM = 14;
 
 /** Pack name prefix for Mapbox offline tile regions */
 export const OFFLINE_PACK_PREFIX = "ultra-route-";
+
+/** Cancel tile download if no progress for this long */
+export const TILE_DOWNLOAD_STALL_MS = 2 * 60 * 1000;

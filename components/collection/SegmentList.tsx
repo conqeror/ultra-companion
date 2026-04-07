@@ -15,25 +15,25 @@ import { useSettingsStore } from "@/store/settingsStore";
 import { useEtaStore } from "@/store/etaStore";
 import { computeRouteETA } from "@/services/etaCalculator";
 import { formatDistance, formatElevation, formatDuration } from "@/utils/formatters";
-import type { RaceSegmentWithRoute, RoutePoint } from "@/types";
+import type { CollectionSegmentWithRoute, RoutePoint } from "@/types";
 
 /** A position slot: one or more variants grouped together */
 interface PositionGroup {
   key: string;
   position: number;
-  variants: RaceSegmentWithRoute[];
+  variants: CollectionSegmentWithRoute[];
 }
 
 interface SegmentListProps {
-  segmentsWithRoutes: RaceSegmentWithRoute[];
+  segmentsWithRoutes: CollectionSegmentWithRoute[];
   pointsByRouteId: Record<string, RoutePoint[]>;
   onSelectVariant: (routeId: string) => void;
   onReorder: (orderedPositions: { routeId: string; position: number }[]) => Promise<void>;
   onRemove: (routeId: string) => void;
 }
 
-function groupByPosition(segments: RaceSegmentWithRoute[]): PositionGroup[] {
-  const map = new Map<number, RaceSegmentWithRoute[]>();
+function groupByPosition(segments: CollectionSegmentWithRoute[]): PositionGroup[] {
+  const map = new Map<number, CollectionSegmentWithRoute[]>();
   for (const sw of segments) {
     const pos = sw.segment.position;
     if (!map.has(pos)) map.set(pos, []);
@@ -68,7 +68,7 @@ function SegmentRow({
   onSelect,
   onRemove,
 }: {
-  sw: RaceSegmentWithRoute;
+  sw: CollectionSegmentWithRoute;
   isSelected: boolean;
   hasVariants: boolean;
   posIdx: number;

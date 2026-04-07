@@ -23,6 +23,10 @@ export function downloadTileRegion(
   return OfflineTilesModule.downloadTileRegion(id, styleURL, routeCoordinates, minZoom, maxZoom);
 }
 
+export function cancelTileRegion(id: string): void {
+  OfflineTilesModule.cancelTileRegion(id);
+}
+
 export function deleteTileRegion(id: string): Promise<void> {
   return OfflineTilesModule.deleteTileRegion(id);
 }

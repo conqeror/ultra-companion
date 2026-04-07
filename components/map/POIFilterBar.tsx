@@ -1,33 +1,13 @@
 import React, { useMemo } from "react";
 import { View, ScrollView, TouchableOpacity } from "react-native";
 import { Text } from "@/components/ui/text";
-import {
-  Droplets,
-  ShoppingCart,
-  Fuel,
-  Wrench,
-  Banknote,
-  Cross,
-  ShowerHead,
-  Tent,
-  Clock,
-} from "lucide-react-native";
+import { Clock } from "lucide-react-native";
 import { cn } from "@/lib/cn";
 import { useThemeColors } from "@/theme";
 import { usePoiStore } from "@/store/poiStore";
 import { POI_CATEGORIES } from "@/constants";
+import { POI_ICON_MAP } from "@/constants/poiIcons";
 import type { POI, POICategory } from "@/types";
-
-const ICON_MAP: Record<string, React.ComponentType<any>> = {
-  Droplets,
-  ShoppingCart,
-  Fuel,
-  Wrench,
-  Banknote,
-  Cross,
-  ShowerHead,
-  Tent,
-};
 
 interface POIFilterBarProps {
   routeIds: string[];
@@ -100,7 +80,7 @@ export default function POIFilterBar({ routeIds }: POIFilterBarProps) {
       {POI_CATEGORIES.map((cat) => {
         const isEnabled = enabledSet.has(cat.key);
         const count = categoryCounts[cat.key] ?? 0;
-        const IconComp = ICON_MAP[cat.iconName];
+        const IconComp = POI_ICON_MAP[cat.iconName];
 
         return (
           <TouchableOpacity

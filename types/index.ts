@@ -62,9 +62,7 @@ export type POICategory =
   | "water"
   | "groceries"
   | "gas_station"
-  | "bike_shop"
-  | "atm"
-  | "pharmacy"
+  | "bakery"
   | "toilet_shower"
   | "shelter";
 
@@ -163,24 +161,24 @@ export type WindRelative = "headwind" | "tailwind" | "crosswind-left" | "crosswi
 
 export type WeatherFetchStatus = "idle" | "fetching" | "done" | "error";
 
-// --- Phase 6: Race / Route Collections ---
+// --- Phase 6: Route Collections ---
 
-export interface Race {
+export interface Collection {
   id: string;
   name: string;
   isActive: boolean;
   createdAt: string; // ISO 8601
 }
 
-export interface RaceSegment {
-  raceId: string;
+export interface CollectionSegment {
+  collectionId: string;
   routeId: string;
   position: number;
   isSelected: boolean;
 }
 
-export interface RaceSegmentWithRoute {
-  segment: RaceSegment;
+export interface CollectionSegmentWithRoute {
+  segment: CollectionSegment;
   route: Route;
 }
 
@@ -196,8 +194,8 @@ export interface StitchedSegmentInfo {
   segmentDescentMeters: number;
 }
 
-export interface StitchedRace {
-  raceId: string;
+export interface StitchedCollection {
+  collectionId: string;
   points: RoutePoint[];
   segments: StitchedSegmentInfo[];
   totalDistanceMeters: number;
@@ -208,7 +206,7 @@ export interface StitchedRace {
 }
 
 export interface ActiveRouteData {
-  type: "route" | "race";
+  type: "route" | "collection";
   id: string;
   name: string;
   points: RoutePoint[];

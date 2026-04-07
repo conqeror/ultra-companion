@@ -27,7 +27,7 @@ interface ElevationProfileProps {
   pois?: POI[];
   /** Called when a POI marker is tapped */
   onPOIPress?: (poi: POI) => void;
-  /** Vertical boundary lines at segment junctions (for stitched races) */
+  /** Vertical boundary lines at segment junctions (for stitched collections) */
   segmentBoundaries?: SegmentBoundary[];
 }
 

@@ -1,41 +1,17 @@
 import React, { useMemo } from "react";
 import { View, TouchableOpacity } from "react-native";
 import { Text } from "@/components/ui/text";
-import {
-  Droplets,
-  ShoppingCart,
-  Fuel,
-  Coffee,
-  Bed,
-  Wrench,
-  Banknote,
-  Cross,
-  ShowerHead,
-  Tent,
-} from "lucide-react-native";
 import { Star } from "lucide-react-native";
 import { useThemeColors } from "@/theme";
 import { useSettingsStore } from "@/store/settingsStore";
 import { usePoiStore } from "@/store/poiStore";
 import { POI_CATEGORIES } from "@/constants";
+import { POI_ICON_MAP } from "@/constants/poiIcons";
 import { ohStatusColorKey } from "@/constants/poiHelpers";
-import { formatDistance, formatDuration } from "@/utils/formatters";
+import { formatDistance, formatDuration, formatETA } from "@/utils/formatters";
 import { getOpeningHoursStatus } from "@/services/openingHoursParser";
 import { useEtaStore } from "@/store/etaStore";
 import type { POI } from "@/types";
-
-const ICON_MAP: Record<string, React.ComponentType<any>> = {
-  Droplets,
-  ShoppingCart,
-  Fuel,
-  Coffee,
-  Bed,
-  Wrench,
-  Banknote,
-  Cross,
-  ShowerHead,
-  Tent,
-};
 
 interface POIListItemProps {
   poi: POI;
@@ -52,7 +28,7 @@ export default function POIListItem({
   const units = useSettingsStore((s) => s.units);
 
   const catMeta = POI_CATEGORIES.find((c) => c.key === poi.category);
-  const IconComp = catMeta ? ICON_MAP[catMeta.iconName] : null;
+  const IconComp = catMeta ? POI_ICON_MAP[catMeta.iconName] : null;
 
   const isStarred = usePoiStore((s) => s.starredPOIIds.has(poi.id));
   const getETAToPOI = useEtaStore((s) => s.getETAToPOI);
@@ -142,7 +118,7 @@ export default function POIListItem({
         )}
         {etaResult && etaResult.ridingTimeSeconds > 0 ? (
           <Text className="text-[11px] text-muted-foreground font-barlow-sc-medium">
-            ~{formatDuration(etaResult.ridingTimeSeconds)}
+            ~{formatDuration(etaResult.ridingTimeSeconds)} · {formatETA(etaResult.eta)}
           </Text>
         ) : distAhead != null ? (
           <Text className="text-[11px] text-muted-foreground font-barlow">

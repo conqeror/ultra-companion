@@ -1,8 +1,8 @@
-import { getRouteWithPoints, getRaceSegments } from "@/db/database";
-import type { StitchedRace, StitchedSegmentInfo, RoutePoint, POI } from "@/types";
+import { getRouteWithPoints, getCollectionSegments } from "@/db/database";
+import type { StitchedCollection, StitchedSegmentInfo, RoutePoint, POI } from "@/types";
 
-export async function stitchRace(raceId: string): Promise<StitchedRace> {
-  const allSegments = await getRaceSegments(raceId);
+export async function stitchCollection(collectionId: string): Promise<StitchedCollection> {
+  const allSegments = await getCollectionSegments(collectionId);
   const selected = allSegments.filter((s) => s.isSelected);
   selected.sort((a, b) => a.position - b.position);
 
@@ -58,7 +58,7 @@ export async function stitchRace(raceId: string): Promise<StitchedRace> {
   }
 
   return {
-    raceId,
+    collectionId,
     points: stitchedPoints,
     segments: segmentInfos,
     totalDistanceMeters: cumulativeDistance,

@@ -55,27 +55,27 @@ export const pois = sqliteTable("pois", {
   unique("uq_pois_route_source").on(table.routeId, table.sourceId),
 ]);
 
-// --- Races ---
+// --- Collections ---
 
-export const races = sqliteTable("races", {
+export const collections = sqliteTable("collections", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   isActive: integer("isActive", { mode: "boolean" }).notNull().default(false),
   createdAt: text("createdAt").notNull(),
 });
 
-// --- Race Segments ---
+// --- Collection Segments ---
 
-export const raceSegments = sqliteTable("race_segments", {
-  raceId: text("raceId")
+export const collectionSegments = sqliteTable("collection_segments", {
+  collectionId: text("collectionId")
     .notNull()
-    .references(() => races.id, { onDelete: "cascade" }),
+    .references(() => collections.id, { onDelete: "cascade" }),
   routeId: text("routeId")
     .notNull()
     .references(() => routes.id, { onDelete: "cascade" }),
   position: integer("position").notNull(),
   isSelected: integer("isSelected", { mode: "boolean" }).notNull().default(true),
 }, (table) => [
-  primaryKey({ columns: [table.raceId, table.routeId] }),
-  index("idx_race_segments_race_pos").on(table.raceId, table.position),
+  primaryKey({ columns: [table.collectionId, table.routeId] }),
+  index("idx_collection_segments_col_pos").on(table.collectionId, table.position),
 ]);

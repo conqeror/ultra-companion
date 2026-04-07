@@ -4,16 +4,16 @@ import { Text } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
 import { useOfflineStore } from "@/store/offlineStore";
 import { usePoiStore } from "@/store/poiStore";
-import type { StitchedRace } from "@/types";
+import type { StitchedCollection } from "@/types";
 import { formatFileSize } from "@/utils/formatters";
 import { estimateDownloadSize } from "@/services/offlineTiles";
 import { getRoutePoints } from "@/db/database";
 
-interface RaceOfflineSectionProps {
-  stitched: StitchedRace;
+interface CollectionOfflineSectionProps {
+  stitched: StitchedCollection;
 }
 
-export default function RaceOfflineSection({ stitched }: RaceOfflineSectionProps) {
+export default function CollectionOfflineSection({ stitched }: CollectionOfflineSectionProps) {
   const isConnected = useOfflineStore((s) => s.isConnected);
   const startDownload = useOfflineStore((s) => s.startDownload);
   const deleteOfflineData = useOfflineStore((s) => s.deleteOfflineData);
@@ -99,7 +99,7 @@ export default function RaceOfflineSection({ stitched }: RaceOfflineSectionProps
   const handleDeleteAllPOIs = useCallback(() => {
     Alert.alert(
       "Delete All POIs",
-      "Remove all POI data for all segments in this race?",
+      "Remove all POI data for all segments in this collection?",
       [
         { text: "Keep", style: "cancel" },
         {
@@ -176,7 +176,7 @@ export default function RaceOfflineSection({ stitched }: RaceOfflineSectionProps
                 ? "Downloading..."
                 : allReady
                   ? "Update All Offline Data"
-                  : "Prepare Race for Offline"
+                  : "Prepare for Offline"
             }
           />
         )}

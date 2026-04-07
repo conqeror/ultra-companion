@@ -2,9 +2,9 @@ import { drizzle } from "drizzle-orm/expo-sqlite";
 import { migrate } from "drizzle-orm/expo-sqlite/migrator";
 import { openDatabaseSync } from "expo-sqlite";
 import { sql, eq, and, inArray, desc, asc, count, max } from "drizzle-orm";
-import { routes, routePoints, pois, races, raceSegments } from "./schema";
+import { routes, routePoints, pois, collections, collectionSegments } from "./schema";
 import migrations from "../drizzle/migrations";
-import type { Route, RoutePoint, RouteWithPoints, POI, POICategory, POISource, Race, RaceSegment } from "@/types";
+import type { Route, RoutePoint, RouteWithPoints, POI, POICategory, POISource, Collection, CollectionSegment } from "@/types";
 
 // --- Database init ---
 
@@ -12,7 +12,7 @@ const expoDb = openDatabaseSync("ultra.db");
 expoDb.execSync("PRAGMA journal_mode = WAL;");
 expoDb.execSync("PRAGMA foreign_keys = ON;");
 
-export const db = drizzle(expoDb, { schema: { routes, routePoints, pois, races, raceSegments } });
+export const db = drizzle(expoDb, { schema: { routes, routePoints, pois, collections, collectionSegments } });
 
 // Apply schema from drizzle/migrations.ts (generated from db/schema.ts via `npm run db:migrate`)
 migrate(db, migrations);
@@ -145,7 +145,7 @@ export async function setRoutesVisible(routeIds: string[]): Promise<void> {
 
 export async function setActiveRoute(routeId: string): Promise<void> {
   db.transaction((tx) => {
-    tx.update(races).set({ isActive: false }).run();
+    tx.update(collections).set({ isActive: false }).run();
     tx.update(routes).set({ isActive: false }).run();
     tx.update(routes).set({ isActive: true, isVisible: true }).where(eq(routes.id, routeId)).run();
   });
@@ -245,106 +245,106 @@ export async function getPOICountsBySource(routeId: string): Promise<{ osm: numb
   return { osm, google };
 }
 
-// --- Race CRUD ---
+// --- Collection CRUD ---
 
-export async function insertRace(race: Race): Promise<void> {
-  db.insert(races).values({
-    id: race.id,
-    name: race.name,
-    isActive: race.isActive,
-    createdAt: race.createdAt,
+export async function insertCollection(collection: Collection): Promise<void> {
+  db.insert(collections).values({
+    id: collection.id,
+    name: collection.name,
+    isActive: collection.isActive,
+    createdAt: collection.createdAt,
   }).run();
 }
 
-export async function getAllRaces(): Promise<Race[]> {
-  return db.select().from(races).orderBy(desc(races.createdAt)).all();
+export async function getAllCollections(): Promise<Collection[]> {
+  return db.select().from(collections).orderBy(desc(collections.createdAt)).all();
 }
 
-export async function deleteRace(raceId: string): Promise<void> {
-  // Foreign keys with ON DELETE CASCADE handle race_segments
-  db.delete(races).where(eq(races.id, raceId)).run();
+export async function deleteCollection(collectionId: string): Promise<void> {
+  // Foreign keys with ON DELETE CASCADE handle collection_segments
+  db.delete(collections).where(eq(collections.id, collectionId)).run();
 }
 
-export async function renameRace(raceId: string, name: string): Promise<void> {
-  db.update(races).set({ name }).where(eq(races.id, raceId)).run();
+export async function renameCollection(collectionId: string, name: string): Promise<void> {
+  db.update(collections).set({ name }).where(eq(collections.id, collectionId)).run();
 }
 
-export async function setActiveRace(raceId: string): Promise<void> {
+export async function setActiveCollection(collectionId: string): Promise<void> {
   db.transaction((tx) => {
     tx.update(routes).set({ isActive: false }).run();
-    tx.update(races).set({ isActive: false }).run();
-    tx.update(races).set({ isActive: true }).where(eq(races.id, raceId)).run();
+    tx.update(collections).set({ isActive: false }).run();
+    tx.update(collections).set({ isActive: true }).where(eq(collections.id, collectionId)).run();
   });
 }
 
-export async function clearActiveRace(): Promise<void> {
-  db.update(races).set({ isActive: false }).run();
+export async function clearActiveCollection(): Promise<void> {
+  db.update(collections).set({ isActive: false }).run();
 }
 
-// --- Race Segment CRUD ---
+// --- Collection Segment CRUD ---
 
-export async function insertRaceSegment(segment: RaceSegment): Promise<void> {
-  db.insert(raceSegments).values({
-    raceId: segment.raceId,
+export async function insertCollectionSegment(segment: CollectionSegment): Promise<void> {
+  db.insert(collectionSegments).values({
+    collectionId: segment.collectionId,
     routeId: segment.routeId,
     position: segment.position,
     isSelected: segment.isSelected,
   }).run();
 }
 
-export async function deleteRaceSegment(
-  raceId: string,
+export async function deleteCollectionSegment(
+  collectionId: string,
   routeId: string,
 ): Promise<void> {
-  db.delete(raceSegments)
-    .where(and(eq(raceSegments.raceId, raceId), eq(raceSegments.routeId, routeId)))
+  db.delete(collectionSegments)
+    .where(and(eq(collectionSegments.collectionId, collectionId), eq(collectionSegments.routeId, routeId)))
     .run();
 }
 
-export async function getRaceSegments(
-  raceId: string,
-): Promise<RaceSegment[]> {
+export async function getCollectionSegments(
+  collectionId: string,
+): Promise<CollectionSegment[]> {
   const rows = db
     .select()
-    .from(raceSegments)
-    .where(eq(raceSegments.raceId, raceId))
-    .orderBy(asc(raceSegments.position), desc(raceSegments.isSelected))
+    .from(collectionSegments)
+    .where(eq(collectionSegments.collectionId, collectionId))
+    .orderBy(asc(collectionSegments.position), desc(collectionSegments.isSelected))
     .all();
   return rows;
 }
 
 export async function selectVariant(
-  raceId: string,
+  collectionId: string,
   routeId: string,
 ): Promise<void> {
   const row = db
-    .select({ position: raceSegments.position })
-    .from(raceSegments)
-    .where(and(eq(raceSegments.raceId, raceId), eq(raceSegments.routeId, routeId)))
+    .select({ position: collectionSegments.position })
+    .from(collectionSegments)
+    .where(and(eq(collectionSegments.collectionId, collectionId), eq(collectionSegments.routeId, routeId)))
     .get();
   if (!row) return;
 
   db.transaction((tx) => {
-    tx.update(raceSegments)
+    tx.update(collectionSegments)
       .set({ isSelected: false })
-      .where(and(eq(raceSegments.raceId, raceId), eq(raceSegments.position, row.position)))
+      .where(and(eq(collectionSegments.collectionId, collectionId), eq(collectionSegments.position, row.position)))
       .run();
-    tx.update(raceSegments)
+    tx.update(collectionSegments)
       .set({ isSelected: true })
-      .where(and(eq(raceSegments.raceId, raceId), eq(raceSegments.routeId, routeId)))
+      .where(and(eq(collectionSegments.collectionId, collectionId), eq(collectionSegments.routeId, routeId)))
       .run();
   });
 }
 
 export async function updateSegmentPositions(
-  raceId: string,
+  collectionId: string,
   positions: { routeId: string; position: number }[],
 ): Promise<void> {
   db.transaction((tx) => {
     for (const { routeId, position } of positions) {
-      tx.update(raceSegments)
+      tx.update(collectionSegments)
         .set({ position })
-        .where(and(eq(raceSegments.raceId, raceId), eq(raceSegments.routeId, routeId)))
+        .where(and(eq(collectionSegments.collectionId, collectionId), eq(collectionSegments.routeId, routeId)))
         .run();
     }
   });
@@ -352,17 +352,17 @@ export async function updateSegmentPositions(
 
 export async function getAllAssignedRouteIds(): Promise<Set<string>> {
   const rows = db
-    .selectDistinct({ routeId: raceSegments.routeId })
-    .from(raceSegments)
+    .selectDistinct({ routeId: collectionSegments.routeId })
+    .from(collectionSegments)
     .all();
   return new Set(rows.map((r) => r.routeId));
 }
 
-export async function getMaxSegmentPosition(raceId: string): Promise<number> {
+export async function getMaxSegmentPosition(collectionId: string): Promise<number> {
   const row = db
-    .select({ maxPos: max(raceSegments.position) })
-    .from(raceSegments)
-    .where(eq(raceSegments.raceId, raceId))
+    .select({ maxPos: max(collectionSegments.position) })
+    .from(collectionSegments)
+    .where(eq(collectionSegments.collectionId, collectionId))
     .get();
   return row?.maxPos ?? -1;
 }

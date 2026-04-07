@@ -1,5 +1,6 @@
 import {
   downloadTileRegion,
+  cancelTileRegion,
   deleteTileRegion,
   getTileRegionSize,
   getAllTileRegions,
@@ -11,6 +12,7 @@ import {
   OFFLINE_MIN_ZOOM,
   OFFLINE_MAX_ZOOM,
   OFFLINE_PACK_PREFIX,
+  TILE_DOWNLOAD_STALL_MS,
 } from "@/constants";
 
 function packId(routeId: string): string {
@@ -71,23 +73,36 @@ export async function downloadRouteTiles(
     return;
   }
 
-  // Delete any existing region for this route
-  try { await deleteTileRegion(id); } catch {}
+  let stalled = false;
+  let stallTimer: ReturnType<typeof setTimeout> | undefined;
+
+  function resetStallTimer() {
+    clearTimeout(stallTimer);
+    stallTimer = setTimeout(() => {
+      stalled = true;
+      cancelTileRegion(id);
+    }, TILE_DOWNLOAD_STALL_MS);
+  }
+
+  resetStallTimer();
 
   const sub = addProgressListener((event) => {
     if (event.id === id) {
+      resetStallTimer();
       onProgress(event.percentage, event.completedBytes);
     }
   });
 
   try {
     await downloadTileRegion(id, styleURL, coords, OFFLINE_MIN_ZOOM, OFFLINE_MAX_ZOOM);
+    clearTimeout(stallTimer);
 
     const actualBytes = await getTileRegionSize(id);
     onProgress(100, actualBytes);
     onComplete();
   } catch (e) {
-    onError(e instanceof Error ? e.message : "Download failed");
+    clearTimeout(stallTimer);
+    onError(stalled ? "Download stalled — please retry" : (e instanceof Error ? e.message : "Download failed"));
   } finally {
     sub.remove();
   }

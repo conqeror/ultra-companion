@@ -9,7 +9,7 @@ import Mapbox, {
 import Constants from "expo-constants";
 import { useMapStore } from "@/store/mapStore";
 import { useRouteStore } from "@/store/routeStore";
-import { useRaceStore } from "@/store/raceStore";
+import { useCollectionStore } from "@/store/collectionStore";
 import { usePanelStore } from "@/store/panelStore";
 import { useThemeColors } from "@/theme";
 import { useMapStyle } from "@/hooks/useMapStyle";
@@ -61,28 +61,28 @@ export default function MapScreen() {
   const loadRoutes = useRouteStore((s) => s.loadRoutes);
   const snappedPosition = useRouteStore((s) => s.snappedPosition);
   const setSnappedPosition = useRouteStore((s) => s.setSnappedPosition);
-  const loadRaces = useRaceStore((s) => s.loadRaces);
+  const loadCollections = useCollectionStore((s) => s.loadCollections);
   const loadPOIs = usePoiStore((s) => s.loadPOIs);
   const computeETAForRoute = useEtaStore((s) => s.computeETAForRoute);
   const cumulativeTime = useEtaStore((s) => s.cumulativeTime);
   const fetchWeather = useWeatherStore((s) => s.fetchWeather);
   const isConnected = useOfflineStore((s) => s.isConnected);
 
-  // Unified active context — works for both standalone routes and races
+  // Unified active context — works for both standalone routes and collections
   const activeData = useActiveRouteData();
   const activeRoutePoints = activeData?.points ?? null;
   const activeRouteIds = activeData?.routeIds ?? [];
 
-  // Set of routeIds that are part of the active race (for RouteLayer styling)
-  const activeRaceRouteIds = useMemo(() => {
-    if (activeData?.type === "race") return new Set(activeData.routeIds);
+  // Set of routeIds that are part of the active collection (for RouteLayer styling)
+  const activeCollectionRouteIds = useMemo(() => {
+    if (activeData?.type === "collection") return new Set(activeData.routeIds);
     return null;
   }, [activeData]);
 
   useEffect(() => {
     loadRoutes();
-    loadRaces();
-  }, [loadRoutes, loadRaces]);
+    loadCollections();
+  }, [loadRoutes, loadCollections]);
 
   // Load POIs and compute ETA when active context changes
   useEffect(() => {
@@ -206,6 +206,17 @@ export default function MapScreen() {
     [themeColors.accent],
   );
 
+  // Routes that should be rendered on the map (active or part of active collection, with loaded points)
+  const renderedRoutes = useMemo(
+    () => routes.filter((r) => r.isVisible && visibleRoutePoints[r.id] && (r.isActive || (activeCollectionRouteIds?.has(r.id) ?? false))),
+    [routes, visibleRoutePoints, activeCollectionRouteIds],
+  );
+
+  // Forces LocationPuck to remount so its layer is recreated on top of route/POI layers.
+  const renderedRouteKey = useMemo(() => {
+    return renderedRoutes.map((r) => r.id).sort().join(",") + `-${mapStyle.styleKey}`;
+  }, [renderedRoutes, mapStyle.styleKey]);
+
   return (
     <View className="flex-1">
       <MapboxMapView
@@ -227,9 +238,7 @@ export default function MapScreen() {
           animationDuration={500}
           padding={cameraPadding}
         />
-        {routes
-          .filter((r) => r.isVisible && visibleRoutePoints[r.id] && (r.isActive || (activeRaceRouteIds?.has(r.id) ?? false)))
-          .map((route) => {
+        {renderedRoutes.map((route) => {
             const styledRoute = route.isActive ? route : { ...route, isActive: true };
             return (
               <RouteLayer
@@ -243,6 +252,7 @@ export default function MapScreen() {
           <POILayer key={mapStyle.styleKey} routeIds={activeRouteIds} />
         )}
         <LocationPuck
+          key={`puck-${renderedRouteKey}`}
           puckBearing="heading"
           puckBearingEnabled
           pulsing={pulsingConfig}

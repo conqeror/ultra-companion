@@ -61,6 +61,11 @@ public class OfflineTilesModule: Module {
       }
     }
 
+    AsyncFunction("cancelTileRegion") { (id: String) in
+      self.activeTasks[id]?.cancel()
+      self.activeTasks.removeValue(forKey: id)
+    }
+
     AsyncFunction("deleteTileRegion") { (id: String) async throws in
       self.activeTasks[id]?.cancel()
       self.activeTasks.removeValue(forKey: id)

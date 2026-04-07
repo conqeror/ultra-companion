@@ -242,6 +242,54 @@ Weather-aware logistics — know if you need rain gear for tonight's mountain pa
 
 ---
 
+## Phase 9: Usability & Surface Data
+
+**Goal:** Quality-of-life improvements from real ride feedback — better naming, searchable POIs, ETAs in lists, GPX file handling, and surface type visualization.
+
+### Steps:
+
+#### 9a: Rename Races → Collections (quick)
+1. **Rename types** — `Race` → `Collection`, `RaceSegment` → `CollectionSegment`, etc. in `types/index.ts`
+2. **Rename DB tables** — `races` → `collections`, `race_segments` → `collection_segments` (reset DB, no migration needed)
+3. **Rename stores** — `raceStore.ts` → `collectionStore.ts`, update all store references
+4. **Rename UI** — tab labels, screen titles, button text, empty states
+5. **Rename files** — route files under `app/race/` → `app/collection/`, component files
+
+#### 9b: POI Text Search (quick) ✓
+6. ~~**Add search input** to POI list view — text field at the top with clear button~~
+7. ~~**Filter POIs by name** — case-insensitive substring match against POI name~~
+8. ~~**Preserve existing filters** — search works alongside category and open/closed filters~~
+
+#### 9c: ETAs in POI List (medium) ✓
+9. ~~**Compute ETAs for POI list items** — use existing power model + route snapping to calculate riding time and ETA for each POI~~
+10. ~~**Display in POI list** — show estimated riding time and arrival time below distance info~~
+11. ~~**Handle edge cases** — no GPS position, not snapped to route, POIs behind current position~~
+
+#### 9d: Open GPX with App (medium)
+12. **Register document types** — configure `app.json` / `app.config.ts` with iOS document types for `.gpx` and `.kml` files
+13. **Handle incoming URLs** — listen for `expo-linking` URL events when app opens via file share
+14. **Auto-import flow** — parse the incoming file and run the existing import pipeline, show confirmation
+
+#### 9e: Surface Type Visualization (larger)
+15. **Overpass surface query** — extend Overpass client to fetch `surface` tags for way segments along the route corridor
+16. **Surface classification** — classify surfaces into paved/unpaved/unknown from OSM `surface` tag values
+17. **Map rendering** — render route line with different styles per surface type (e.g., solid for paved, dashed for unpaved)
+18. **Elevation profile rendering** — color-code or style the elevation profile line/fill by surface type
+19. **Surface legend** — add a small legend to the elevation panel explaining the surface styles
+20. **Offline caching** — store surface data in SQLite alongside route data
+
+### Deliverable:
+Better naming, searchable POIs with ETAs, seamless GPX file opening, and surface type awareness on map and elevation profile.
+
+### Technical notes:
+- DB reset is fine (app not in production) — no migration needed for the rename
+- ETA calculator from Phase 4a can be reused directly — just needs to be wired into list items
+- iOS document type registration requires a rebuild (not OTA-updatable)
+- OSM `surface` tag coverage varies by region — expect gaps, show "unknown" gracefully
+- Surface data should be fetched alongside POI data in the "prepare for offline" flow
+
+---
+
 ## Phase Summary
 
 | Phase | Focus | Key Outcome |
@@ -251,6 +299,10 @@ Weather-aware logistics — know if you need rain gear for tonight's mountain pa
 | 3 | POIs | Find resources along route |
 | 4 | ETA + POIs on elevation + opening hours + offline | Race-ready, works in airplane mode |
 | 5 | Weather | Route-aware forecasts when connectivity is available |
+| 6 | Route collections + stitching | Group route segments into collections |
+| 7 | POI enhancements | Starred POIs, open/closed indicators |
+| 8 | Dark outdoor map style | Night-riding-optimized map |
+| 9 | Usability & surface data | Rename, search, ETAs in list, GPX open, surface types |
 
 ## Estimated Complexity
 

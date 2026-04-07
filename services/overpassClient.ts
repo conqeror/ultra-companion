@@ -1,9 +1,18 @@
 import type { RoutePoint } from "@/types";
 import {
-  OVERPASS_API_URL,
+  OVERPASS_API_URLS,
   OVERPASS_SEGMENT_LENGTH_M,
   OVERPASS_RETRY_DELAYS,
 } from "@/constants";
+
+let _nextServerIndex = 0;
+
+/** Get the next Overpass server URL (round-robin) */
+function nextServerUrl(): string {
+  const url = OVERPASS_API_URLS[_nextServerIndex % OVERPASS_API_URLS.length];
+  _nextServerIndex++;
+  return url;
+}
 
 // --- Raw Overpass types ---
 
@@ -99,10 +108,6 @@ export function buildOverpassQuery(
   node["amenity"="drinking_water"](around:${r},${coords});
   node["natural"="spring"](around:${r},${coords});
   node["man_made"="water_tap"](around:${r},${coords});
-  node["shop"="bicycle"](around:${r},${coords});
-  node["amenity"="bicycle_repair_station"](around:${r},${coords});
-  node["amenity"~"^(atm|bank)$"](around:${r},${coords});
-  node["amenity"="pharmacy"](around:${r},${coords});
   node["amenity"~"^(toilets|shower)$"](around:${r},${coords});
   node["amenity"="shelter"]["shelter_type"!="public_transport"](around:${r},${coords});
   way["amenity"="shelter"]["shelter_type"!="public_transport"](around:${r},${coords});
@@ -116,43 +121,61 @@ out center body;`;
 
 // --- Fetching ---
 
-/** Fetch a single Overpass query with retry and exponential backoff */
+/** Try a single Overpass request against a specific server */
+async function tryOverpassRequest(
+  url: string,
+  query: string,
+): Promise<{ elements: OverpassElement[] } | { rateLimited: true } | { error: Error }> {
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: `data=${encodeURIComponent(query)}`,
+    });
+
+    if (response.status === 400) {
+      return { error: new Error(`Overpass bad query (400): ${await response.text()}`) };
+    }
+
+    if (response.status === 429 || response.status === 504) {
+      return { rateLimited: true };
+    }
+
+    if (!response.ok) {
+      return { error: new Error(`Overpass error (${response.status})`) };
+    }
+
+    const data: OverpassResponse = await response.json();
+    return { elements: data.elements };
+  } catch (error) {
+    return { error: error instanceof Error ? error : new Error(String(error)) };
+  }
+}
+
+/** Fetch a single Overpass query with server rotation and exponential backoff */
 async function fetchOverpassSegment(
   query: string,
 ): Promise<OverpassElement[]> {
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt <= OVERPASS_RETRY_DELAYS.length; attempt++) {
-    try {
-      const response = await fetch(OVERPASS_API_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: `data=${encodeURIComponent(query)}`,
-      });
+    // On each attempt, try all servers before giving up
+    for (let s = 0; s < OVERPASS_API_URLS.length; s++) {
+      const url = nextServerUrl();
+      const result = await tryOverpassRequest(url, query);
 
-      if (response.status === 400) {
-        throw new Error(`Overpass bad query (400): ${await response.text()}`);
+      if ("elements" in result) return result.elements;
+      if ("error" in result) {
+        lastError = result.error;
+        // Don't retry bad queries on other servers
+        if (lastError.message.includes("400")) throw lastError;
       }
+      // rateLimited — try next server immediately
+    }
 
-      if (response.status === 429 || response.status === 504) {
-        throw new Error(`Overpass rate limited (${response.status})`);
-      }
-
-      if (!response.ok) {
-        throw new Error(`Overpass error (${response.status})`);
-      }
-
-      const data: OverpassResponse = await response.json();
-      return data.elements;
-    } catch (error) {
-      lastError = error instanceof Error ? error : new Error(String(error));
-
-      // Don't retry bad queries
-      if (lastError.message.includes("400")) throw lastError;
-
-      if (attempt < OVERPASS_RETRY_DELAYS.length) {
-        await delay(OVERPASS_RETRY_DELAYS[attempt]);
-      }
+    // All servers failed this round — wait before retrying
+    if (attempt < OVERPASS_RETRY_DELAYS.length) {
+      await delay(OVERPASS_RETRY_DELAYS[attempt]);
     }
   }
 

@@ -1,26 +1,26 @@
 import { useMemo } from "react";
 import { useRouteStore } from "@/store/routeStore";
-import { useRaceStore } from "@/store/raceStore";
-import type { ActiveRouteData, Race, Route, RoutePoint, StitchedRace } from "@/types";
+import { useCollectionStore } from "@/store/collectionStore";
+import type { ActiveRouteData, Collection, Route, RoutePoint, StitchedCollection } from "@/types";
 
 function buildActiveRouteData(
-  races: Race[],
-  activeStitchedRace: StitchedRace | null,
+  collections: Collection[],
+  activeStitchedCollection: StitchedCollection | null,
   routes: Route[],
   visibleRoutePoints: Record<string, RoutePoint[]>,
 ): ActiveRouteData | null {
-  const activeRace = races.find((r) => r.isActive);
-  if (activeRace && activeStitchedRace) {
+  const activeCollection = collections.find((c) => c.isActive);
+  if (activeCollection && activeStitchedCollection) {
     return {
-      type: "race",
-      id: activeRace.id,
-      name: activeRace.name,
-      points: activeStitchedRace.points,
-      totalDistanceMeters: activeStitchedRace.totalDistanceMeters,
-      totalAscentMeters: activeStitchedRace.totalAscentMeters,
-      totalDescentMeters: activeStitchedRace.totalDescentMeters,
-      segments: activeStitchedRace.segments,
-      routeIds: activeStitchedRace.segments.map((s) => s.routeId),
+      type: "collection",
+      id: activeCollection.id,
+      name: activeCollection.name,
+      points: activeStitchedCollection.points,
+      totalDistanceMeters: activeStitchedCollection.totalDistanceMeters,
+      totalAscentMeters: activeStitchedCollection.totalAscentMeters,
+      totalDescentMeters: activeStitchedCollection.totalDescentMeters,
+      segments: activeStitchedCollection.segments,
+      routeIds: activeStitchedCollection.segments.map((s) => s.routeId),
     };
   }
 
@@ -45,12 +45,12 @@ function buildActiveRouteData(
 export function useActiveRouteData(): ActiveRouteData | null {
   const routes = useRouteStore((s) => s.routes);
   const visibleRoutePoints = useRouteStore((s) => s.visibleRoutePoints);
-  const races = useRaceStore((s) => s.races);
-  const activeStitchedRace = useRaceStore((s) => s.activeStitchedRace);
+  const collections = useCollectionStore((s) => s.collections);
+  const activeStitchedCollection = useCollectionStore((s) => s.activeStitchedCollection);
 
   return useMemo(
-    () => buildActiveRouteData(races, activeStitchedRace, routes, visibleRoutePoints),
-    [routes, visibleRoutePoints, races, activeStitchedRace],
+    () => buildActiveRouteData(collections, activeStitchedCollection, routes, visibleRoutePoints),
+    [routes, visibleRoutePoints, collections, activeStitchedCollection],
   );
 }
 
@@ -60,8 +60,8 @@ export function useActiveRouteData(): ActiveRouteData | null {
  */
 export function getActiveRouteDataImperative(): ActiveRouteData | null {
   return buildActiveRouteData(
-    useRaceStore.getState().races,
-    useRaceStore.getState().activeStitchedRace,
+    useCollectionStore.getState().collections,
+    useCollectionStore.getState().activeStitchedCollection,
     useRouteStore.getState().routes,
     useRouteStore.getState().visibleRoutePoints,
   );

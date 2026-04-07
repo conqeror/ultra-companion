@@ -1,4 +1,4 @@
-import type { RoutePoint } from "@/types";
+import type { RoutePoint, POICategory } from "@/types";
 import type { ClassifiedPOI } from "./poiClassifier";
 
 // --- Google Places API response types ---
@@ -79,17 +79,6 @@ function downsampleForPolyline(points: RoutePoint[]): { latitude: number; longit
   return result;
 }
 
-// --- Classification ---
-
-function classifyGooglePlace(place: GooglePlace): "gas_station" | "groceries" | null {
-  const types = new Set(place.types);
-  if (types.has("gas_station")) return "gas_station";
-  if (types.has("supermarket") || types.has("convenience_store") || types.has("grocery_store")) {
-    return "groceries";
-  }
-  return null;
-}
-
 // --- Tags ---
 
 function buildTags(place: GooglePlace): Record<string, string> {
@@ -125,15 +114,16 @@ const FIELD_MASK = [
   "nextPageToken",
 ].join(",");
 
-const SEARCHES: { textQuery: string; includedType: string; category: "gas_station" | "groceries" }[] = [
+const SEARCHES: { textQuery: string; includedType?: string; category: POICategory }[] = [
   { textQuery: "gas station", includedType: "gas_station", category: "gas_station" },
-  { textQuery: "supermarket grocery store", includedType: "supermarket", category: "groceries" },
+  { textQuery: "grocery store", category: "groceries" },
+  { textQuery: "bakery", category: "bakery" },
 ];
 
 /** Fetch all pages of a Text Search Along Route query (max 60 results) */
 async function searchAlongRoute(
   textQuery: string,
-  includedType: string,
+  includedType: string | undefined,
   encodedPolyline: string,
   apiKey: string,
 ): Promise<GooglePlace[]> {
@@ -143,7 +133,7 @@ async function searchAlongRoute(
   do {
     const body: Record<string, unknown> = {
       textQuery,
-      includedType,
+      ...(includedType && { includedType }),
       searchAlongRouteParameters: {
         polyline: { encodedPolyline },
       },
@@ -231,22 +221,20 @@ export async function fetchGooglePlacesPOIs(
     const downsampled = downsampleForPolyline(segment);
     const encodedPolyline = encodePolyline(downsampled);
 
-    for (const search of SEARCHES) {
-      onProgress?.(step, totalSteps);
-      step++;
+    onProgress?.(step, totalSteps);
 
-      const places = await searchAlongRoute(
-        search.textQuery,
-        search.includedType,
-        encodedPolyline,
-        apiKey,
-      );
+    // Run all search types in parallel within each segment
+    const searchResults = await Promise.all(
+      SEARCHES.map((search) =>
+        searchAlongRoute(search.textQuery, search.includedType, encodedPolyline, apiKey)
+          .then((places) => ({ places, category: search.category })),
+      ),
+    );
 
+    for (const { places, category } of searchResults) {
       for (const place of places) {
         if (seen.has(place.id)) continue;
         seen.add(place.id);
-
-        const category = classifyGooglePlace(place) ?? search.category;
 
         results.push({
           sourceId: place.id,
@@ -258,6 +246,8 @@ export async function fetchGooglePlacesPOIs(
         });
       }
     }
+
+    step += SEARCHES.length;
   }
 
   onProgress?.(totalSteps, totalSteps);

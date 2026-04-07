@@ -114,9 +114,9 @@ export const useRouteStore = create<RouteState>((set, get) => ({
       await useOfflineStore.getState().deleteOfflineData(id);
       await dbDeleteRoute(id);
       await get().loadRoutes();
-      // Reload races in case this route was in one (cascade deletes the segment)
-      const { useRaceStore } = await import("@/store/raceStore");
-      await useRaceStore.getState().loadRaces();
+      // Reload collections in case this route was in one (cascade deletes the segment)
+      const { useCollectionStore } = await import("@/store/collectionStore");
+      await useCollectionStore.getState().loadCollections();
     } catch (e: any) {
       set({ error: e.message });
     }
@@ -131,10 +131,10 @@ export const useRouteStore = create<RouteState>((set, get) => ({
 
   setActiveRoute: async (id) => {
     await dbSetActiveRoute(id);
-    // Clear active race in raceStore
-    const { useRaceStore } = await import("@/store/raceStore");
-    useRaceStore.getState().clearActiveStitched();
-    await useRaceStore.getState().loadRaces();
+    // Clear active collection in collectionStore
+    const { useCollectionStore } = await import("@/store/collectionStore");
+    useCollectionStore.getState().clearActiveStitched();
+    await useCollectionStore.getState().loadCollections();
     await get().loadRoutes();
   },
 

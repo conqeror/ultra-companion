@@ -63,18 +63,18 @@ echo "=== ROUTES TAB ==="
 run 06-close-elevation-go-routes.steps "--ax-cache perStep"
 snap "routes"
 
-echo "--- Race detail ---"
-run 07-open-race.steps
-snap "race-top"
+echo "--- Collection detail ---"
+run 07-open-collection.steps
+snap "collection-top"
 
-run 08-scroll-race.steps
-snap "race-segments"
+run 08-scroll-collection.steps
+snap "collection-segments"
 
-run 08-scroll-race.steps
-snap "race-elevation"
+run 08-scroll-collection.steps
+snap "collection-elevation"
 
-run 08-scroll-race.steps
-snap "race-offline"
+run 08-scroll-collection.steps
+snap "collection-offline"
 
 echo ""
 echo "=== SETTINGS TAB ==="
