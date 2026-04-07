@@ -27,6 +27,7 @@ interface RouteState {
 
   loadRoutes: () => Promise<void>;
   importRoute: () => Promise<void>;
+  importFromUri: (uri: string, fileName: string) => Promise<Route>;
   deleteRoute: (id: string) => Promise<void>;
   toggleVisibility: (id: string) => Promise<void>;
   setActiveRoute: (id: string) => Promise<void>;
@@ -53,6 +54,54 @@ export const useRouteStore = create<RouteState>((set, get) => ({
     }
   },
 
+  importFromUri: async (uri: string, fileName: string) => {
+    const ext = fileName.toLowerCase().split(".").pop();
+
+    if (!["gpx", "kml"].includes(ext || "")) {
+      throw new Error("Unsupported file type. Use .gpx or .kml files.");
+    }
+
+    const file = new File(uri);
+    const content = await file.text();
+
+    const parsed = ext === "gpx"
+      ? parseGPX(content, fileName)
+      : parseKML(content, fileName);
+
+    const routes = get().routes;
+
+    const route: Route = {
+      id: generateId(),
+      name: parsed.name,
+      fileName,
+      color: INACTIVE_ROUTE_COLOR,
+      isActive: routes.length === 0,
+      isVisible: true,
+      totalDistanceMeters: parsed.totalDistanceMeters,
+      totalAscentMeters: parsed.totalAscentMeters,
+      totalDescentMeters: parsed.totalDescentMeters,
+      pointCount: parsed.points.length,
+      createdAt: new Date().toISOString(),
+    };
+
+    await insertRoute(route, parsed.points);
+
+    // Detect and store climbs
+    const { detectClimbs } = await import("@/services/climbDetector");
+    const { insertClimbs } = await import("@/db/database");
+    const detected = detectClimbs(parsed.points);
+    const climbRecords: Climb[] = detected.map((c) => ({
+      ...c,
+      id: generateId(),
+      routeId: route.id,
+      name: null,
+    }));
+    await insertClimbs(climbRecords);
+
+    await get().loadRoutes();
+    return route;
+  },
+
   importRoute: async () => {
     try {
       set({ isLoading: true, error: null });
@@ -69,52 +118,9 @@ export const useRouteStore = create<RouteState>((set, get) => ({
 
       const asset = result.assets[0];
       const fileName = asset.name || "route";
-      const ext = fileName.toLowerCase().split(".").pop();
 
-      if (!["gpx", "kml"].includes(ext || "")) {
-        set({ isLoading: false, error: "Unsupported file type. Use .gpx or .kml files." });
-        return;
-      }
-
-      const file = new File(asset.uri);
-      const content = await file.text();
-
-      const parsed = ext === "gpx"
-        ? parseGPX(content, fileName)
-        : parseKML(content, fileName);
-
-      const routes = get().routes;
-
-      const route: Route = {
-        id: generateId(),
-        name: parsed.name,
-        fileName,
-        color: INACTIVE_ROUTE_COLOR,
-        isActive: routes.length === 0, // First route is active by default
-        isVisible: true,
-        totalDistanceMeters: parsed.totalDistanceMeters,
-        totalAscentMeters: parsed.totalAscentMeters,
-        totalDescentMeters: parsed.totalDescentMeters,
-        pointCount: parsed.points.length,
-        createdAt: new Date().toISOString(),
-      };
-
-      await insertRoute(route, parsed.points);
-
-      // Detect and store climbs
-      const { detectClimbs } = await import("@/services/climbDetector");
-      const { insertClimbs } = await import("@/db/database");
-      const detected = detectClimbs(parsed.points);
-      const climbRecords: Climb[] = detected.map((c) => ({
-        ...c,
-        id: generateId(),
-        routeId: route.id,
-        name: null,
-      }));
-      await insertClimbs(climbRecords);
-
+      await get().importFromUri(asset.uri, fileName);
       set({ isLoading: false });
-      await get().loadRoutes();
     } catch (e: any) {
       set({ isLoading: false, error: e.message || "Failed to import route" });
     }

@@ -29,6 +29,40 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         "Ultra Companion needs your location to show your position on the map during rides.",
       NSLocationAlwaysAndWhenInUseUsageDescription:
         "Ultra Companion uses background location to track your position during ultra-distance rides.",
+      CFBundleDocumentTypes: [
+        {
+          CFBundleTypeName: "GPX File",
+          CFBundleTypeRole: "Viewer",
+          LSHandlerRank: "Alternate",
+          LSItemContentTypes: ["com.topografix.gpx"],
+        },
+        {
+          CFBundleTypeName: "KML File",
+          CFBundleTypeRole: "Viewer",
+          LSHandlerRank: "Alternate",
+          LSItemContentTypes: ["com.google.earth.kml"],
+        },
+      ],
+      UTImportedTypeDeclarations: [
+        {
+          UTTypeIdentifier: "com.topografix.gpx",
+          UTTypeDescription: "GPX File",
+          UTTypeConformsTo: ["public.xml"],
+          UTTypeTagSpecification: {
+            "public.filename-extension": ["gpx"],
+            "public.mime-type": ["application/gpx+xml"],
+          },
+        },
+        {
+          UTTypeIdentifier: "com.google.earth.kml",
+          UTTypeDescription: "KML File",
+          UTTypeConformsTo: ["public.xml"],
+          UTTypeTagSpecification: {
+            "public.filename-extension": ["kml"],
+            "public.mime-type": ["application/vnd.google-earth.kml+xml"],
+          },
+        },
+      ],
     },
   },
   web: {

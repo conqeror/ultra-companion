@@ -1,13 +1,16 @@
 import { Stack } from "expo-router";
 import { ThemeProvider, type Theme } from "@react-navigation/native";
 import * as SplashScreen from "expo-splash-screen";
+import * as Linking from "expo-linking";
 import { useFonts } from "expo-font";
-import { useEffect } from "react";
+import { useEffect, useRef, useCallback } from "react";
+import { Alert } from "react-native";
 import { useColorScheme } from "nativewind";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import "react-native-reanimated";
 import "../global.css";
 import { useOfflineStore } from "@/store/offlineStore";
+import { useRouteStore } from "@/store/routeStore";
 import { COLORS } from "@/theme";
 
 export { ErrorBoundary } from "expo-router";
@@ -68,6 +71,37 @@ export default function RootLayout() {
       redetectClimbsIfNeeded().catch(console.warn);
     });
   }, []);
+
+  // Handle incoming GPX/KML files from share sheet / "Open with"
+  const handledUrls = useRef(new Set<string>());
+
+  const handleIncomingUrl = useCallback(async (url: string) => {
+    if (handledUrls.current.has(url)) return;
+    handledUrls.current.add(url);
+
+    const fileName = decodeURIComponent(url.split("/").pop() || "route");
+    const ext = fileName.toLowerCase().split(".").pop();
+    if (!["gpx", "kml"].includes(ext || "")) return;
+
+    try {
+      const route = await useRouteStore.getState().importFromUri(url, fileName);
+      Alert.alert("Route Imported", `"${route.name}" has been imported.`);
+    } catch (e: any) {
+      Alert.alert("Import Failed", e.message || "Could not import the file.");
+    }
+  }, []);
+
+  useEffect(() => {
+    // Handle cold start (app opened via file)
+    Linking.getInitialURL().then((url) => {
+      if (url) handleIncomingUrl(url);
+    });
+    // Handle warm open (app already running)
+    const subscription = Linking.addEventListener("url", (event) => {
+      handleIncomingUrl(event.url);
+    });
+    return () => subscription.remove();
+  }, [handleIncomingUrl]);
 
   if (!fontsLoaded && !fontError) {
     return null;
