@@ -48,10 +48,7 @@ export default function MapScreen() {
 
   const { followUser, userPosition, setFollowUser } = useMapStore();
   const refreshPosition = useMapStore((s) => s.refreshPosition);
-  const isRefreshing = useMapStore((s) => s.isRefreshing);
-
   const bottomSheet = usePanelStore((s) => s.bottomSheet);
-  const setBottomSheet = usePanelStore((s) => s.setBottomSheet);
   const panelHeight = Math.round(screenHeight * BOTTOM_PANEL_HEIGHT_RATIO);
 
   const routes = useRouteStore((s) => s.routes);
@@ -167,15 +164,14 @@ export default function MapScreen() {
 
   const handleLocate = useCallback(async () => {
     setFollowUser(true);
-    // Center on current position immediately (if available)
+    // Snap to cached position instantly, then animate to fresh fix
     const currentPos = useMapStore.getState().userPosition;
     if (currentPos) {
       cameraRef.current?.setCamera({
         centerCoordinate: [currentPos.longitude, currentPos.latitude],
-        animationDuration: 500,
+        animationDuration: 0,
       });
     }
-    // Then refresh GPS for a fresh fix
     const position = await refreshPosition();
     if (position) {
       if (!hasGpsFix) setHasGpsFix(true);
@@ -263,11 +259,6 @@ export default function MapScreen() {
 
       <MapControls
         onLocate={handleLocate}
-        followUser={followUser}
-        isRefreshing={isRefreshing}
-        showWeather={bottomSheet === "weather"}
-        onShowWeather={() => setBottomSheet("weather")}
-        onShowElevation={() => setBottomSheet(null)}
         activeRouteIds={activeRouteIds}
       />
       <BottomPanel activeData={activeData} />

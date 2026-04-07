@@ -8,6 +8,7 @@ import { useThemeColors } from "@/theme";
 import { usePanelStore } from "@/store/panelStore";
 import { usePoiStore } from "@/store/poiStore";
 import { useMapStore } from "@/store/mapStore";
+import { formatTimeDelta } from "@/utils/formatters";
 import {
   BOTTOM_PANEL_HEIGHT_RATIO,
   POSITION_AGE_VISIBLE_THRESHOLD_MS,
@@ -16,11 +17,6 @@ import {
 
 interface MapControlsProps {
   onLocate: () => void;
-  followUser: boolean;
-  isRefreshing: boolean;
-  showWeather: boolean;
-  onShowWeather: () => void;
-  onShowElevation: () => void;
   activeRouteIds: string[];
 }
 
@@ -60,26 +56,24 @@ function usePositionAge() {
 
   if (!shouldShow || !userPosition) return null;
 
-  const minutes = Math.floor(ageMs / 60_000);
-  const label = minutes < 60 ? `${minutes}m` : `${Math.floor(minutes / 60)}h`;
-
-  return { label, isStale };
+  return { label: formatTimeDelta(ageMs), isStale };
 }
 
 export default function MapControls({
   onLocate,
-  followUser,
-  isRefreshing,
-  showWeather,
-  onShowWeather,
-  onShowElevation,
   activeRouteIds,
 }: MapControlsProps) {
   const colors = useThemeColors();
   const positionAge = usePositionAge();
 
+  const followUser = useMapStore((s) => s.followUser);
+  const isRefreshing = useMapStore((s) => s.isRefreshing);
+
   const panelMode = usePanelStore((s) => s.panelMode);
   const cyclePanelMode = usePanelStore((s) => s.cyclePanelMode);
+  const bottomSheet = usePanelStore((s) => s.bottomSheet);
+  const setBottomSheet = usePanelStore((s) => s.setBottomSheet);
+  const showWeather = bottomSheet === "weather";
   const showElevation = !showWeather;
 
   const hasPOIs = usePoiStore((s) =>
@@ -105,10 +99,8 @@ export default function MapControls({
 
   const handleElevationPress = () => {
     if (showWeather) {
-      // Switch from weather to elevation
-      onShowElevation();
+      setBottomSheet(null);
     } else {
-      // Already on elevation — cycle distance
       cyclePanelMode();
     }
   };
@@ -117,7 +109,7 @@ export default function MapControls({
 
   return (
     <>
-      {/* Locate — standalone, top-right */}
+      {/* Locate — top-right */}
       <View className="absolute right-4 top-[120px] items-center">
         <TouchableOpacity
           className={cn(
@@ -143,7 +135,7 @@ export default function MapControls({
         </TouchableOpacity>
       </View>
 
-      {/* POI list button — bottom-left, above panel */}
+      {/* POI list — bottom-left */}
       {hasPOIs && (
         <View className="absolute left-4" style={{ bottom: buttonBottom }}>
           <TouchableOpacity
@@ -156,14 +148,14 @@ export default function MapControls({
         </View>
       )}
 
-      {/* Weather + Elevation — switch, bottom-right */}
+      {/* Weather + Elevation — bottom-right */}
       <View className="absolute right-4 items-center" style={{ bottom: buttonBottom }}>
         <TouchableOpacity
           className={cn(
             "w-[52px] h-[52px] rounded-xl items-center justify-center shadow-md",
             showWeather ? "bg-primary" : "bg-card/95 border border-border-subtle",
           )}
-          onPress={onShowWeather}
+          onPress={() => setBottomSheet("weather")}
           accessibilityLabel="Show weather"
         >
           <CloudSun size={22} color={showWeather ? colors.accentForeground : colors.textPrimary} />

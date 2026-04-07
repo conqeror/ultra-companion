@@ -315,7 +315,7 @@ bg-accent/10 text-accent rounded-full px-2 py-0.5 font-labelSmall
 The map takes 100% of the screen. Everything else floats.
 
 - **Floating controls**: top-right corner, vertically stacked (center-on-user, panel mode toggle)
-- **Bottom panel**: hidden by default ("none" mode). Tap panel toggle to cycle through elevation views
+- **Bottom panel**: always visible, showing either elevation profile or weather. Tap buttons to switch; tap elevation button again to cycle distance
 - **No persistent HUD on map** — keep map clean. Data lives in the panel
 - **Panel closed state**: just the map + floating buttons + tab bar
 - **Panel open state**: map compresses upward, panel takes bottom ~25% with route stats + elevation profile

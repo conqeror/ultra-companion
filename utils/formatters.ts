@@ -34,12 +34,14 @@ export function formatETA(date: Date): string {
   return h + ":" + m;
 }
 
+export function formatTimeDelta(ms: number): string {
+  const minutes = Math.floor(ms / 60_000);
+  if (minutes < 60) return `${minutes}m`;
+  return `${Math.floor(minutes / 60)}h`;
+}
+
 export function formatTimeAgo(timestampMs: number): string {
-  const ageMs = Date.now() - timestampMs;
-  const minutes = Math.floor(ageMs / 60_000);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  return `${hours}h ago`;
+  return `${formatTimeDelta(Date.now() - timestampMs)} ago`;
 }
 
 export function formatFileSize(bytes: number): string {
