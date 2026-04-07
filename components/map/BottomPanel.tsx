@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import { View, StyleSheet, TouchableOpacity, useWindowDimensions } from "react-native";
+import { View, StyleSheet, useWindowDimensions } from "react-native";
 import Animated, {
   useAnimatedStyle,
   withTiming,
@@ -12,7 +12,7 @@ import { useRouteStore } from "@/store/routeStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import { usePoiStore } from "@/store/poiStore";
 import { useEtaStore } from "@/store/etaStore";
-import { BOTTOM_PANEL_HEIGHT_RATIO, POI_CATEGORIES } from "@/constants";
+import { BOTTOM_PANEL_HEIGHT_RATIO } from "@/constants";
 import { computeElevationProgress, computeSliceAscent } from "@/utils/geo";
 import { formatDistance, formatElevation, formatDuration, formatETA } from "@/utils/formatters";
 import { stitchPOIs } from "@/services/stitchingService";
@@ -22,10 +22,6 @@ import type { RoutePoint, PanelMode, POI, ActiveRouteData } from "@/types";
 const MAX_SNAP_DISTANCE_M = 1000;
 const PANEL_CLASS = "absolute bottom-0 left-0 right-0 rounded-t-2xl shadow-lg overflow-hidden";
 const STATS_ROW_HEIGHT = 28;
-const WHATS_NEXT_ROW_HEIGHT = 48;
-
-/** Priority categories for "What's Next" display */
-const WHATS_NEXT_CATEGORIES = ["water", "groceries"] as const;
 
 /** Extract the numeric look-ahead in meters from an upcoming-* mode, or null */
 function lookAheadForMode(mode: PanelMode): number | null {
@@ -79,62 +75,9 @@ export default function BottomPanel({ activeData }: BottomPanelProps) {
     return getStarredPOIs(activeRouteIds[0]);
   }, [activeId, activeRouteIds, activeSegments, getStarredPOIs, starredPOIIds]);
 
-  // "What's Next" — next upcoming POI per priority category
-  const getNextPOIPerCategory = usePoiStore((s) => s.getNextPOIPerCategory);
-  const getETAToPOI = useEtaStore((s) => s.getETAToPOI);
-  const cumulativeTime = useEtaStore((s) => s.cumulativeTime);
-
-  const whatsNextItems = useMemo(() => {
-    if (!isSnapped || !activeId) return [];
-    // For collections: combine next POIs from all segments with distance offsets
-    let nextPOIs: Partial<Record<string, POI>> = {};
-    if (activeSegments) {
-      for (const seg of activeSegments) {
-        const segNext = getNextPOIPerCategory(
-          seg.routeId,
-          Math.max(0, snappedPosition!.distanceAlongRouteMeters - seg.distanceOffsetMeters),
-        );
-        for (const [cat, poi] of Object.entries(segNext)) {
-          if (!poi) continue;
-          const adjusted: POI = {
-            ...poi,
-            distanceAlongRouteMeters: poi.distanceAlongRouteMeters + seg.distanceOffsetMeters,
-          };
-          if (adjusted.distanceAlongRouteMeters <= snappedPosition!.distanceAlongRouteMeters) continue;
-          const existing = nextPOIs[cat];
-          if (!existing || adjusted.distanceAlongRouteMeters < existing.distanceAlongRouteMeters) {
-            nextPOIs[cat] = adjusted;
-          }
-        }
-      }
-    } else {
-      nextPOIs = getNextPOIPerCategory(activeRouteIds[0], snappedPosition!.distanceAlongRouteMeters);
-    }
-    const items: { poi: POI; rawPoi: POI; label: string; distText: string; etaText: string | null }[] = [];
-
-    for (const catKey of WHATS_NEXT_CATEGORIES) {
-      const poi = nextPOIs[catKey];
-      if (!poi) continue;
-      const catMeta = POI_CATEGORIES.find((c) => c.key === catKey);
-      const dist = poi.distanceAlongRouteMeters - snappedPosition!.distanceAlongRouteMeters;
-      if (dist <= 0) continue;
-
-      // Look up raw (non-stitched) POI for selection
-      const rawPoi = usePoiStore.getState().pois[poi.routeId]?.find((p) => p.id === poi.id) ?? poi;
-      const eta = getETAToPOI(poi);
-      items.push({
-        poi,
-        rawPoi,
-        label: catMeta?.label ?? catKey,
-        distText: formatDistance(dist, units),
-        etaText: eta && eta.ridingTimeSeconds > 0 ? `~${formatDuration(eta.ridingTimeSeconds)}` : null,
-      });
-    }
-    return items;
-  }, [isSnapped, activeId, activeRouteIds, activeSegments, snappedPosition, getNextPOIPerCategory, getETAToPOI, units, cumulativeTime]);
-
   // ETA to end of route
   const getETAToDistance = useEtaStore((s) => s.getETAToDistance);
+  const cumulativeTime = useEtaStore((s) => s.cumulativeTime);
 
   // Stats for the compact header
   const statsText = useMemo(() => {
@@ -194,10 +137,7 @@ export default function BottomPanel({ activeData }: BottomPanelProps) {
   const effectivePointIndex = isSnapped ? snappedPosition!.pointIndex : 0;
 
   const showStats = !!statsText;
-  const showWhatsNext = whatsNextItems.length > 0;
-  const headerHeight =
-    (showStats ? STATS_ROW_HEIGHT : 0) +
-    (showWhatsNext ? WHATS_NEXT_ROW_HEIGHT : 0);
+  const headerHeight = showStats ? STATS_ROW_HEIGHT : 0;
   const chartHeight = panelHeight - headerHeight;
   const chartWidth = screenWidth - 16;
 
@@ -211,41 +151,12 @@ export default function BottomPanel({ activeData }: BottomPanelProps) {
           className="justify-center items-center"
           style={[
             { height: STATS_ROW_HEIGHT },
-            !showWhatsNext && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+            { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
           ]}
         >
           <Text className="text-[13px] text-muted-foreground font-barlow-sc-medium">
             {statsText}
           </Text>
-        </View>
-      )}
-      {showWhatsNext && (
-        <View
-          className="flex-row items-center justify-center px-3 gap-3"
-          style={[
-            { height: WHATS_NEXT_ROW_HEIGHT },
-            { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
-          ]}
-        >
-          {whatsNextItems.map((item) => (
-            <TouchableOpacity
-              key={item.poi.id}
-              className="flex-row items-center"
-              onPress={() => setSelectedPOI(item.rawPoi)}
-            >
-              <Text className="text-[11px] font-barlow-semibold text-primary">
-                {item.label}
-              </Text>
-              <Text className="text-[11px] font-barlow-sc-medium text-muted-foreground ml-1">
-                {item.distText}
-              </Text>
-              {item.etaText && (
-                <Text className="text-[11px] font-barlow-sc-medium text-muted-foreground ml-1">
-                  {item.etaText}
-                </Text>
-              )}
-            </TouchableOpacity>
-          ))}
         </View>
       )}
       <UpcomingElevation
