@@ -13,7 +13,7 @@ interface DetectedClimb {
 }
 
 /** Bump this when the detection algorithm changes to trigger re-detection of stored climbs. */
-export const CLIMB_DETECTOR_VERSION = 2;
+export const CLIMB_DETECTOR_VERSION = 3;
 
 const SMOOTHING_WINDOW_M = 200;
 const MIN_GAIN_M = 50;
@@ -131,40 +131,112 @@ function tryFinalize(
 ): void {
   if (startIdx >= endIdx) return;
 
-  const startDist = points[startIdx].distanceFromStartMeters;
-  const endDist = points[endIdx].distanceFromStartMeters;
-  const length = endDist - startDist;
+  let effStart = startIdx;
+  let effEnd = endIdx;
+  let length = points[effEnd].distanceFromStartMeters - points[effStart].distanceFromStartMeters;
   if (length <= 0) return;
 
   // Compute total ascent (sum of positive elevation changes)
   let totalAscent = 0;
-  for (let i = startIdx + 1; i <= endIdx; i++) {
+  for (let i = effStart + 1; i <= effEnd; i++) {
     const diff = smoothed[i] - smoothed[i - 1];
     if (diff > 0) totalAscent += diff;
   }
 
-  const avgGradient = (totalAscent / length) * 100;
+  let avgGradient = (totalAscent / length) * 100;
+
+  // If gradient is too low but there's significant ascent, find the longest
+  // sub-segment that qualifies. Flat lead-ins or gentle tail-offs dilute the gradient.
+  if (avgGradient < MIN_AVG_GRADIENT_PCT && totalAscent >= MIN_GAIN_M) {
+    const result = findLongestQualifyingSegment(points, smoothed, startIdx, endIdx);
+    if (result) {
+      effStart = result.start;
+      effEnd = result.end;
+      totalAscent = result.ascent;
+      length = points[effEnd].distanceFromStartMeters - points[effStart].distanceFromStartMeters;
+      avgGradient = (totalAscent / length) * 100;
+    }
+  }
 
   // Qualification check
   if (totalAscent < MIN_GAIN_M || avgGradient < MIN_AVG_GRADIENT_PCT) return;
 
   // Compute max gradient (steepest window)
-  const maxGradient = computeMaxGradient(points, smoothed, startIdx, endIdx);
+  const maxGradient = computeMaxGradient(points, smoothed, effStart, effEnd);
 
   // Compute difficulty score: sum of (gradient² × segment length) per sub-segment
-  const difficulty = computeDifficultyScore(points, smoothed, startIdx, endIdx);
+  const difficulty = computeDifficultyScore(points, smoothed, effStart, effEnd);
 
   climbs.push({
-    startDistanceMeters: startDist,
-    endDistanceMeters: endDist,
+    startDistanceMeters: points[effStart].distanceFromStartMeters,
+    endDistanceMeters: points[effEnd].distanceFromStartMeters,
     lengthMeters: length,
     totalAscentMeters: Math.round(totalAscent * 10) / 10,
-    startElevationMeters: Math.round(smoothed[startIdx] * 10) / 10,
-    endElevationMeters: Math.round(smoothed[endIdx] * 10) / 10,
+    startElevationMeters: Math.round(smoothed[effStart] * 10) / 10,
+    endElevationMeters: Math.round(smoothed[effEnd] * 10) / 10,
     averageGradientPercent: Math.round(avgGradient * 10) / 10,
     maxGradientPercent: Math.round(maxGradient * 10) / 10,
     difficultyScore: Math.round(difficulty * 10) / 10,
   });
+}
+
+/**
+ * Find the longest sub-segment of [startIdx, endIdx] where avg gradient >= threshold.
+ * Uses the "longest subarray with sum >= 0" algorithm via monotone stack (O(n)).
+ *
+ * Transform: for each step, weight = positiveElevChange - threshold * distance.
+ * A sub-segment qualifies when the sum of weights >= 0.
+ */
+function findLongestQualifyingSegment(
+  points: RoutePoint[],
+  smoothed: number[],
+  startIdx: number,
+  endIdx: number,
+): { start: number; end: number; ascent: number } | null {
+  const stepCount = endIdx - startIdx;
+  const minGradientFraction = MIN_AVG_GRADIENT_PCT / 100;
+
+  // Prefix sums: gradient-weighted for qualification, ascent for the gain check
+  const gradientPrefix = new Float64Array(stepCount + 1);
+  const ascentPrefix = new Float64Array(stepCount + 1);
+  for (let i = 0; i < stepCount; i++) {
+    const ptIdx = startIdx + i;
+    const eleDiff = smoothed[ptIdx + 1] - smoothed[ptIdx];
+    const posDiff = eleDiff > 0 ? eleDiff : 0;
+    const dist = points[ptIdx + 1].distanceFromStartMeters - points[ptIdx].distanceFromStartMeters;
+    gradientPrefix[i + 1] = gradientPrefix[i] + posDiff - minGradientFraction * dist;
+    ascentPrefix[i + 1] = ascentPrefix[i] + posDiff;
+  }
+
+  // Monotonically decreasing stack of indices into gradientPrefix (candidates for segment start)
+  const stack: number[] = [0];
+  for (let i = 1; i <= stepCount; i++) {
+    if (gradientPrefix[i] < gradientPrefix[stack[stack.length - 1]]) stack.push(i);
+  }
+
+  // Scan from right: for each end, pop starts where gradientPrefix[end] >= gradientPrefix[start]
+  let bestLen = 0;
+  let bestStart = 0;
+  let bestEnd = 0;
+  for (let end = stepCount; end >= 1; end--) {
+    while (stack.length > 0 && gradientPrefix[end] >= gradientPrefix[stack[stack.length - 1]]) {
+      const start = stack.pop()!;
+      const segAscent = ascentPrefix[end] - ascentPrefix[start];
+      if (end - start > bestLen && segAscent >= MIN_GAIN_M) {
+        bestLen = end - start;
+        bestStart = start;
+        bestEnd = end;
+      }
+    }
+  }
+
+  if (bestLen === 0) return null;
+
+  return {
+    start: startIdx + bestStart,
+    end: startIdx + bestEnd,
+    ascent: ascentPrefix[bestEnd] - ascentPrefix[bestStart],
+  };
 }
 
 function computeMaxGradient(

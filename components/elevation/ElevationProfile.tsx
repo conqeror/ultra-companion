@@ -161,10 +161,11 @@ export default function ElevationProfile({
       const elevs = smp.map((s) => s.elevation);
       const minE = Math.min(...elevs);
       const maxE = Math.max(...elevs);
-      const elevRange = maxE - minE || 100;
-      const pad = elevRange * 0.1;
-      const yMin = minE - pad;
-      const yMax = maxE + pad;
+      const rawRange = maxE - minE || 100;
+      const elevRange = Math.max(rawRange, 200);
+      const mid = (minE + maxE) / 2;
+      const yMin = mid - elevRange / 2 - elevRange * 0.1;
+      const yMax = mid + elevRange / 2 + elevRange * 0.1;
       const totalD = smp[smp.length - 1].distance;
 
       const xs = (d: number) =>
