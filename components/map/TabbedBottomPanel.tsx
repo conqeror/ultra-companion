@@ -1,5 +1,6 @@
 import React from "react";
 import { View, TouchableOpacity, useWindowDimensions } from "react-native";
+import Animated, { useAnimatedKeyboard, useAnimatedStyle } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Text } from "@/components/ui/text";
 import { useThemeColors } from "@/theme";
@@ -41,10 +42,15 @@ export default function TabbedBottomPanel({ activeData }: TabbedBottomPanelProps
 
   const contentHeight = contentAreaHeight - TAB_BAR_HEIGHT;
 
+  const keyboard = useAnimatedKeyboard();
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: -Math.max(0, keyboard.height.value - safeBottom) }],
+  }));
+
   return (
-    <View
+    <Animated.View
       className="absolute bottom-0 left-0 right-0 rounded-t-2xl shadow-lg border-t border-border"
-      style={{ height: panelHeight, backgroundColor: colors.surface }}
+      style={[{ height: panelHeight, backgroundColor: colors.surface }, animatedStyle]}
     >
       {/* Tab bar */}
       <View
@@ -77,8 +83,8 @@ export default function TabbedBottomPanel({ activeData }: TabbedBottomPanelProps
         })}
       </View>
 
-      {/* Content */}
-      <View style={{ height: contentHeight }}>
+      {/* Content — fills remaining space; scrollable tabs handle safe area inset internally */}
+      <View className="flex-1">
         {panelTab === "profile" && (
           <ProfileTabContent
             activeData={activeData}
@@ -98,9 +104,6 @@ export default function TabbedBottomPanel({ activeData }: TabbedBottomPanelProps
           />
         )}
       </View>
-
-      {/* Safe area spacer at bottom (home indicator region) */}
-      {safeBottom > 0 && <View style={{ height: safeBottom }} />}
-    </View>
+    </Animated.View>
   );
 }

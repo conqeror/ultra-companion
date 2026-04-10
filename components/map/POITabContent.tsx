@@ -1,5 +1,6 @@
 import React, { useMemo } from "react";
 import { View, FlatList, ScrollView, TouchableOpacity } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Text } from "@/components/ui/text";
 import { Star, MapPin, Clock, ChevronLeft, Phone } from "lucide-react-native";
 import { cn } from "@/lib/cn";
@@ -42,11 +43,12 @@ function CompactFilterBar({ routeIds }: { routeIds: string[] }) {
   }, [routeIds, allPois]);
 
   return (
-    <ScrollView
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      contentContainerStyle={{ paddingHorizontal: 8, gap: 4, paddingVertical: 4 }}
-    >
+    <View className="py-1.5">
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={{ paddingHorizontal: 8, gap: 4 }}
+      >
       <TouchableOpacity
         className={cn(
           "flex-row items-center px-2.5 h-[28px] rounded-full",
@@ -85,12 +87,14 @@ function CompactFilterBar({ routeIds }: { routeIds: string[] }) {
           </TouchableOpacity>
         );
       })}
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 }
 
 export default function POITabContent({ activeData }: POITabContentProps) {
   const colors = useThemeColors();
+  const { bottom: safeBottom } = useSafeAreaInsets();
   const units = useSettingsStore((s) => s.units);
   const snappedPosition = useRouteStore((s) => s.snappedPosition);
   const getStarredPOIs = usePoiStore((s) => s.getStarredPOIs);
@@ -166,43 +170,49 @@ export default function POITabContent({ activeData }: POITabContentProps) {
       {/* Category filters */}
       <CompactFilterBar routeIds={routeIds} />
 
-      {/* Header: starred count + "All POIs" link */}
-      <View className="flex-row items-center justify-between px-3 pb-1">
-        <Text className="text-[11px] font-barlow-semibold text-muted-foreground">
-          {starredUpcoming.length > 0 ? `${starredUpcoming.length} starred ahead` : "No starred POIs ahead"}
-        </Text>
-        <TouchableOpacity hitSlop={8} onPress={() => setShowPOIList(true)}>
-          <Text className="text-[11px] font-barlow-medium" style={{ color: colors.accent }}>
-            All POIs ({totalPOICount})
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Starred POI list */}
       {starredUpcoming.length > 0 ? (
-        <FlatList
-          data={starredUpcoming}
-          keyExtractor={(item) => item.id}
-          renderItem={({ item }) => (
-            <CompactPOIRow
-              poi={item}
-              effectiveDist={item.effectiveDist}
-              currentDist={currentDist}
-              ridingTimeSeconds={item.ridingTimeSeconds}
-              onPress={() => {
-                const raw = usePoiStore.getState().pois[item.routeId]?.find((p) => p.id === item.id);
-                setSelectedPOI(raw ?? item);
-              }}
-            />
-          )}
-          showsVerticalScrollIndicator={false}
-        />
+        <>
+          {/* Header: starred count + "All POIs" link */}
+          <View className="flex-row items-center justify-between px-3 pb-1">
+            <Text className="text-[11px] font-barlow-semibold text-muted-foreground">
+              {starredUpcoming.length} starred ahead
+            </Text>
+            <TouchableOpacity hitSlop={8} onPress={() => setShowPOIList(true)}>
+              <Text className="text-[11px] font-barlow-medium" style={{ color: colors.accent }}>
+                All POIs ({totalPOICount})
+              </Text>
+            </TouchableOpacity>
+          </View>
+          <FlatList
+            data={starredUpcoming}
+            keyExtractor={(item) => item.id}
+            renderItem={({ item }) => (
+              <CompactPOIRow
+                poi={item}
+                effectiveDist={item.effectiveDist}
+                currentDist={currentDist}
+                ridingTimeSeconds={item.ridingTimeSeconds}
+                onPress={() => {
+                  const raw = usePoiStore.getState().pois[item.routeId]?.find((p) => p.id === item.id);
+                  setSelectedPOI(raw ?? item);
+                }}
+              />
+            )}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={{ paddingBottom: safeBottom }}
+          />
+        </>
       ) : (
         <View className="flex-1 items-center justify-center">
           <Star size={20} color={colors.textTertiary} />
           <Text className="text-[12px] text-muted-foreground font-barlow-medium mt-2">
-            Star POIs from "All POIs" to see them here
+            No starred POIs ahead
           </Text>
+          <TouchableOpacity className="mt-3" hitSlop={8} onPress={() => setShowPOIList(true)}>
+            <Text className="text-[13px] font-barlow-medium" style={{ color: colors.accent }}>
+              All POIs ({totalPOICount})
+            </Text>
+          </TouchableOpacity>
         </View>
       )}
     </View>

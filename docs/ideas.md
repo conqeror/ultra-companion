@@ -29,14 +29,14 @@ Dump for future feature ideas, UX improvements, and things to consider later.
 - ~~De-emphasize "off route" distance~~ — done: opening hours leads, off-route is smaller/lighter, hidden when <50m
 
 ### Map Controls
-- GPS age indicator ("25m ago") needs a background pill or container — currently floats next to the weather button and looks unfinished. Should read as an intentional status element
+- ~~GPS age indicator ("25m ago") needs a background pill or container~~ — done
 
 ## Backlog
 
 ### POI
 - Custom POI icons on the map (category-specific symbols instead of colored circles)
 - POI clustering at low zoom levels to reduce visual clutter
-- Google Places for gas stations & groceries — see `docs/google-places-plan.md`
+- ~~Google Places for gas stations & groceries~~ — done, see `docs/google-places-plan.md`
 - "View in Google Maps" action on POI detail — deep link to Google Maps for a POI's coordinates, zero API cost
 
 ### Map
