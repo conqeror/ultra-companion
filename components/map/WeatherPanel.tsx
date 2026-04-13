@@ -1,5 +1,6 @@
 import React from "react";
 import { View, ScrollView, StyleSheet } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Text } from "@/components/ui/text";
 import {
   Sun, CloudSun, Cloud, CloudFog, CloudDrizzle, CloudRain,
@@ -107,6 +108,7 @@ const WeatherCell = React.memo(function WeatherCell({ point, colors }: WeatherCe
 
 export default function WeatherPanel() {
   const colors = useThemeColors();
+  const { bottom: safeBottom } = useSafeAreaInsets();
   const timeline = useWeatherStore((s) => s.timeline);
   const fetchedAt = useWeatherStore((s) => s.fetchedAt);
   const fetchStatus = useWeatherStore((s) => s.fetchStatus);
@@ -176,7 +178,7 @@ export default function WeatherPanel() {
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
-        contentContainerStyle={{ paddingHorizontal: 8 }}
+        contentContainerStyle={{ paddingHorizontal: 8, paddingBottom: safeBottom }}
       >
         {timeline.map((point) => (
           <WeatherCell

@@ -83,7 +83,7 @@ export default function TabbedBottomPanel({ activeData }: TabbedBottomPanelProps
         })}
       </View>
 
-      {/* Content — fills remaining space; scrollable tabs handle safe area inset internally */}
+      {/* Content — fills remaining space */}
       <View className="flex-1">
         {panelTab === "profile" && (
           <ProfileTabContent

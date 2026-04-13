@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { View, TouchableOpacity, TextInput as RNTextInput, useWindowDimensions } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Text } from "@/components/ui/text";
 import { Mountain, Pencil, Check, ChevronLeft, ChevronRight } from "lucide-react-native";
 import { useThemeColors } from "@/theme";
@@ -20,6 +21,7 @@ interface ClimbTabContentProps {
 
 export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
   const colors = useThemeColors();
+  const { bottom: safeBottom } = useSafeAreaInsets();
   const units = useSettingsStore((s) => s.units);
   const { width: screenWidth } = useWindowDimensions();
   const snappedPosition = useRouteStore((s) => s.snappedPosition);
@@ -219,7 +221,7 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
       )}
 
       {/* Stats + distance row */}
-      <View className="flex-row items-center px-3 mt-1">
+      <View className="flex-row items-center px-3 mt-1" style={{ paddingBottom: safeBottom }}>
         <StatItem label="Gain" value={`${formatElevation(climb.totalAscentMeters, units)} ↑`} />
         <StatItem label="Length" value={formatDistance(climb.lengthMeters, units)} />
         <StatItem label="Avg" value={`${climb.averageGradientPercent}%`} />

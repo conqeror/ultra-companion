@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import { View, TouchableOpacity, SafeAreaView } from "react-native";
+import { View, TouchableOpacity } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Text } from "@/components/ui/text";
 import { X } from "lucide-react-native";
