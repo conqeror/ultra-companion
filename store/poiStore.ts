@@ -88,7 +88,6 @@ interface POIState {
 
   // UI state
   selectedPOI: POI | null;
-  showPOIList: boolean;
 
   // Actions
   loadPOIs: (routeId: string) => Promise<void>;
@@ -103,7 +102,6 @@ interface POIState {
   getStarredPOIs: (routeId: string) => POI[];
   clearPOIs: (routeId: string) => Promise<void>;
   setSelectedPOI: (poi: POI | null) => void;
-  setShowPOIList: (show: boolean) => void;
 
   // Computed helpers
   getVisiblePOIs: (routeId: string) => POI[];
@@ -122,7 +120,6 @@ export const usePoiStore = create<POIState>((set, get) => ({
   sourceInfo: {},
   fetchProgress: null,
   selectedPOI: null,
-  showPOIList: false,
 
   loadPOIs: async (routeId) => {
     const existing = get().pois[routeId];
@@ -276,8 +273,6 @@ export const usePoiStore = create<POIState>((set, get) => ({
     set({ selectedPOI: poi });
     if (poi) usePanelStore.getState().setPanelTab("pois");
   },
-  setShowPOIList: (show) => set({ showPOIList: show }),
-
   getVisiblePOIs: (routeId) => {
     const state = get();
     const all = state.pois[routeId];

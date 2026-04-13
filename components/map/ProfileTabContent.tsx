@@ -1,5 +1,6 @@
 import React, { useMemo } from "react";
 import { View, TouchableOpacity, StyleSheet } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Text } from "@/components/ui/text";
 import { Minus, Plus } from "lucide-react-native";
 import { useThemeColors } from "@/theme";
@@ -32,6 +33,7 @@ interface ProfileTabContentProps {
 
 export default function ProfileTabContent({ activeData, width, height }: ProfileTabContentProps) {
   const colors = useThemeColors();
+  const { bottom: safeBottom } = useSafeAreaInsets();
   const activeRoutePoints = activeData?.points ?? null;
   const activeId = activeData?.id ?? null;
   const activeRouteIds = activeData?.routeIds ?? [];
@@ -40,6 +42,7 @@ export default function ProfileTabContent({ activeData, width, height }: Profile
 
   const panelMode = usePanelStore((s) => s.panelMode);
   const setPanelMode = usePanelStore((s) => s.setPanelMode);
+  const isExpanded = usePanelStore((s) => s.isExpanded);
   const snappedPosition = useRouteStore((s) => s.snappedPosition);
   const units = useSettingsStore((s) => s.units);
   const setSelectedPOI = usePoiStore((s) => s.setSelectedPOI);
@@ -174,11 +177,12 @@ export default function ProfileTabContent({ activeData, width, height }: Profile
   const lookAhead = lookAheadForMode(panelMode);
 
   const HEADER_HEIGHT = 28;
-  const showClimbHeader = showClimbZoom && !!climbProgressText;
-  const showStats = !showClimbZoom && !!statsText;
+  const HORIZONTAL_PADDING = 8;
+  const showClimbHeader = isExpanded && showClimbZoom && !!climbProgressText;
+  const showStats = isExpanded && !showClimbZoom && !!statsText;
   const headerHeight = (showStats || showClimbHeader) ? HEADER_HEIGHT : 0;
-  const chartHeight = height - headerHeight;
-  const chartWidth = width;
+  const chartHeight = height - headerHeight - safeBottom;
+  const chartWidth = width - HORIZONTAL_PADDING * 2;
 
   return (
     <View style={{ height }}>
@@ -211,7 +215,7 @@ export default function ProfileTabContent({ activeData, width, height }: Profile
           <ZoomControls km={km} canZoomIn={canZoomIn} canZoomOut={canZoomOut} onZoomIn={handleZoomIn} onZoomOut={handleZoomOut} />
         </View>
       )}
-      <View className="items-center">
+      <View className="items-center px-2">
         {showClimbZoom ? (
           <ElevationProfile
             points={climbSlice!.points}
@@ -241,11 +245,6 @@ export default function ProfileTabContent({ activeData, width, height }: Profile
         )}
       </View>
 
-      {!showClimbZoom && !showStats && (
-        <View className="absolute right-2 top-0 flex-row items-center" style={{ height: HEADER_HEIGHT }}>
-          <ZoomControls km={km} canZoomIn={canZoomIn} canZoomOut={canZoomOut} onZoomIn={handleZoomIn} onZoomOut={handleZoomOut} />
-        </View>
-      )}
     </View>
   );
 }

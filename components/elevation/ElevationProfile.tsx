@@ -162,11 +162,13 @@ export default function ElevationProfile({
       const minE = Math.min(...elevs);
       const maxE = Math.max(...elevs);
       const rawRange = maxE - minE || 100;
-      const elevRange = Math.max(rawRange, 200);
+      const totalD = smp[smp.length - 1].distance;
+      // Scale min vertical range to horizontal distance (~5%), clamped to [50, 200]
+      const minRange = Math.min(200, Math.max(50, totalD * 0.05));
+      const elevRange = Math.max(rawRange, minRange);
       const mid = (minE + maxE) / 2;
       const yMin = mid - elevRange / 2 - elevRange * 0.1;
       const yMax = mid + elevRange / 2 + elevRange * 0.1;
-      const totalD = smp[smp.length - 1].distance;
 
       const xs = (d: number) =>
         PADDING.left + (totalD > 0 ? (d / totalD) * chartWidth : 0);

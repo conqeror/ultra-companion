@@ -7,7 +7,6 @@ interface ClimbState {
   climbs: Record<string, Climb[]>;
 
   // UI state
-  showClimbList: boolean;
   selectedClimb: Climb | null;
   currentClimbId: string | null;
   isClimbZoomed: boolean;
@@ -15,7 +14,6 @@ interface ClimbState {
   // Actions
   loadClimbs: (routeId: string) => Promise<void>;
   renameClimb: (climbId: string, routeId: string, name: string | null) => Promise<void>;
-  setShowClimbList: (show: boolean) => void;
   setSelectedClimb: (climb: Climb | null) => void;
   setClimbZoomed: (zoomed: boolean) => void;
   clearClimbCache: () => void;
@@ -28,7 +26,6 @@ interface ClimbState {
 
 export const useClimbStore = create<ClimbState>((set, get) => ({
   climbs: {},
-  showClimbList: false,
   selectedClimb: null,
   currentClimbId: null,
   isClimbZoomed: false,
@@ -59,7 +56,6 @@ export const useClimbStore = create<ClimbState>((set, get) => ({
     });
   },
 
-  setShowClimbList: (show) => set({ showClimbList: show }),
   setSelectedClimb: (climb) => set({ selectedClimb: climb }),
   setClimbZoomed: (zoomed) => set({ isClimbZoomed: zoomed }),
   clearClimbCache: () => set({ climbs: {} }),

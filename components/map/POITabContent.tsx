@@ -1,13 +1,13 @@
-import React, { useMemo } from "react";
-import { View, FlatList, ScrollView, TouchableOpacity } from "react-native";
+import React, { useMemo, useState, useCallback } from "react";
+import { View, FlatList, ScrollView, TouchableOpacity, TextInput as RNTextInput } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Text } from "@/components/ui/text";
-import { Star, MapPin, Clock, ChevronLeft, Phone } from "lucide-react-native";
-import { cn } from "@/lib/cn";
+import { Star, MapPin, Clock, ChevronLeft, Phone, Search } from "lucide-react-native";
 import { useThemeColors } from "@/theme";
 import { useSettingsStore } from "@/store/settingsStore";
 import { useRouteStore } from "@/store/routeStore";
 import { usePoiStore } from "@/store/poiStore";
+import { usePanelStore } from "@/store/panelStore";
 import { useEtaStore } from "@/store/etaStore";
 import { useActiveRouteData } from "@/hooks/useActiveRouteData";
 import { POI_CATEGORIES, POI_BEHIND_THRESHOLD_M } from "@/constants";
@@ -15,81 +15,13 @@ import { POI_ICON_MAP } from "@/constants/poiIcons";
 import { ohStatusColorKey } from "@/constants/poiHelpers";
 import { formatDistance, formatDuration, formatETA } from "@/utils/formatters";
 import { getOpeningHoursStatus, isOpenAt, getDaySchedules } from "@/services/openingHoursParser";
-import type { ActiveRouteData, POI, POICategory } from "@/types";
+import { stitchPOIs } from "@/services/stitchingService";
+import POIFilterBar from "@/components/map/POIFilterBar";
+import POIListItem from "@/components/poi/POIListItem";
+import type { ActiveRouteData, POI } from "@/types";
 
 interface POITabContentProps {
   activeData: ActiveRouteData | null;
-}
-
-function CompactFilterBar({ routeIds }: { routeIds: string[] }) {
-  const colors = useThemeColors();
-  const allPois = usePoiStore((s) => s.pois);
-  const enabledCategories = usePoiStore((s) => s.enabledCategories);
-  const toggleCategory = usePoiStore((s) => s.toggleCategory);
-  const showOpenOnly = usePoiStore((s) => s.showOpenOnly);
-  const toggleShowOpenOnly = usePoiStore((s) => s.toggleShowOpenOnly);
-
-  const enabledSet = useMemo(() => new Set(enabledCategories), [enabledCategories]);
-
-  const categoryCounts = useMemo(() => {
-    const counts: Partial<Record<POICategory, number>> = {};
-    for (const id of routeIds) {
-      const pois = allPois[id];
-      if (pois) for (const poi of pois) {
-        counts[poi.category] = (counts[poi.category] ?? 0) + 1;
-      }
-    }
-    return counts;
-  }, [routeIds, allPois]);
-
-  return (
-    <View className="py-1.5">
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={{ paddingHorizontal: 8, gap: 4 }}
-      >
-      <TouchableOpacity
-        className={cn(
-          "flex-row items-center px-2.5 h-[28px] rounded-full",
-          showOpenOnly ? "bg-muted border border-border" : "border border-transparent",
-        )}
-        onPress={toggleShowOpenOnly}
-      >
-        <Clock size={11} color={showOpenOnly ? colors.positive : colors.textTertiary} />
-        <Text className={cn("ml-1 text-[11px] font-barlow-medium", showOpenOnly ? "text-foreground" : "text-muted-foreground")}>
-          Open
-        </Text>
-      </TouchableOpacity>
-
-      {POI_CATEGORIES.map((cat) => {
-        const isEnabled = enabledSet.has(cat.key);
-        const count = categoryCounts[cat.key] ?? 0;
-        const IconComp = POI_ICON_MAP[cat.iconName];
-        return (
-          <TouchableOpacity
-            key={cat.key}
-            className={cn(
-              "flex-row items-center px-2.5 h-[28px] rounded-full",
-              isEnabled ? "bg-muted border border-border" : "border border-transparent",
-            )}
-            onPress={() => toggleCategory(cat.key)}
-          >
-            {IconComp && <IconComp size={11} color={isEnabled ? cat.color : colors.textTertiary} />}
-            <Text className={cn("ml-1 text-[11px] font-barlow-medium", isEnabled ? "text-foreground" : "text-muted-foreground")}>
-              {cat.label}
-            </Text>
-            {count > 0 && (
-              <Text className={cn("ml-0.5 text-[9px] font-barlow-sc-medium", isEnabled ? "text-muted-foreground" : "text-muted-foreground/50")}>
-                {count}
-              </Text>
-            )}
-          </TouchableOpacity>
-        );
-      })}
-      </ScrollView>
-    </View>
-  );
 }
 
 export default function POITabContent({ activeData }: POITabContentProps) {
@@ -101,8 +33,13 @@ export default function POITabContent({ activeData }: POITabContentProps) {
   const starredPOIIds = usePoiStore((s) => s.starredPOIIds);
   const selectedPOI = usePoiStore((s) => s.selectedPOI);
   const setSelectedPOI = usePoiStore((s) => s.setSelectedPOI);
-  const setShowPOIList = usePoiStore((s) => s.setShowPOIList);
+  const getVisiblePOIs = usePoiStore((s) => s.getVisiblePOIs);
+  const allPois = usePoiStore((s) => s.pois);
+  const enabledCategories = usePoiStore((s) => s.enabledCategories);
   const cumulativeTime = useEtaStore((s) => s.cumulativeTime);
+  const isExpanded = usePanelStore((s) => s.isExpanded);
+
+  const [searchQuery, setSearchQuery] = useState("");
 
   const routeIds = activeData?.routeIds ?? [];
   const routePoints = activeData?.points ?? null;
@@ -118,7 +55,6 @@ export default function POITabContent({ activeData }: POITabContentProps) {
       const offset = segments?.find((s) => s.routeId === routeId)?.distanceOffsetMeters ?? 0;
       for (const poi of pois) {
         const effDist = poi.distanceAlongRouteMeters + offset;
-        // Compute riding time from current position to this POI
         let ridingTime: number | null = null;
         if (currentIdx != null && cumulativeTime && routePoints && currentDist != null && effDist > currentDist) {
           let poiIdx = currentIdx;
@@ -145,6 +81,42 @@ export default function POITabContent({ activeData }: POITabContentProps) {
     return count;
   });
 
+  // --- Expanded: full POI list with search + filters ---
+  const visiblePOIs = useMemo(() => {
+    if (!isExpanded) return [];
+    if (segments) {
+      const poisByRoute: Record<string, POI[]> = {};
+      for (const routeId of routeIds) {
+        poisByRoute[routeId] = getVisiblePOIs(routeId);
+      }
+      return stitchPOIs(segments, poisByRoute);
+    }
+    return routeIds.length > 0 ? getVisiblePOIs(routeIds[0]) : [];
+  }, [isExpanded, routeIds, segments, allPois, enabledCategories, starredPOIIds]);
+
+  const sortedAllPOIs = useMemo(() => {
+    if (currentDist == null) {
+      return [...visiblePOIs].sort((a, b) => a.distanceAlongRouteMeters - b.distanceAlongRouteMeters);
+    }
+    return visiblePOIs
+      .filter((p) => p.distanceAlongRouteMeters >= currentDist - POI_BEHIND_THRESHOLD_M)
+      .sort((a, b) => a.distanceAlongRouteMeters - b.distanceAlongRouteMeters);
+  }, [visiblePOIs, currentDist]);
+
+  const filteredPOIs = useMemo(() => {
+    if (!searchQuery.trim()) return sortedAllPOIs;
+    const q = searchQuery.trim().toLowerCase();
+    return sortedAllPOIs.filter((p) => p.name?.toLowerCase().includes(q));
+  }, [sortedAllPOIs, searchQuery]);
+
+  const handlePOIPress = useCallback(
+    (poi: POI) => {
+      const raw = usePoiStore.getState().pois[poi.routeId]?.find((p) => p.id === poi.id);
+      setSelectedPOI(raw ?? poi);
+    },
+    [setSelectedPOI],
+  );
+
   // Show inline detail when a POI is selected
   if (selectedPOI) {
     return <InlinePOIDetail poi={selectedPOI} onBack={() => setSelectedPOI(null)} />;
@@ -165,23 +137,61 @@ export default function POITabContent({ activeData }: POITabContentProps) {
     );
   }
 
+  // --- Expanded mode: full POI list with search + filters ---
+  if (isExpanded) {
+    return (
+      <View className="flex-1">
+        {/* Search */}
+        <View
+          className="flex-row items-center px-4 py-2"
+          style={{ borderBottomWidth: 1, borderBottomColor: colors.borderSubtle }}
+        >
+          <Search size={16} color={colors.textTertiary} />
+          <RNTextInput
+            className="flex-1 ml-2 text-[15px] font-barlow text-foreground"
+            placeholder="Search by name..."
+            placeholderTextColor={colors.textTertiary}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            autoCorrect={false}
+            returnKeyType="search"
+            clearButtonMode="while-editing"
+            accessibilityLabel="Search POIs"
+          />
+        </View>
+
+        {/* Category filters */}
+        <View style={{ borderBottomWidth: 1, borderBottomColor: colors.borderSubtle }}>
+          <POIFilterBar routeIds={routeIds} />
+        </View>
+
+        {/* Full POI list */}
+        <FlatList
+          data={filteredPOIs}
+          keyExtractor={(item) => item.id}
+          renderItem={({ item }) => (
+            <POIListItem
+              poi={item}
+              currentDistAlongRoute={currentDist}
+              onPress={handlePOIPress}
+            />
+          )}
+          contentContainerStyle={{ paddingBottom: 8 }}
+          showsVerticalScrollIndicator={false}
+        />
+      </View>
+    );
+  }
+
+  // --- Compact mode: starred POIs only ---
   return (
     <View className="flex-1">
-      {/* Category filters */}
-      <CompactFilterBar routeIds={routeIds} />
-
       {starredUpcoming.length > 0 ? (
         <>
-          {/* Header: starred count + "All POIs" link */}
-          <View className="flex-row items-center justify-between px-3 pb-1">
+          <View className="flex-row items-center justify-between px-3 py-1.5">
             <Text className="text-[11px] font-barlow-semibold text-muted-foreground">
               {starredUpcoming.length} starred ahead
             </Text>
-            <TouchableOpacity hitSlop={8} onPress={() => setShowPOIList(true)}>
-              <Text className="text-[11px] font-barlow-medium" style={{ color: colors.accent }}>
-                All POIs ({totalPOICount})
-              </Text>
-            </TouchableOpacity>
           </View>
           <FlatList
             data={starredUpcoming}
@@ -208,11 +218,6 @@ export default function POITabContent({ activeData }: POITabContentProps) {
           <Text className="text-[12px] text-muted-foreground font-barlow-medium mt-2">
             No starred POIs ahead
           </Text>
-          <TouchableOpacity className="mt-3" hitSlop={8} onPress={() => setShowPOIList(true)}>
-            <Text className="text-[13px] font-barlow-medium" style={{ color: colors.accent }}>
-              All POIs ({totalPOICount})
-            </Text>
-          </TouchableOpacity>
         </View>
       )}
     </View>

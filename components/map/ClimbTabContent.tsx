@@ -1,17 +1,19 @@
-import React, { useMemo, useState } from "react";
-import { View, TouchableOpacity, TextInput as RNTextInput, useWindowDimensions } from "react-native";
+import React, { useMemo, useState, useCallback, useEffect } from "react";
+import { View, TouchableOpacity, TextInput as RNTextInput, useWindowDimensions, FlatList } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Text } from "@/components/ui/text";
-import { Mountain, Pencil, Check, ChevronLeft, ChevronRight } from "lucide-react-native";
+import { Mountain, Pencil, Check } from "lucide-react-native";
 import { useThemeColors } from "@/theme";
 import { useSettingsStore } from "@/store/settingsStore";
 import { useRouteStore } from "@/store/routeStore";
 import { useClimbStore } from "@/store/climbStore";
+import { usePanelStore } from "@/store/panelStore";
 import { useEtaStore } from "@/store/etaStore";
 import { climbDifficultyColor, getClimbDifficulty, CLIMB_DIFFICULTY_LABELS } from "@/constants/climbHelpers";
 import { extractRouteSlice } from "@/utils/geo";
-import { formatDistance, formatElevation, formatDuration, formatETA } from "@/utils/formatters";
+import { formatDistance, formatElevation } from "@/utils/formatters";
 import ElevationProfile from "@/components/elevation/ElevationProfile";
+import ClimbListItem from "@/components/climb/ClimbListItem";
 import { resolveActiveClimb } from "@/utils/climbSelect";
 import type { Climb, ActiveRouteData } from "@/types";
 
@@ -30,8 +32,11 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
   const selectedClimb = useClimbStore((s) => s.selectedClimb);
   const setSelectedClimb = useClimbStore((s) => s.setSelectedClimb);
   const renameClimb = useClimbStore((s) => s.renameClimb);
-  const setShowClimbList = useClimbStore((s) => s.setShowClimbList);
-  const getETAToDistance = useEtaStore((s) => s.getETAToDistance);
+  const isExpanded = usePanelStore((s) => s.isExpanded);
+  // Reset to current/upcoming climb when tab mounts
+  useEffect(() => {
+    setSelectedClimb(null);
+  }, [setSelectedClimb]);
 
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState("");
@@ -52,13 +57,6 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
     return resolveActiveClimb(displayedClimbs, currentDist, selectedClimb);
   }, [displayedClimbs, currentDist, editingClimb, selectedClimb]);
 
-  // Prev/next navigation
-  const climbIdx = climb ? displayedClimbs.findIndex((c) => c.id === climb.id) : -1;
-  const canPrev = climbIdx > 0;
-  const canNext = climbIdx >= 0 && climbIdx < displayedClimbs.length - 1;
-  const handlePrev = () => { if (canPrev) setSelectedClimb(displayedClimbs[climbIdx - 1]); };
-  const handleNext = () => { if (canNext) setSelectedClimb(displayedClimbs[climbIdx + 1]); };
-
   const difficulty = climb ? getClimbDifficulty(climb.difficultyScore) : "low";
   const diffColor = climb ? climbDifficultyColor(climb.difficultyScore) : colors.textTertiary;
 
@@ -66,11 +64,6 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
     if (!climb || currentDist == null) return null;
     return climb.startDistanceMeters - currentDist;
   }, [climb, currentDist]);
-
-  const etaResult = useMemo(
-    () => climb ? getETAToDistance(climb.startDistanceMeters) : null,
-    [climb, getETAToDistance],
-  );
 
   const climbProfile = useMemo(() => {
     if (!climb || !activeData?.points?.length) return null;
@@ -106,6 +99,17 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
     setEditingClimb(null);
   };
 
+  // Sorted climbs for the expanded list
+  const sortedClimbs = useMemo(
+    () => isExpanded ? [...displayedClimbs].sort((a, b) => a.startDistanceMeters - b.startDistanceMeters) : [],
+    [isExpanded, displayedClimbs],
+  );
+
+  const handleClimbPress = useCallback(
+    (c: Climb) => { setSelectedClimb(c); },
+    [setSelectedClimb],
+  );
+
   // Empty state
   if (displayedClimbs.length === 0) {
     return (
@@ -122,21 +126,10 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
 
   return (
     <View className="flex-1">
-      {/* Header: < name + difficulty > */}
-      <View className="flex-row items-center px-1 pt-1">
-        <TouchableOpacity
-          className="w-[32px] h-[32px] items-center justify-center"
-          hitSlop={12}
-          onPress={handlePrev}
-          disabled={!canPrev}
-          style={{ opacity: canPrev ? 1 : 0.25 }}
-          accessibilityLabel="Previous climb"
-        >
-          <ChevronLeft size={18} color={colors.textSecondary} />
-        </TouchableOpacity>
-
-        <View className="flex-1 mx-1">
-          {isEditing ? (
+      {/* Header: name + difficulty */}
+      <View className="flex-row items-center px-3 pt-1">
+        <View className="flex-1">
+          {isExpanded && isEditing ? (
             <View className="flex-row items-center">
               <RNTextInput
                 className="flex-1 text-[15px] font-barlow-semibold text-foreground border-b border-accent"
@@ -158,29 +151,22 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
                 <Check size={16} color={colors.accent} />
               </TouchableOpacity>
             </View>
+          ) : isExpanded ? (
+            <TouchableOpacity
+              className="flex-row items-center"
+              hitSlop={8}
+              onPress={handleStartEdit}
+              accessibilityLabel="Edit climb name"
+            >
+              <Text className="text-[15px] font-barlow-semibold text-foreground flex-shrink" numberOfLines={1}>
+                {climb.name ?? "Unnamed climb"}
+              </Text>
+              <Pencil size={10} color={colors.textTertiary} style={{ marginLeft: 4 }} />
+            </TouchableOpacity>
           ) : (
-            <View className="flex-row items-center justify-between">
-              <TouchableOpacity
-                className="flex-row items-center flex-1 mr-2"
-                hitSlop={8}
-                onPress={handleStartEdit}
-                accessibilityLabel="Edit climb name"
-              >
-                <Text className="text-[15px] font-barlow-semibold text-foreground flex-shrink" numberOfLines={1}>
-                  {climb.name ?? "Unnamed climb"}
-                </Text>
-                <Pencil size={10} color={colors.textTertiary} style={{ marginLeft: 4 }} />
-              </TouchableOpacity>
-              <TouchableOpacity
-                hitSlop={8}
-                onPress={() => setShowClimbList(true)}
-                accessibilityLabel="Show all climbs"
-              >
-                <Text className="text-[11px] font-barlow-medium" style={{ color: colors.accent }}>
-                  All ({displayedClimbs.length})
-                </Text>
-              </TouchableOpacity>
-            </View>
+            <Text className="text-[15px] font-barlow-semibold text-foreground" numberOfLines={1}>
+              {climb.name ?? "Unnamed climb"}
+            </Text>
           )}
           <View className="flex-row items-center">
             <Mountain size={11} color={diffColor} />
@@ -189,20 +175,9 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
             </Text>
           </View>
         </View>
-
-        <TouchableOpacity
-          className="w-[32px] h-[32px] items-center justify-center"
-          hitSlop={12}
-          onPress={handleNext}
-          disabled={!canNext}
-          style={{ opacity: canNext ? 1 : 0.25 }}
-          accessibilityLabel="Next climb"
-        >
-          <ChevronRight size={18} color={colors.textSecondary} />
-        </TouchableOpacity>
       </View>
 
-      {/* Elevation profile — fills remaining space */}
+      {/* Elevation profile */}
       {climbProfile && (
         <View className="flex-1 mx-3 rounded-lg overflow-hidden"
           onLayout={(e) => setGraphHeight(Math.round(e.nativeEvent.layout.height))}
@@ -220,8 +195,8 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
         </View>
       )}
 
-      {/* Stats + distance row */}
-      <View className="flex-row items-center px-3 mt-1" style={{ paddingBottom: safeBottom }}>
+      {/* Stats row */}
+      <View className="flex-row items-center px-3 mt-1" style={!isExpanded ? { paddingBottom: safeBottom } : undefined}>
         <StatItem label="Gain" value={`${formatElevation(climb.totalAscentMeters, units)} ↑`} />
         <StatItem label="Length" value={formatDistance(climb.lengthMeters, units)} />
         <StatItem label="Avg" value={`${climb.averageGradientPercent}%`} />
@@ -239,6 +214,25 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
           </View>
         )}
       </View>
+
+      {/* Expanded: scrollable climb list */}
+      {isExpanded && (
+        <View className="flex-1 border-t border-border mt-1">
+          <FlatList
+            data={sortedClimbs}
+            keyExtractor={(item) => item.id}
+            renderItem={({ item }) => (
+              <ClimbListItem
+                climb={item}
+                currentDistAlongRoute={currentDist}
+                isPast={currentDist != null && item.endDistanceMeters < currentDist}
+                onPress={handleClimbPress}
+              />
+            )}
+            contentContainerStyle={{ paddingBottom: safeBottom }}
+          />
+        </View>
+      )}
     </View>
   );
 }

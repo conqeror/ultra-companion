@@ -1,5 +1,5 @@
-import React from "react";
-import { View, ScrollView, StyleSheet } from "react-native";
+import React, { useState, useMemo } from "react";
+import { View, FlatList, StyleSheet } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Text } from "@/components/ui/text";
 import {
@@ -9,6 +9,7 @@ import {
 } from "lucide-react-native";
 import { useThemeColors } from "@/theme";
 import { useWeatherStore } from "@/store/weatherStore";
+import { usePanelStore } from "@/store/panelStore";
 import { formatTimeAgo } from "@/utils/formatters";
 import { getWeatherInfo } from "@/utils/weatherCodes";
 import { classifyWind } from "@/services/weatherService";
@@ -35,9 +36,7 @@ function windColor(rel: WindRelative | null, colors: ReturnType<typeof useThemeC
 }
 
 function windArrowRotation(windDirectionDeg: number, routeBearingDeg: number | null): number {
-  // Arrow points where wind goes TO (opposite of FROM direction)
   if (routeBearingDeg == null) return (windDirectionDeg + 180) % 360;
-  // Relative to route direction: 0 = ahead
   return (windDirectionDeg + 180 - routeBearingDeg + 360) % 360;
 }
 
@@ -59,12 +58,14 @@ function formatTemp(tempC: number): string {
   return `${Math.round(tempC)}°`;
 }
 
-interface WeatherCellProps {
+/** Vertical row for hourly timeline */
+const WeatherRow = React.memo(function WeatherRow({
+  point,
+  colors,
+}: {
   point: WeatherPoint;
   colors: ReturnType<typeof useThemeColors>;
-}
-
-const WeatherCell = React.memo(function WeatherCell({ point, colors }: WeatherCellProps) {
+}) {
   const windRel = point.routeBearingDeg != null
     ? classifyWind(point.windDirectionDeg, point.routeBearingDeg)
     : null;
@@ -72,46 +73,99 @@ const WeatherCell = React.memo(function WeatherCell({ point, colors }: WeatherCe
   const wColor = windColor(windRel, colors);
 
   return (
-    <View className="items-center py-2" style={{ width: 64 }}>
-      <Text className="text-[11px] font-barlow-medium text-muted-foreground">
+    <View
+      className="flex-row items-center px-4 py-2"
+      style={{ borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.borderSubtle }}
+    >
+      {/* Time */}
+      <Text className="text-[13px] font-barlow-sc-medium text-muted-foreground w-[48px]">
         {formatHour(point.time)}
       </Text>
 
-      <View className="mt-2 mb-1">
-        <WeatherIcon code={point.weatherCode} size={22} color={colors.textSecondary} />
+      {/* Icon */}
+      <View className="w-[28px] items-center">
+        <WeatherIcon code={point.weatherCode} size={18} color={colors.textSecondary} />
       </View>
 
-      <Text className="text-[18px] font-barlow-sc-semibold text-foreground">
+      {/* Temp */}
+      <Text className="text-[18px] font-barlow-sc-semibold text-foreground w-[40px] text-right">
         {formatTemp(point.temperatureC)}
       </Text>
 
-      {point.precipitationMm > 0 && (
-        <View className="flex-row items-center mt-1">
-          <Droplets size={10} color={colors.accent} />
-          <Text className="text-[11px] font-barlow-sc-medium ml-1" style={{ color: colors.accent }}>
-            {point.precipitationMm.toFixed(1)}
-          </Text>
-        </View>
-      )}
+      {/* Precip */}
+      <View className="w-[48px] flex-row items-center justify-end">
+        {point.precipitationMm > 0 ? (
+          <>
+            <Droplets size={11} color={colors.accent} />
+            <Text className="text-[12px] font-barlow-sc-medium ml-1" style={{ color: colors.accent }}>
+              {point.precipitationMm.toFixed(1)}
+            </Text>
+          </>
+        ) : null}
+      </View>
 
-      <View className="flex-row items-center mt-1">
+      {/* Wind */}
+      <View className="flex-1 flex-row items-center justify-end">
         <View style={{ transform: [{ rotate: `${rotation}deg` }] }}>
-          <ArrowUp size={12} color={wColor} />
+          <ArrowUp size={13} color={wColor} />
         </View>
-        <Text className="text-[11px] font-barlow-sc-medium ml-1" style={{ color: wColor }}>
+        <Text className="text-[13px] font-barlow-sc-medium ml-1 w-[28px]" style={{ color: wColor }}>
           {Math.round(point.windSpeedKmh)}
         </Text>
+        {windRel && (
+          <Text className="text-[11px] font-barlow-medium ml-1" style={{ color: wColor }} numberOfLines={1}>
+            {windRelativeLabel(windRel)}
+          </Text>
+        )}
       </View>
     </View>
   );
 });
 
+/** Estimated row height: 18px font + 8+8 py-2 + hairline border */
+const ROW_HEIGHT_ESTIMATE = 36;
+
+function TimelineList({
+  timeline,
+  colors,
+  isExpanded,
+}: {
+  timeline: WeatherPoint[];
+  colors: ReturnType<typeof useThemeColors>;
+  isExpanded: boolean;
+}) {
+  const { bottom: safeBottom } = useSafeAreaInsets();
+  const [listHeight, setListHeight] = useState(0);
+
+  const visibleData = useMemo(() => {
+    if (isExpanded || listHeight === 0) return timeline;
+    const maxRows = Math.floor(listHeight / ROW_HEIGHT_ESTIMATE);
+    return timeline.slice(0, maxRows);
+  }, [timeline, isExpanded, listHeight]);
+
+  return (
+    <View
+      className="flex-1"
+      onLayout={(e) => setListHeight(Math.round(e.nativeEvent.layout.height))}
+    >
+      <FlatList
+        data={visibleData}
+        keyExtractor={(item) => item.time}
+        renderItem={({ item }) => <WeatherRow point={item} colors={colors} />}
+        showsVerticalScrollIndicator={false}
+        scrollEnabled={isExpanded}
+        contentContainerStyle={{ paddingBottom: safeBottom }}
+      />
+    </View>
+  );
+}
+
 export default function WeatherPanel() {
   const colors = useThemeColors();
-  const { bottom: safeBottom } = useSafeAreaInsets();
   const timeline = useWeatherStore((s) => s.timeline);
   const fetchedAt = useWeatherStore((s) => s.fetchedAt);
   const fetchStatus = useWeatherStore((s) => s.fetchStatus);
+  const isExpanded = usePanelStore((s) => s.isExpanded);
 
   const current = timeline.length > 0 ? timeline[0] : null;
 
@@ -145,7 +199,7 @@ export default function WeatherPanel() {
     : null;
 
   return (
-    <View>
+    <View className="flex-1">
       {/* Header: current summary */}
       {current && (
         <View
@@ -174,20 +228,12 @@ export default function WeatherPanel() {
         </View>
       )}
 
-      {/* Hourly timeline */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={{ paddingHorizontal: 8, paddingBottom: safeBottom }}
-      >
-        {timeline.map((point) => (
-          <WeatherCell
-            key={point.time}
-            point={point}
-            colors={colors}
-          />
-        ))}
-      </ScrollView>
+      {/* Hourly timeline — vertical rows */}
+      <TimelineList
+        timeline={timeline.slice(1)}
+        colors={colors}
+        isExpanded={isExpanded}
+      />
     </View>
   );
 }

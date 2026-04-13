@@ -1,6 +1,5 @@
 import React, { useRef, useCallback, useEffect, useState, useMemo } from "react";
 import { View, AppState, useWindowDimensions } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Mapbox, {
   Camera,
   UserTrackingMode,
@@ -11,16 +10,16 @@ import Constants from "expo-constants";
 import { useMapStore } from "@/store/mapStore";
 import { useRouteStore } from "@/store/routeStore";
 import { useCollectionStore } from "@/store/collectionStore";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { usePanelStore } from "@/store/panelStore";
+import { SHEET_COMPACT_RATIO } from "@/constants";
 import { useThemeColors } from "@/theme";
 import { useMapStyle } from "@/hooks/useMapStyle";
-import { DEFAULT_ZOOM, BOTTOM_PANEL_HEIGHT_RATIO, GPS_STALE_THRESHOLD_MS } from "@/constants";
+import { DEFAULT_ZOOM, GPS_STALE_THRESHOLD_MS } from "@/constants";
 import MapControls from "./MapControls";
 import RouteLayer from "./RouteLayer";
 import POILayer from "./POILayer";
 import ClimbHighlightLayer from "./ClimbHighlightLayer";
-import POIListView from "@/components/poi/POIListView";
-import ClimbListView from "@/components/climb/ClimbListView";
 import TabbedBottomPanel from "./TabbedBottomPanel";
 import { resolveActiveClimb } from "@/utils/climbSelect";
 import { snapToRoute } from "@/services/routeSnapping";
@@ -53,7 +52,7 @@ export default function MapScreen() {
   const refreshPosition = useMapStore((s) => s.refreshPosition);
   const panelTab = usePanelStore((s) => s.panelTab);
   const { bottom: safeBottom } = useSafeAreaInsets();
-  const panelHeight = Math.round(screenHeight * BOTTOM_PANEL_HEIGHT_RATIO) + safeBottom;
+  const panelHeight = Math.round(screenHeight * SHEET_COMPACT_RATIO) + safeBottom;
 
   const routes = useRouteStore((s) => s.routes);
   const visibleRoutePoints = useRouteStore((s) => s.visibleRoutePoints);
@@ -335,18 +334,6 @@ export default function MapScreen() {
 
       <MapControls onLocate={handleLocate} />
       <TabbedBottomPanel activeData={activeData} />
-      {activeRouteIds.length > 0 && (
-        <POIListView
-          routeIds={activeRouteIds}
-          segments={activeData?.segments ?? null}
-        />
-      )}
-      {activeRouteIds.length > 0 && (
-        <ClimbListView
-          routeIds={activeRouteIds}
-          segments={activeData?.segments ?? null}
-        />
-      )}
     </View>
   );
 }

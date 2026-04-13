@@ -28,6 +28,10 @@ interface PanelState {
   /** Which tab is active in the bottom panel */
   panelTab: PanelTab;
   setPanelTab: (tab: PanelTab) => void;
+
+  /** Whether the bottom sheet is in expanded mode */
+  isExpanded: boolean;
+  setIsExpanded: (isExpanded: boolean) => void;
 }
 
 const DEFAULT_PANEL_MODE: PanelMode = "upcoming-50";
@@ -67,5 +71,11 @@ export const usePanelStore = create<PanelState>((set, get) => ({
   setPanelTab: (panelTab) => {
     try { getStorage().set("panelTab", panelTab); } catch {}
     set({ panelTab });
+  },
+
+  isExpanded: false,
+  setIsExpanded: (isExpanded) => {
+    if (get().isExpanded === isExpanded) return;
+    set({ isExpanded });
   },
 }));
