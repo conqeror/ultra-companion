@@ -79,8 +79,13 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
     if (sliceLength <= 0) return null;
     const sliced = extractRouteSlice(points, startIdx, sliceLength);
     if (sliced.length < 2) return null;
-    return { points: sliced, offsetMeters: points[startIdx].distanceFromStartMeters };
-  }, [climb, activeData]);
+    let currentIdxInSlice: number | undefined;
+    if (snappedPosition) {
+      const idx = snappedPosition.pointIndex - startIdx;
+      if (idx >= 0 && idx < sliced.length) currentIdxInSlice = idx;
+    }
+    return { points: sliced, offsetMeters: points[startIdx].distanceFromStartMeters, currentIdxInSlice };
+  }, [climb, activeData, snappedPosition]);
 
   const handleStartEdit = () => {
     if (!climb) return;
@@ -190,6 +195,7 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
               height={graphHeight}
               showLegend={false}
               distanceOffsetMeters={climbProfile.offsetMeters}
+              currentPointIndex={climbProfile.currentIdxInSlice}
             />
           )}
         </View>
