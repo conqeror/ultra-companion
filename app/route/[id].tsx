@@ -13,7 +13,7 @@ import { useRouteStore } from "@/store/routeStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import { usePoiStore } from "@/store/poiStore";
 import { useClimbStore } from "@/store/climbStore";
-import type { RouteWithPoints } from "@/types";
+import type { RouteWithPoints, Climb } from "@/types";
 import { useMapStyle } from "@/hooks/useMapStyle";
 import { formatDistance, formatElevation } from "@/utils/formatters";
 import { computeElevationProgress, computeBounds } from "@/utils/geo";
@@ -21,6 +21,8 @@ import ElevationProfile from "@/components/elevation/ElevationProfile";
 import RouteLayer from "@/components/map/RouteLayer";
 import StatBox from "@/components/common/StatBox";
 import DataSection from "@/components/route/DataSection";
+
+const EMPTY_CLIMBS: Climb[] = [];
 
 export default function RouteDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -50,7 +52,7 @@ export default function RouteDetailScreen() {
   }, [id, getRouteDetail]);
 
   const loadClimbs = useClimbStore((s) => s.loadClimbs);
-  const routeClimbs = useClimbStore((s) => id ? s.climbs[id] ?? [] : []);
+  const routeClimbs = useClimbStore((s) => id ? s.climbs[id] ?? EMPTY_CLIMBS : EMPTY_CLIMBS);
 
   useEffect(() => {
     if (id) {
@@ -68,6 +70,8 @@ export default function RouteDetailScreen() {
     if (currentPointIndex == null || !route) return null;
     return computeElevationProgress(route.points, currentPointIndex);
   }, [currentPointIndex, route]);
+
+  const screenOptions = useMemo(() => ({ title: route?.name ?? "Route" }), [route?.name]);
 
   const chartPOIs = useMemo(() => {
     if (!id) return [];
@@ -100,7 +104,7 @@ export default function RouteDetailScreen() {
 
   return (
     <>
-      <Stack.Screen options={{ title: route.name }} />
+      <Stack.Screen options={screenOptions} />
       <ScrollView
         className="flex-1 bg-background"
         contentContainerStyle={{ paddingBottom: 40 }}

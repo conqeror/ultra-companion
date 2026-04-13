@@ -95,6 +95,8 @@ export default function CollectionDetailScreen() {
     loadData();
   }, [loadData]);
 
+  const screenOptions = useMemo(() => ({ title: collection?.name ?? "Collection" }), [collection?.name]);
+
   const bounds = useMemo(() => {
     if (!stitched?.points.length) return null;
     return computeBounds(stitched.points);
@@ -250,7 +252,7 @@ export default function CollectionDetailScreen() {
 
   return (
     <>
-      <Stack.Screen options={{ title: collection.name }} />
+      <Stack.Screen options={screenOptions} />
       <NestableScrollContainer
         className="flex-1 bg-background"
         contentContainerStyle={{ paddingBottom: 48 }}
