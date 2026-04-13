@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import * as DocumentPicker from "expo-document-picker";
-import { File } from "expo-file-system";
+import { File, Paths } from "expo-file-system";
 import {
   getAllRoutes,
   insertRoute,
@@ -61,8 +61,17 @@ export const useRouteStore = create<RouteState>((set, get) => ({
       throw new Error("Unsupported file type. Use .gpx or .kml files.");
     }
 
-    const file = new File(uri);
-    const content = await file.text();
+    // Copy to cache first — iOS security-scoped URLs from the share sheet
+    // aren't directly readable by JS (same reason DocumentPicker uses copyToCacheDirectory)
+    const sourceFile = new File(uri);
+    const cacheFile = new File(Paths.cache, `import_${Date.now()}.${ext}`);
+    sourceFile.copy(cacheFile);
+    let content: string;
+    try {
+      content = await cacheFile.text();
+    } finally {
+      try { cacheFile.delete(); } catch {}
+    }
 
     const parsed = ext === "gpx"
       ? parseGPX(content, fileName)
