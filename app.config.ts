@@ -83,6 +83,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       },
     ],
     "expo-sqlite",
+    "./plugins/withShareSheetImport",
   ],
   experiments: {
     typedRoutes: true,

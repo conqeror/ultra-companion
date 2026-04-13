@@ -61,16 +61,15 @@ export const useRouteStore = create<RouteState>((set, get) => ({
       throw new Error("Unsupported file type. Use .gpx or .kml files.");
     }
 
-    // Copy to cache first — iOS security-scoped URLs from the share sheet
-    // aren't directly readable by JS (same reason DocumentPicker uses copyToCacheDirectory)
-    const sourceFile = new File(uri);
-    const cacheFile = new File(Paths.cache, `import_${Date.now()}.${ext}`);
-    sourceFile.copy(cacheFile);
     let content: string;
     try {
-      content = await cacheFile.text();
-    } finally {
-      try { cacheFile.delete(); } catch {}
+      content = await new File(uri).text();
+    } catch {
+      // Fallback: AppDelegate copies share-sheet files to Caches/pending-import.<ext>
+      // while iOS security scope is still active (see AppDelegate.swift copyImportedFileToTmpIfNeeded)
+      const fallback = new File(Paths.cache, `pending-import.${ext}`);
+      content = await fallback.text();
+      try { fallback.delete(); } catch {}
     }
 
     const parsed = ext === "gpx"

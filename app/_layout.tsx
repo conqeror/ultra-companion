@@ -1,4 +1,4 @@
-import { Stack } from "expo-router";
+import { Stack, router } from "expo-router";
 import { ThemeProvider, type Theme } from "@react-navigation/native";
 import * as SplashScreen from "expo-splash-screen";
 import * as Linking from "expo-linking";
@@ -85,7 +85,7 @@ export default function RootLayout() {
 
     try {
       const route = await useRouteStore.getState().importFromUri(url, fileName);
-      Alert.alert("Route Imported", `"${route.name}" has been imported.`);
+      router.push(`/route/${route.id}`);
     } catch (e: any) {
       Alert.alert("Import Failed", e.message || "Could not import the file.");
     }

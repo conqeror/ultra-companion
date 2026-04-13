@@ -137,7 +137,7 @@ export default function RouteDetailScreen() {
                   : undefined
               }
             />
-            <RouteLayer key={mapStyle.styleKey} route={route} points={route.points} />
+            <RouteLayer key={mapStyle.styleKey} route={{ ...route, isActive: true }} points={route.points} />
           </MapboxMapView>
         </View>
 
