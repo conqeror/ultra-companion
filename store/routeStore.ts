@@ -68,14 +68,12 @@ export const useRouteStore = create<RouteState>((set, get) => ({
       ? parseGPX(content, fileName)
       : parseKML(content, fileName);
 
-    const routes = get().routes;
-
     const route: Route = {
       id: generateId(),
       name: parsed.name,
       fileName,
       color: INACTIVE_ROUTE_COLOR,
-      isActive: routes.length === 0,
+      isActive: false,
       isVisible: true,
       totalDistanceMeters: parsed.totalDistanceMeters,
       totalAscentMeters: parsed.totalAscentMeters,
