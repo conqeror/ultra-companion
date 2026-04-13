@@ -86,8 +86,18 @@ export default function MapScreen() {
   const loadClimbs = useClimbStore((s) => s.loadClimbs);
   const updateCurrentClimb = useClimbStore((s) => s.updateCurrentClimb);
   const selectedClimb = useClimbStore((s) => s.selectedClimb);
+  const setSelectedClimb = useClimbStore((s) => s.setSelectedClimb);
   const getClimbsForDisplay = useClimbStore((s) => s.getClimbsForDisplay);
   const allClimbData = useClimbStore((s) => s.climbs);
+
+  // Clear stale climb selection when active route/collection changes
+  const prevActiveId = useRef(activeData?.id);
+  useEffect(() => {
+    if (activeData?.id !== prevActiveId.current) {
+      prevActiveId.current = activeData?.id;
+      setSelectedClimb(null);
+    }
+  }, [activeData?.id, setSelectedClimb]);
 
   // Load POIs and climbs when active context changes
   useEffect(() => {
