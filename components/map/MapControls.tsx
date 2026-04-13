@@ -2,8 +2,8 @@ import React, { useEffect, useState } from "react";
 import { View, TouchableOpacity } from "react-native";
 import { useRouter } from "expo-router";
 import { Text } from "@/components/ui/text";
-import { Locate, LocateFixed, RefreshCw, Menu } from "lucide-react-native";
-import Animated, { useAnimatedStyle, withRepeat, withTiming, Easing } from "react-native-reanimated";
+import { Locate, LocateFixed, Menu } from "lucide-react-native";
+import Animated, { useAnimatedStyle, withRepeat, withTiming, Easing, useSharedValue } from "react-native-reanimated";
 import { cn } from "@/lib/cn";
 import { useThemeColors } from "@/theme";
 import { useMapStore } from "@/store/mapStore";
@@ -15,26 +15,6 @@ import {
 
 interface MapControlsProps {
   onLocate: () => void;
-}
-
-function SpinningRefreshIcon({ color }: { color: string }) {
-  const spinStyle = useAnimatedStyle(() => ({
-    transform: [
-      {
-        rotateZ: `${withRepeat(
-          withTiming(360, { duration: 1000, easing: Easing.linear }),
-          -1,
-          false,
-        )}deg`,
-      },
-    ],
-  }));
-
-  return (
-    <Animated.View style={spinStyle}>
-      <RefreshCw size={20} color={color} />
-    </Animated.View>
-  );
 }
 
 function usePositionAge() {
@@ -65,13 +45,34 @@ export default function MapControls({ onLocate }: MapControlsProps) {
   const isRefreshing = useMapStore((s) => s.isRefreshing);
 
   const locateColor = followUser ? colors.accentForeground : colors.textPrimary;
+  const iconSize = positionAge ? 20 : 24;
 
-  const locateIcon = isRefreshing ? (
-    <SpinningRefreshIcon color={followUser ? colors.accentForeground : colors.accent} />
-  ) : followUser ? (
-    <LocateFixed size={positionAge ? 20 : 24} color={locateColor} />
-  ) : (
-    <Locate size={positionAge ? 20 : 24} color={locateColor} />
+  const pulse = useSharedValue(0);
+
+  useEffect(() => {
+    if (isRefreshing) {
+      pulse.value = withRepeat(
+        withTiming(1, { duration: 800, easing: Easing.inOut(Easing.ease) }),
+        -1,
+        true,
+      );
+    } else {
+      pulse.value = withTiming(0, { duration: 300 });
+    }
+  }, [isRefreshing]);
+
+  const pulseStyle = useAnimatedStyle(() => ({
+    opacity: isRefreshing ? 0.4 + pulse.value * 0.6 : 1,
+  }));
+
+  const locateIcon = (
+    <Animated.View style={pulseStyle}>
+      {followUser ? (
+        <LocateFixed size={iconSize} color={locateColor} />
+      ) : (
+        <Locate size={iconSize} color={locateColor} />
+      )}
+    </Animated.View>
   );
 
   return (
