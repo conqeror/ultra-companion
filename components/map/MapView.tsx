@@ -2,7 +2,6 @@ import React, { useRef, useCallback, useEffect, useState, useMemo } from "react"
 import { View, AppState, useWindowDimensions } from "react-native";
 import Mapbox, {
   Camera,
-  UserTrackingMode,
   MapView as MapboxMapView,
   LocationPuck,
 } from "@rnmapbox/maps";
@@ -15,7 +14,7 @@ import { usePanelStore } from "@/store/panelStore";
 import { SHEET_COMPACT_RATIO } from "@/constants";
 import { useThemeColors } from "@/theme";
 import { useMapStyle } from "@/hooks/useMapStyle";
-import { DEFAULT_ZOOM, GPS_STALE_THRESHOLD_MS } from "@/constants";
+import { GPS_STALE_THRESHOLD_MS } from "@/constants";
 import MapControls from "./MapControls";
 import RouteLayer from "./RouteLayer";
 import POILayer from "./POILayer";
@@ -50,6 +49,12 @@ export default function MapScreen() {
 
   const { followUser, userPosition, setFollowUser } = useMapStore();
   const refreshPosition = useMapStore((s) => s.refreshPosition);
+  const persistCamera = useMapStore((s) => s.persistCamera);
+  const initialCamera = useRef({
+    center: useMapStore.getState().center,
+    zoom: useMapStore.getState().zoom,
+  });
+  const lastCamera = useRef(initialCamera.current);
   const panelTab = usePanelStore((s) => s.panelTab);
   const { bottom: safeBottom } = useSafeAreaInsets();
   const panelHeight = Math.round(screenHeight * SHEET_COMPACT_RATIO) + safeBottom;
@@ -195,11 +200,12 @@ export default function MapScreen() {
 
   const handleLocate = useCallback(async () => {
     setFollowUser(true);
-    // Snap to cached position instantly, then animate to fresh fix
+    // Snap to cached position instantly, then ease to fresh fix (no zoom change)
     const currentPos = useMapStore.getState().userPosition;
     if (currentPos) {
       cameraRef.current?.setCamera({
         centerCoordinate: [currentPos.longitude, currentPos.latitude],
+        animationMode: "moveTo",
         animationDuration: 0,
       });
     }
@@ -209,19 +215,32 @@ export default function MapScreen() {
       snapAfterRefresh(position);
       cameraRef.current?.setCamera({
         centerCoordinate: [position.longitude, position.latitude],
+        animationMode: "easeTo",
         animationDuration: 500,
       });
     }
   }, [setFollowUser, refreshPosition, snapAfterRefresh, hasGpsFix]);
+
+  const handleCameraChanged = useCallback((state: { properties: { center: number[]; zoom: number } }) => {
+    const c = state.properties.center;
+    lastCamera.current = { center: [c[0], c[1]], zoom: state.properties.zoom };
+  }, []);
+
+  // Persist camera to MMKV when app goes to background
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (s) => {
+      if (s === "background" || s === "inactive") {
+        persistCamera(lastCamera.current.center, lastCamera.current.zoom);
+      }
+    });
+    return () => sub.remove();
+  }, [persistCamera]);
 
   const handleTouchStart = useCallback(() => {
     if (followUser) {
       setFollowUser(false);
     }
   }, [followUser, setFollowUser]);
-
-  // Only follow user location after we have a GPS fix
-  const shouldFollow = followUser && hasGpsFix;
 
   const cameraPadding = useMemo(() => ({
     paddingTop: 0,
@@ -293,14 +312,14 @@ export default function MapScreen() {
         scaleBarEnabled={false}
         rotateEnabled={false}
         onTouchStart={handleTouchStart}
+        onCameraChanged={handleCameraChanged}
       >
         <Camera
           ref={cameraRef}
           defaultSettings={{
-            zoomLevel: DEFAULT_ZOOM,
+            centerCoordinate: initialCamera.current.center,
+            zoomLevel: initialCamera.current.zoom,
           }}
-          followUserLocation={shouldFollow}
-          followUserMode={UserTrackingMode.Follow}
           animationDuration={500}
           padding={cameraPadding}
         />
