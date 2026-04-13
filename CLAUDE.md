@@ -4,13 +4,12 @@ Logistics companion app for ultra-distance cycling races. iOS only, personal use
 
 ## Docs
 
-Detailed specs live in `docs/` — read these before starting any implementation work:
-
 - `docs/usage-context.md` — **read first** — how the app is used during races, decision-making patterns, device setup
-- `docs/product-spec.md` — features, user stories, MVP scope
-- `docs/architecture.md` — stack, data models, offline strategy, project structure
-- `docs/implementation-plan.md` — phased build plan with steps per phase
-- `docs/technology-evaluation.md` — rationale for stack choices (RN vs native, Mapbox vs MapLibre)
+- `docs/features.md` — what's implemented
+- `docs/architecture.md` — data models, offline strategy, key technical decisions
+- `docs/ideas.md` — future feature ideas
+- `docs/design-system.md` — colors, typography, component patterns
+- `docs/known-issues.md` — bugs and warnings
 
 ## Stack
 
@@ -67,21 +66,6 @@ AXe CLI (`axe`) automates the iOS simulator via Accessibility APIs. Use it to se
 - `axe describe-ui --udid $UDID` — dump accessibility tree (find labels/IDs)
 - Tab labels: `"Map, tab, 1 of 3"`, `"Routes, tab, 2 of 3"`, `"Settings, tab, 3 of 3"`
 
-## Implementation Phases
+## What's Next
 
-- [x] Phase 1: Map + GPS foundation
-- [x] Phase 2: Route import (GPX/KML) + elevation profile
-- [x] Phase 3: POI search along route
-- [x] Phase 4a: GPS rework, opening hours, ETA calculator, POIs on elevation
-- [x] Phase 4b: Offline support (tile download, storage management)
-- [x] Phase 5: Weather
-- [x] Phase 6: Route collections + stitching
-- [~] Phase 7: POI enhancements (starred POIs done, open/closed on map deferred)
-- [x] Phase 8: Dark outdoor map style
-- [~] Phase 9: Usability & surface data (9a rename done)
-
-## Current Phase
-
-Phase 9 — Usability & surface data. See `docs/ideas.md` for scope and `docs/implementation-plan.md` for steps.
-
-When starting a phase, read the phase spec doc for detailed steps.
+See `docs/ideas.md` for future feature ideas.
