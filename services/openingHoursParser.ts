@@ -55,6 +55,20 @@ function normalizePeriods(periods: GooglePeriod[]): NormalizedPeriod[] {
   });
 }
 
+/** Check if normalized periods collectively cover the entire week (effectively 24/7) */
+function isEffectively247(normalized: NormalizedPeriod[]): boolean {
+  if (normalized.length === 0) return false;
+  // Sort by opening time
+  const sorted = [...normalized].sort((a, b) => a.openMin - b.openMin);
+  let covered = sorted[0].openMin;
+  if (covered > 0) return false; // Gap at start of week
+  for (const p of sorted) {
+    if (p.openMin > covered) return false; // Gap found
+    covered = Math.max(covered, p.closeMin);
+  }
+  return covered >= WEEK_MINUTES;
+}
+
 function parsePeriods(tag: string): GooglePeriod[] | null {
   if (!tag || !tag.startsWith("[")) return null; // Skip OSM-format strings
   try {
@@ -99,8 +113,8 @@ export function getOpeningHoursStatus(
   let closingSoon = false;
 
   if (isOpen && currentPeriod) {
-    // 24/7 check: single period spanning entire week
-    if (currentPeriod.closeMin - currentPeriod.openMin >= WEEK_MINUTES) {
+    // 24/7 check: single period spanning entire week, or multiple periods covering it
+    if (currentPeriod.closeMin - currentPeriod.openMin >= WEEK_MINUTES || isEffectively247(normalized)) {
       return { isOpen: true, label: "Open", detail: "24/7", closingSoon: false };
     }
     const closeDate = weekMinutesToDate(currentPeriod.closeMin % WEEK_MINUTES, now);
@@ -146,7 +160,7 @@ export function getDaySchedules(tag: string, referenceTime?: Date): DaySchedule[
 
   // Check for 24/7
   const normalized = normalizePeriods(periods);
-  if (normalized.length === 1 && normalized[0].closeMin - normalized[0].openMin >= WEEK_MINUTES) {
+  if (isEffectively247(normalized)) {
     return [
       { label: "Today", hours: "24h" },
       { label: "Tomorrow", hours: "24h" },
