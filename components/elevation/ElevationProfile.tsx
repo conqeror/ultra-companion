@@ -101,6 +101,30 @@ function interpolateElevation(
   return samples[i].elevation + t * (samples[i + 1].elevation - samples[i].elevation);
 }
 
+/** Pick round-number elevation ticks covering the actual data range (not padded viewport). */
+function buildYLabels(yMin: number, yMax: number, dataMin: number, dataMax: number): number[] {
+  const lo = Math.max(0, yMin, Math.floor(dataMin));
+  const hi = Math.min(yMax, dataMax);
+  const range = hi - lo;
+  if (range <= 0) return [Math.round(lo)];
+
+  const raw = range / 3;
+  const pow = Math.pow(10, Math.floor(Math.log10(raw)));
+  const norm = raw / pow;
+  const mult = norm >= 5 ? 5 : norm >= 2 ? 2 : 1;
+  const step = mult * pow;
+
+  const first = Math.ceil(lo / step) * step;
+  // One tick above the data for headroom, as long as it fits in the viewport
+  const lastCandidate = Math.ceil(hi / step) * step;
+  const last = lastCandidate <= yMax + 1e-6 ? lastCandidate : Math.floor(hi / step) * step;
+  const ticks: number[] = [];
+  for (let v = first; v <= last + 1e-6; v += step) ticks.push(Math.round(v));
+
+  if (yMin <= 0 && (ticks.length === 0 || ticks[0] !== 0)) ticks.unshift(0);
+  return ticks;
+}
+
 interface POIMarkerPos {
   poi: POI;
   x: number;
@@ -127,7 +151,7 @@ export default function ElevationProfile({
   const chartWidth = width - PADDING.left - PADDING.right;
   const chartHeight = height - PADDING.top - PADDING.bottom;
 
-  const { linePath, fillPath, gradientStops, minElev, maxElev, totalDist, xScale, yScale, samples } =
+  const { linePath, fillPath, gradientStops, minElev, maxElev, dataMin, dataMax, totalDist, xScale, yScale, samples } =
     useMemo(() => {
       if (points.length === 0) {
         return {
@@ -136,6 +160,8 @@ export default function ElevationProfile({
           gradientStops: [] as { offset: string; color: string }[],
           minElev: 0,
           maxElev: 100,
+          dataMin: 0,
+          dataMax: 100,
           totalDist: 0,
           xScale: (_d: number) => 0,
           yScale: (_e: number) => 0,
@@ -151,6 +177,8 @@ export default function ElevationProfile({
           gradientStops: [],
           minElev: 0,
           maxElev: 100,
+          dataMin: 0,
+          dataMax: 100,
           totalDist: 0,
           xScale: (_d: number) => 0,
           yScale: (_e: number) => 0,
@@ -165,10 +193,20 @@ export default function ElevationProfile({
       const totalD = smp[smp.length - 1].distance;
       // Scale min vertical range to horizontal distance (~5%), clamped to [50, 200]
       const minRange = Math.min(200, Math.max(50, totalD * 0.05));
-      const elevRange = Math.max(rawRange, minRange);
+      // Cap vertical exaggeration so long routes in tall charts don't make hills look like cliffs
+      const MAX_EXAGGERATION = 200;
+      const horizMPerPx = chartWidth > 0 ? totalD / chartWidth : 0;
+      const minRangeForAspect = (chartHeight * horizMPerPx) / MAX_EXAGGERATION;
+      const elevRange = Math.max(rawRange, minRange, minRangeForAspect);
       const mid = (minE + maxE) / 2;
-      const yMin = mid - elevRange / 2 - elevRange * 0.1;
-      const yMax = mid + elevRange / 2 + elevRange * 0.1;
+      const paddedRange = elevRange * 1.2;
+      let yMin = mid - paddedRange / 2;
+      let yMax = mid + paddedRange / 2;
+      // If padding would push below sea level but actual data isn't, anchor 0 to the bottom
+      if (yMin < 0 && minE >= 0) {
+        yMax = paddedRange;
+        yMin = 0;
+      }
 
       const xs = (d: number) =>
         PADDING.left + (totalD > 0 ? (d / totalD) * chartWidth : 0);
@@ -223,6 +261,8 @@ export default function ElevationProfile({
         gradientStops: stops,
         minElev: yMin,
         maxElev: yMax,
+        dataMin: minE,
+        dataMax: maxE,
         totalDist: totalD,
         xScale: xs,
         yScale: ys,
@@ -331,10 +371,9 @@ export default function ElevationProfile({
     );
   }
 
-  const elevRange = maxElev - minElev;
-  const yLabels = [minElev, minElev + elevRange / 2, maxElev].map((e) => ({
-    value: e,
-    y: PADDING.top + chartHeight - ((e - minElev) / elevRange) * chartHeight,
+  const yLabels = buildYLabels(minElev, maxElev, dataMin, dataMax).map((value) => ({
+    value,
+    y: yScale(value),
   }));
 
   const xLabels = [0, totalDist / 2, totalDist].map((d) => ({
