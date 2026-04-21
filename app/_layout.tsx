@@ -85,7 +85,9 @@ export default function RootLayout() {
 
     try {
       const route = await useRouteStore.getState().importFromUri(url, fileName);
-      router.push(`/route/${route.id}`);
+      // Replace (not push) so the +not-found screen Expo Router briefly lands on
+      // for the incoming file:// URL doesn't stay in the back stack.
+      router.replace(`/route/${route.id}`);
     } catch (e: any) {
       Alert.alert("Import Failed", e.message || "Could not import the file.");
     }
