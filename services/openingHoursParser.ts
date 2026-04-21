@@ -55,18 +55,47 @@ function normalizePeriods(periods: GooglePeriod[]): NormalizedPeriod[] {
   });
 }
 
+// Google sometimes represents 24/7 as periods closing at 23:59 instead of 24:00,
+// leaving tiny gaps. Tolerate small total gap so these are still detected as 24/7.
+const EFFECTIVELY_247_GAP_TOLERANCE_MIN = 10;
+
 /** Check if normalized periods collectively cover the entire week (effectively 24/7) */
 function isEffectively247(normalized: NormalizedPeriod[]): boolean {
   if (normalized.length === 0) return false;
-  // Sort by opening time
-  const sorted = [...normalized].sort((a, b) => a.openMin - b.openMin);
-  let covered = sorted[0].openMin;
-  if (covered > 0) return false; // Gap at start of week
-  for (const p of sorted) {
-    if (p.openMin > covered) return false; // Gap found
-    covered = Math.max(covered, p.closeMin);
+
+  // Project each period into the [0, WEEK_MINUTES) single-week space,
+  // splitting periods that wrap past the end of the week.
+  const intervals: [number, number][] = [];
+  for (const p of normalized) {
+    const start = p.openMin;
+    const end = Math.min(p.closeMin, start + WEEK_MINUTES);
+    if (end <= WEEK_MINUTES) {
+      intervals.push([start, end]);
+    } else {
+      intervals.push([start, WEEK_MINUTES]);
+      intervals.push([0, end - WEEK_MINUTES]);
+    }
   }
-  return covered >= WEEK_MINUTES;
+  if (intervals.length === 0) return false;
+
+  // Merge overlapping intervals and sum coverage
+  intervals.sort((a, b) => a[0] - b[0]);
+  let total = 0;
+  let curStart = intervals[0][0];
+  let curEnd = intervals[0][1];
+  for (let i = 1; i < intervals.length; i++) {
+    const [s, e] = intervals[i];
+    if (s <= curEnd) {
+      curEnd = Math.max(curEnd, e);
+    } else {
+      total += curEnd - curStart;
+      curStart = s;
+      curEnd = e;
+    }
+  }
+  total += curEnd - curStart;
+
+  return total >= WEEK_MINUTES - EFFECTIVELY_247_GAP_TOLERANCE_MIN;
 }
 
 function parsePeriods(tag: string): GooglePeriod[] | null {
@@ -94,6 +123,10 @@ export function getOpeningHoursStatus(
   const nowMin = dateToWeekMinutes(now);
   const normalized = normalizePeriods(periods);
 
+  if (isEffectively247(normalized)) {
+    return { isOpen: true, label: "Open", detail: "24/7", closingSoon: false };
+  }
+
   // Check if currently open
   let currentPeriod: NormalizedPeriod | null = null;
   for (const np of normalized) {
@@ -113,10 +146,6 @@ export function getOpeningHoursStatus(
   let closingSoon = false;
 
   if (isOpen && currentPeriod) {
-    // 24/7 check: single period spanning entire week, or multiple periods covering it
-    if (currentPeriod.closeMin - currentPeriod.openMin >= WEEK_MINUTES || isEffectively247(normalized)) {
-      return { isOpen: true, label: "Open", detail: "24/7", closingSoon: false };
-    }
     const closeDate = weekMinutesToDate(currentPeriod.closeMin % WEEK_MINUTES, now);
     detail = `closes ${formatETA(closeDate)}`;
     const msUntilClose = closeDate.getTime() - now.getTime();
@@ -200,8 +229,10 @@ export function isOpenAt(tag: string, time: Date): boolean | null {
   const periods = parsePeriods(tag);
   if (!periods) return null;
 
-  const timeMin = dateToWeekMinutes(time);
   const normalized = normalizePeriods(periods);
+  if (isEffectively247(normalized)) return true;
+
+  const timeMin = dateToWeekMinutes(time);
 
   for (const np of normalized) {
     if (
