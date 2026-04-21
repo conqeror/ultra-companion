@@ -13,11 +13,12 @@ interface DetectedClimb {
 }
 
 /** Bump this when the detection algorithm changes to trigger re-detection of stored climbs. */
-export const CLIMB_DETECTOR_VERSION = 3;
+export const CLIMB_DETECTOR_VERSION = 7;
 
 const SMOOTHING_WINDOW_M = 200;
 const MIN_GAIN_M = 50;
 const MIN_AVG_GRADIENT_PCT = 2.5;
+const TRIM_BASELINE_GRADIENT_PCT = 1.5;
 const DIP_RATIO = 0.2;
 const DIP_FLOOR_M = 10;
 const MAX_GRADIENT_WINDOW_M = 200;
@@ -131,32 +132,19 @@ function tryFinalize(
 ): void {
   if (startIdx >= endIdx) return;
 
-  let effStart = startIdx;
-  let effEnd = endIdx;
-  let length = points[effEnd].distanceFromStartMeters - points[effStart].distanceFromStartMeters;
+  // Trim flat lead-ins and gentle tail-offs by picking the sub-segment that
+  // maximizes ascent above a baseline gradient. Steps shallower than the
+  // baseline score negatively and are excluded from the ends.
+  const trimmed = findMaxScoringSubSegment(points, smoothed, startIdx, endIdx);
+  if (!trimmed) return;
+
+  const effStart = trimmed.start;
+  const effEnd = trimmed.end;
+  const length = points[effEnd].distanceFromStartMeters - points[effStart].distanceFromStartMeters;
   if (length <= 0) return;
 
-  // Compute total ascent (sum of positive elevation changes)
-  let totalAscent = 0;
-  for (let i = effStart + 1; i <= effEnd; i++) {
-    const diff = smoothed[i] - smoothed[i - 1];
-    if (diff > 0) totalAscent += diff;
-  }
-
-  let avgGradient = (totalAscent / length) * 100;
-
-  // If gradient is too low but there's significant ascent, find the longest
-  // sub-segment that qualifies. Flat lead-ins or gentle tail-offs dilute the gradient.
-  if (avgGradient < MIN_AVG_GRADIENT_PCT && totalAscent >= MIN_GAIN_M) {
-    const result = findLongestQualifyingSegment(points, smoothed, startIdx, endIdx);
-    if (result) {
-      effStart = result.start;
-      effEnd = result.end;
-      totalAscent = result.ascent;
-      length = points[effEnd].distanceFromStartMeters - points[effStart].distanceFromStartMeters;
-      avgGradient = (totalAscent / length) * 100;
-    }
-  }
+  const totalAscent = trimmed.ascent;
+  const avgGradient = (totalAscent / length) * 100;
 
   // Qualification check
   if (totalAscent < MIN_GAIN_M || avgGradient < MIN_AVG_GRADIENT_PCT) return;
@@ -181,61 +169,64 @@ function tryFinalize(
 }
 
 /**
- * Find the longest sub-segment of [startIdx, endIdx] where avg gradient >= threshold.
- * Uses the "longest subarray with sum >= 0" algorithm via monotone stack (O(n)).
+ * Find the sub-segment of [startIdx, endIdx] that maximizes
+ *   sum(positiveAscent) − baseline × length
+ * using Kadane's algorithm (O(n)).
  *
- * Transform: for each step, weight = positiveElevChange - threshold * distance.
- * A sub-segment qualifies when the sum of weights >= 0.
+ * Per-step score = posElevChange − baseline × distance. Steps climbing steeper
+ * than baseline score positive; flat/gentle steps score negative and get
+ * trimmed from the ends.
  */
-function findLongestQualifyingSegment(
+function findMaxScoringSubSegment(
   points: RoutePoint[],
   smoothed: number[],
   startIdx: number,
   endIdx: number,
 ): { start: number; end: number; ascent: number } | null {
   const stepCount = endIdx - startIdx;
-  const minGradientFraction = MIN_AVG_GRADIENT_PCT / 100;
+  if (stepCount <= 0) return null;
 
-  // Prefix sums: gradient-weighted for qualification, ascent for the gain check
-  const gradientPrefix = new Float64Array(stepCount + 1);
-  const ascentPrefix = new Float64Array(stepCount + 1);
+  const baselineFraction = TRIM_BASELINE_GRADIENT_PCT / 100;
+
+  let bestSum = 0;
+  let bestStart = 0;
+  let bestEnd = 0;
+  let bestAscent = 0;
+
+  let curSum = 0;
+  let curStart = 0;
+  let curAscent = 0;
+
   for (let i = 0; i < stepCount; i++) {
     const ptIdx = startIdx + i;
     const eleDiff = smoothed[ptIdx + 1] - smoothed[ptIdx];
     const posDiff = eleDiff > 0 ? eleDiff : 0;
     const dist = points[ptIdx + 1].distanceFromStartMeters - points[ptIdx].distanceFromStartMeters;
-    gradientPrefix[i + 1] = gradientPrefix[i] + posDiff - minGradientFraction * dist;
-    ascentPrefix[i + 1] = ascentPrefix[i] + posDiff;
-  }
+    const score = posDiff - baselineFraction * dist;
 
-  // Monotonically decreasing stack of indices into gradientPrefix (candidates for segment start)
-  const stack: number[] = [0];
-  for (let i = 1; i <= stepCount; i++) {
-    if (gradientPrefix[i] < gradientPrefix[stack[stack.length - 1]]) stack.push(i);
-  }
+    curSum += score;
+    curAscent += posDiff;
 
-  // Scan from right: for each end, pop starts where gradientPrefix[end] >= gradientPrefix[start]
-  let bestLen = 0;
-  let bestStart = 0;
-  let bestEnd = 0;
-  for (let end = stepCount; end >= 1; end--) {
-    while (stack.length > 0 && gradientPrefix[end] >= gradientPrefix[stack[stack.length - 1]]) {
-      const start = stack.pop()!;
-      const segAscent = ascentPrefix[end] - ascentPrefix[start];
-      if (end - start > bestLen && segAscent >= MIN_GAIN_M) {
-        bestLen = end - start;
-        bestStart = start;
-        bestEnd = end;
-      }
+    if (curSum > bestSum) {
+      bestSum = curSum;
+      bestStart = curStart;
+      bestEnd = i + 1;
+      bestAscent = curAscent;
+    }
+
+    if (curSum < 0) {
+      curSum = 0;
+      curAscent = 0;
+      curStart = i + 1;
     }
   }
 
-  if (bestLen === 0) return null;
+  if (bestEnd <= bestStart) return null;
 
   return {
     start: startIdx + bestStart,
     end: startIdx + bestEnd,
-    ascent: ascentPrefix[bestEnd] - ascentPrefix[bestStart],
+    ascent: bestAscent,
   };
 }
 
