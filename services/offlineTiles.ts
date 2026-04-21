@@ -73,31 +73,47 @@ export async function downloadRouteTiles(
     return;
   }
 
+  // Clean up any stale region from a previous attempt so Mapbox starts fresh
+  try {
+    await deleteTileRegion(id);
+  } catch {}
+
   let stalled = false;
   let stallTimer: ReturnType<typeof setTimeout> | undefined;
+  let lastPercentage = -1;
 
   function resetStallTimer() {
     clearTimeout(stallTimer);
     stallTimer = setTimeout(() => {
       stalled = true;
+      console.warn(`[OfflineTiles] Download stalled for ${id} at ${lastPercentage}%`);
       cancelTileRegion(id);
     }, TILE_DOWNLOAD_STALL_MS);
   }
 
-  resetStallTimer();
-
   const sub = addProgressListener((event) => {
     if (event.id === id) {
-      resetStallTimer();
+      // Only reset stall timer when progress actually advances
+      if (event.percentage > lastPercentage) {
+        lastPercentage = event.percentage;
+        resetStallTimer();
+      }
       onProgress(event.percentage, event.completedBytes);
     }
   });
 
   try {
+    console.log(`[OfflineTiles] Starting download for ${id}, ${coords.length} waypoints`);
+    resetStallTimer();
     await downloadTileRegion(id, styleURL, coords, OFFLINE_MIN_ZOOM, OFFLINE_MAX_ZOOM);
     clearTimeout(stallTimer);
 
+    if (stalled) {
+      throw new Error("Download was cancelled due to stall");
+    }
+
     const actualBytes = await getTileRegionSize(id);
+    console.log(`[OfflineTiles] Complete: ${id}, ${actualBytes} bytes`);
     onProgress(100, actualBytes);
     onComplete();
   } catch (e) {
