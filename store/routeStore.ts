@@ -138,6 +138,9 @@ export const useRouteStore = create<RouteState>((set, get) => ({
       const { useOfflineStore } = await import("@/store/offlineStore");
       await useOfflineStore.getState().deleteOfflineData(id);
       await dbDeleteRoute(id);
+      // Scrub per-route POI state (DB cascade handles the rows themselves)
+      const { usePoiStore } = await import("@/store/poiStore");
+      usePoiStore.getState().cleanupRouteState(id);
       await get().loadRoutes();
       // Reload collections in case this route was in one (cascade deletes the segment)
       const { useCollectionStore } = await import("@/store/collectionStore");

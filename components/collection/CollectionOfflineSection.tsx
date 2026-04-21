@@ -4,7 +4,7 @@ import { Text } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
 import { useOfflineStore } from "@/store/offlineStore";
 import { usePoiStore } from "@/store/poiStore";
-import type { StitchedCollection } from "@/types";
+import type { POISource, StitchedCollection } from "@/types";
 import { formatFileSize } from "@/utils/formatters";
 import { estimateDownloadSize } from "@/services/offlineTiles";
 import { getRoutePoints } from "@/db/database";
@@ -19,7 +19,6 @@ export default function CollectionOfflineSection({ stitched }: CollectionOffline
   const deleteOfflineData = useOfflineStore((s) => s.deleteOfflineData);
   const routeInfo = useOfflineStore((s) => s.routeInfo);
   const allPois = usePoiStore((s) => s.pois);
-  const fetchProgress = usePoiStore((s) => s.fetchProgress);
   const allSourceInfo = usePoiStore((s) => s.sourceInfo);
 
   const [isDownloading, setIsDownloading] = useState(false);
@@ -53,13 +52,28 @@ export default function CollectionOfflineSection({ stitched }: CollectionOffline
   const allReady = stats.readyCount === stats.total && stats.total > 0;
 
   const poiErrors = useMemo(() => {
-    const out: { routeName: string; source: "osm" | "google"; error: string }[] = [];
+    const out: { routeName: string; source: POISource; error: string }[] = [];
     for (const seg of segments) {
       const src = allSourceInfo[seg.routeId];
       if (src?.osm?.error) out.push({ routeName: seg.routeName, source: "osm", error: src.osm.error });
       if (src?.google?.error) out.push({ routeName: seg.routeName, source: "google", error: src.google.error });
     }
     return out;
+  }, [segments, allSourceInfo]);
+
+  // Pick the first actively-fetching source across segments. Only one runs at
+  // a time (startDownload serializes), so this is the progress we should show.
+  const activePoiFetch = useMemo(() => {
+    for (const seg of segments) {
+      const src = allSourceInfo[seg.routeId];
+      if (src?.osm?.status === "fetching" && src.osm.progress) {
+        return { routeName: seg.routeName, progress: src.osm.progress };
+      }
+      if (src?.google?.status === "fetching" && src.google.progress) {
+        return { routeName: seg.routeName, progress: src.google.progress };
+      }
+    }
+    return null;
   }, [segments, allSourceInfo]);
 
   const handleDownloadAll = useCallback(async () => {
@@ -166,8 +180,8 @@ export default function CollectionOfflineSection({ stitched }: CollectionOffline
             />
           </View>
           <Text className="text-[13px] text-muted-foreground font-barlow mt-1">
-            {fetchProgress
-              ? `${fetchProgress.phase} POIs... ${fetchProgress.done}/${fetchProgress.total} (segment ${progress.done + 1} / ${progress.total})`
+            {activePoiFetch
+              ? `${activePoiFetch.progress.phase} POIs... ${activePoiFetch.progress.done}/${activePoiFetch.progress.total} (segment ${progress.done + 1} / ${progress.total})`
               : `Downloading tiles... segment ${progress.done} / ${progress.total}`}
           </Text>
         </View>

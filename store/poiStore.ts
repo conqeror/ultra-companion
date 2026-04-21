@@ -43,33 +43,132 @@ function parseCategories(raw: string | undefined): POICategory[] {
   }
 }
 
+export interface ProgressInfo {
+  phase: string;
+  done: number;
+  total: number;
+}
+
 export interface SourceInfo {
   status: POIFetchStatus;
   count: number;
   fetchedAt: string | null; // ISO 8601
   error: string | null;
+  progress: ProgressInfo | null; // in-memory only; never persisted
 }
 
-export const DEFAULT_SOURCE_INFO: SourceInfo = { status: "idle", count: 0, fetchedAt: null, error: null };
+export const DEFAULT_SOURCE_INFO: SourceInfo = {
+  status: "idle",
+  count: 0,
+  fetchedAt: null,
+  error: null,
+  progress: null,
+};
+
+const SOURCE_INFO_KEY_PREFIX = "sourceInfo_";
+const sourceInfoKey = (routeId: string, source: POISource) =>
+  `${SOURCE_INFO_KEY_PREFIX}${source}_${routeId}`;
 
 function readSourceInfo(routeId: string, source: POISource): SourceInfo {
   try {
-    const raw = getStorage().getString(`sourceInfo_${source}_${routeId}`);
-    if (raw) return JSON.parse(raw);
+    const raw = getStorage().getString(sourceInfoKey(routeId, source));
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<SourceInfo>;
+      return { ...DEFAULT_SOURCE_INFO, ...parsed, progress: null };
+    }
   } catch {}
   return { ...DEFAULT_SOURCE_INFO };
 }
 
 function persistSourceInfo(routeId: string, source: POISource, info: SourceInfo): void {
   try {
-    getStorage().set(`sourceInfo_${source}_${routeId}`, JSON.stringify(info));
+    const { progress: _progress, ...persisted } = info;
+    getStorage().set(sourceInfoKey(routeId, source), JSON.stringify(persisted));
   } catch {}
 }
 
 function clearSourceInfo(routeId: string, source: POISource): void {
   try {
-    getStorage().remove(`sourceInfo_${source}_${routeId}`);
+    getStorage().remove(sourceInfoKey(routeId, source));
   } catch {}
+}
+
+/**
+ * One-shot cleanup at store init: any persisted "fetching" status is stale
+ * (fetches don't survive app restarts), so coerce and write back. After this
+ * runs, readers can trust the persisted status.
+ */
+function normalizePersistedStatuses(): void {
+  const s = getStorage();
+  try {
+    for (const key of s.getAllKeys()) {
+      if (!key.startsWith(SOURCE_INFO_KEY_PREFIX)) continue;
+      const raw = s.getString(key);
+      if (!raw) continue;
+      try {
+        const info = JSON.parse(raw) as Partial<SourceInfo>;
+        if (info.status === "fetching") {
+          const fixed = {
+            ...info,
+            status: (info.count ?? 0) > 0 ? "done" : "idle",
+          };
+          delete (fixed as Partial<SourceInfo>).progress;
+          s.set(key, JSON.stringify(fixed));
+        }
+      } catch {
+        s.remove(key); // drop corrupt entries
+      }
+    }
+  } catch {}
+}
+
+normalizePersistedStatuses();
+
+type ScrubMode = "reset" | "remove";
+
+/**
+ * Builds the state patch for clearing all per-route POI state. "reset" keeps
+ * the sourceInfo[routeId] entry but resets both sources to defaults (used by
+ * clearPOIs). "remove" drops the entry entirely (used when the route itself
+ * is deleted).
+ */
+function buildRouteScrubPatch(
+  s: {
+    pois: Record<string, POI[]>;
+    sourceInfo: Record<string, Record<POISource, SourceInfo>>;
+    starredPOIIds: Set<string>;
+    selectedPOI: POI | null;
+  },
+  routeId: string,
+  mode: ScrubMode,
+) {
+  const { [routeId]: removed, ...remainingPois } = s.pois;
+  const removedIds = new Set((removed ?? []).map((p) => p.id));
+  const nextStarred = new Set(
+    [...s.starredPOIIds].filter((id) => !removedIds.has(id)),
+  );
+  const starredChanged = nextStarred.size !== s.starredPOIIds.size;
+  if (starredChanged) {
+    try { getStorage().set("starredPOIIds", JSON.stringify([...nextStarred])); } catch {}
+  }
+
+  let sourceInfo: typeof s.sourceInfo;
+  if (mode === "remove") {
+    const { [routeId]: _dropped, ...rest } = s.sourceInfo;
+    sourceInfo = rest;
+  } else {
+    sourceInfo = {
+      ...s.sourceInfo,
+      [routeId]: { osm: { ...DEFAULT_SOURCE_INFO }, google: { ...DEFAULT_SOURCE_INFO } },
+    };
+  }
+
+  return {
+    pois: remainingPois,
+    sourceInfo,
+    starredPOIIds: starredChanged ? nextStarred : s.starredPOIIds,
+    selectedPOI: s.selectedPOI?.routeId === routeId ? null : s.selectedPOI,
+  };
 }
 
 interface POIState {
@@ -84,7 +183,6 @@ interface POIState {
 
   // Fetch state per source per route
   sourceInfo: Record<string, Record<POISource, SourceInfo>>; // routeId -> source -> info
-  fetchProgress: { phase: string; done: number; total: number } | null;
 
   // UI state
   selectedPOI: POI | null;
@@ -101,6 +199,7 @@ interface POIState {
   isStarred: (poiId: string) => boolean;
   getStarredPOIs: (routeId: string) => POI[];
   clearPOIs: (routeId: string) => Promise<void>;
+  cleanupRouteState: (routeId: string) => void;
   setSelectedPOI: (poi: POI | null) => void;
 
   // Computed helpers
@@ -118,43 +217,49 @@ export const usePoiStore = create<POIState>((set, get) => ({
   showOpenOnly: readString("showOpenOnly") === "true",
   starredPOIIds: parseStarredIds(readString("starredPOIIds")),
   sourceInfo: {},
-  fetchProgress: null,
   selectedPOI: null,
 
   loadPOIs: async (routeId) => {
-    // Always read fresh from DB so state stays in sync with any writes
-    // (including those from other code paths like offline downloads).
+    // Read from DB to derive counts. Merge with in-memory sourceInfo so we
+    // never clobber an active "fetching" or surfaced "error" status — only
+    // fall back to MMKV when there's no in-memory entry yet (cold start).
     const pois = await getPOIsForRoute(routeId);
-    const existing = get().pois[routeId];
-    if (existing && existing.length === pois.length) return;
-
-    const osmInfo = readSourceInfo(routeId, "osm");
-    const googleInfo = readSourceInfo(routeId, "google");
     let osmCount = 0, googleCount = 0;
     for (const p of pois) {
       if (p.source === "google") googleCount++;
       else osmCount++;
     }
-    osmInfo.count = osmCount;
-    googleInfo.count = googleCount;
-    if (osmCount > 0 && osmInfo.status === "idle") osmInfo.status = "done";
-    if (googleCount > 0 && googleInfo.status === "idle") googleInfo.status = "done";
 
-    set((s) => ({
-      pois: { ...s.pois, [routeId]: pois },
-      sourceInfo: {
-        ...s.sourceInfo,
-        [routeId]: { osm: osmInfo, google: googleInfo },
-      },
-    }));
+    set((s) => {
+      const info = s.sourceInfo[routeId];
+      if (info && info.osm.count === osmCount && info.google.count === googleCount) {
+        return s;
+      }
+
+      const osm = info?.osm ?? readSourceInfo(routeId, "osm");
+      const google = info?.google ?? readSourceInfo(routeId, "google");
+
+      const nextOsm = { ...osm, count: osmCount };
+      if (nextOsm.status === "idle" && osmCount > 0) nextOsm.status = "done";
+      const nextGoogle = { ...google, count: googleCount };
+      if (nextGoogle.status === "idle" && googleCount > 0) nextGoogle.status = "done";
+
+      return {
+        pois: { ...s.pois, [routeId]: pois },
+        sourceInfo: {
+          ...s.sourceInfo,
+          [routeId]: { osm: nextOsm, google: nextGoogle },
+        },
+      };
+    });
   },
 
   fetchSource: async (routeId, source, routePoints) => {
-    const updateSourceInfo = (partial: Partial<SourceInfo>) => {
+    const updateSourceInfo = (partial: Partial<SourceInfo>, opts?: { persist?: boolean }) => {
       set((s) => {
         const current = s.sourceInfo[routeId]?.[source] ?? { ...DEFAULT_SOURCE_INFO };
         const updated = { ...current, ...partial };
-        persistSourceInfo(routeId, source, updated);
+        if (opts?.persist !== false) persistSourceInfo(routeId, source, updated);
         return {
           sourceInfo: {
             ...s.sourceInfo,
@@ -164,27 +269,28 @@ export const usePoiStore = create<POIState>((set, get) => ({
       });
     };
 
-    updateSourceInfo({ status: "fetching", error: null });
-    set({ fetchProgress: null });
+    updateSourceInfo({ status: "fetching", error: null, progress: null });
 
     try {
       const corridorWidthM = get().corridorWidthM;
       const fetchFn = source === "osm" ? fetchOsmPOIs : fetchGooglePOIs;
       const count = await fetchFn(routeId, routePoints, corridorWidthM, (phase, done, total) => {
-        set({ fetchProgress: { phase, done, total } });
+        // progress is ephemeral — skip MMKV write, it'd churn on every tick
+        updateSourceInfo({ progress: { phase, done, total } }, { persist: false });
       });
-      updateSourceInfo({ status: "done", count, fetchedAt: new Date().toISOString(), error: null });
+      updateSourceInfo({
+        status: "done",
+        count,
+        fetchedAt: new Date().toISOString(),
+        error: null,
+        progress: null,
+      });
 
-      // Reload all POIs from DB
       const pois = await getPOIsForRoute(routeId);
-      set((s) => ({
-        pois: { ...s.pois, [routeId]: pois },
-        fetchProgress: null,
-      }));
+      set((s) => ({ pois: { ...s.pois, [routeId]: pois } }));
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to fetch POIs";
-      updateSourceInfo({ status: "error", error: message });
-      set({ fetchProgress: null });
+      updateSourceInfo({ status: "error", error: message, progress: null });
     }
   },
 
@@ -194,16 +300,21 @@ export const usePoiStore = create<POIState>((set, get) => ({
 
     // Reload remaining POIs
     const pois = await getPOIsForRoute(routeId);
-    set((s) => ({
-      pois: { ...s.pois, [routeId]: pois },
-      sourceInfo: {
-        ...s.sourceInfo,
-        [routeId]: {
-          ...s.sourceInfo[routeId],
-          [source]: { ...DEFAULT_SOURCE_INFO },
+    set((s) => {
+      const droppedSelection =
+        s.selectedPOI?.routeId === routeId && s.selectedPOI?.source === source;
+      return {
+        pois: { ...s.pois, [routeId]: pois },
+        selectedPOI: droppedSelection ? null : s.selectedPOI,
+        sourceInfo: {
+          ...s.sourceInfo,
+          [routeId]: {
+            ...s.sourceInfo[routeId],
+            [source]: { ...DEFAULT_SOURCE_INFO },
+          },
         },
-      },
-    }));
+      };
+    });
   },
 
   toggleCategory: (category) => {
@@ -257,16 +368,15 @@ export const usePoiStore = create<POIState>((set, get) => ({
     await deletePOIsForRoute(routeId);
     clearSourceInfo(routeId, "osm");
     clearSourceInfo(routeId, "google");
-    set((s) => {
-      const { [routeId]: _, ...rest } = s.pois;
-      return {
-        pois: rest,
-        sourceInfo: {
-          ...s.sourceInfo,
-          [routeId]: { osm: { ...DEFAULT_SOURCE_INFO }, google: { ...DEFAULT_SOURCE_INFO } },
-        },
-      };
-    });
+    set((s) => buildRouteScrubPatch(s, routeId, "reset"));
+  },
+
+  cleanupRouteState: (routeId) => {
+    // Called when a route is deleted. DB cascade handles pois rows; this
+    // only scrubs in-memory state + MMKV source metadata so nothing orphans.
+    clearSourceInfo(routeId, "osm");
+    clearSourceInfo(routeId, "google");
+    set((s) => buildRouteScrubPatch(s, routeId, "remove"));
   },
 
   setSelectedPOI: (poi) => {

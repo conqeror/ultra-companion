@@ -2,7 +2,7 @@ import React from "react";
 import { View, Alert } from "react-native";
 import { Text } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
-import type { RoutePoint } from "@/types";
+import type { POISource, RoutePoint } from "@/types";
 import { usePoiStore, DEFAULT_SOURCE_INFO, type SourceInfo } from "@/store/poiStore";
 import { useOfflineStore } from "@/store/offlineStore";
 import { formatFileSize } from "@/utils/formatters";
@@ -37,7 +37,6 @@ export default function DataSection({ routeId, points }: DataSectionProps) {
   const googleInfo = usePoiStore((s) => s.sourceInfo[routeId]?.google) ?? DEFAULT_SOURCE_INFO;
   const fetchSource = usePoiStore((s) => s.fetchSource);
   const clearSource = usePoiStore((s) => s.clearSource);
-  const fetchProgress = usePoiStore((s) => s.fetchProgress);
 
   const handleDeleteTiles = () => {
     Alert.alert("Delete Map Tiles", "Remove downloaded tiles for this route?", [
@@ -53,7 +52,7 @@ export default function DataSection({ routeId, points }: DataSectionProps) {
     ]);
   };
 
-  const handleDeleteSource = (source: "osm" | "google", label: string) => {
+  const handleDeleteSource = (source: POISource, label: string) => {
     Alert.alert(`Delete ${label}`, `Remove ${label.toLowerCase()} for this route?`, [
       { text: "Keep", style: "cancel" },
       { text: "Delete", style: "destructive", onPress: () => clearSource(routeId, source) },
@@ -114,10 +113,7 @@ export default function DataSection({ routeId, points }: DataSectionProps) {
       {/* Google Places */}
       <SourceRow
         title="Google Places"
-        subtitle="Gas stations, groceries"
         info={googleInfo}
-        progress={googleInfo.status === "fetching" ? fetchProgress : null}
-
         onFetch={() => fetchSource(routeId, "google", points)}
         onDelete={() => handleDeleteSource("google", "Google Places data")}
         isConnected={isConnected}
@@ -126,10 +122,7 @@ export default function DataSection({ routeId, points }: DataSectionProps) {
       {/* OSM / Overpass */}
       <SourceRow
         title="OpenStreetMap"
-        subtitle="Water, bike shops, ATMs, pharmacies, WC, shelters"
         info={osmInfo}
-        progress={osmInfo.status === "fetching" ? fetchProgress : null}
-
         onFetch={() => fetchSource(routeId, "osm", points)}
         onDelete={() => handleDeleteSource("osm", "OSM data")}
         isConnected={isConnected}
@@ -183,23 +176,20 @@ function DataRow({
 
 function SourceRow({
   title,
-  subtitle,
   info,
-  progress,
   onFetch,
   onDelete,
   isConnected,
 }: {
   title: string;
-  subtitle: string;
   info: SourceInfo;
-  progress: { phase: string; done: number; total: number } | null;
   onFetch: () => void;
   onDelete: () => void;
   isConnected: boolean;
 }) {
   const isFetching = info.status === "fetching";
   const hasData = info.count > 0;
+  const progress = info.progress;
 
   return (
     <>
