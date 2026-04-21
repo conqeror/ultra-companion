@@ -19,6 +19,9 @@ export default function OfflineSection({ routeId, points }: OfflineSectionProps)
   const startDownload = useOfflineStore((s) => s.startDownload);
   const deleteOfflineData = useOfflineStore((s) => s.deleteOfflineData);
   const poiCount = usePoiStore((s) => s.pois[routeId]?.length ?? 0);
+  const fetchProgress = usePoiStore((s) => s.fetchProgress);
+  const osmError = usePoiStore((s) => s.sourceInfo[routeId]?.osm?.error ?? null);
+  const googleError = usePoiStore((s) => s.sourceInfo[routeId]?.google?.error ?? null);
 
   const estimatedBytes = useMemo(() => estimateDownloadSize(points), [points]);
   const hasData = info.status === "complete";
@@ -70,22 +73,52 @@ export default function OfflineSection({ routeId, points }: OfflineSectionProps)
 
       {isDownloading && (
         <View className="mx-4 mb-2">
-          <View className="h-2 bg-border rounded-full overflow-hidden">
-            <View
-              className="h-full bg-primary rounded-full"
-              style={{ width: `${Math.min(100, info.percentage)}%` }}
-            />
-          </View>
-          <Text className="text-[13px] text-muted-foreground font-barlow mt-1">
-            Downloading... {Math.round(info.percentage)}%
-            {info.downloadedBytes > 0 ? ` (${formatFileSize(info.downloadedBytes)})` : ""}
-          </Text>
+          {fetchProgress ? (
+            <>
+              <View className="h-2 bg-border rounded-full overflow-hidden">
+                <View
+                  className="h-full bg-primary rounded-full"
+                  style={{
+                    width: fetchProgress.total > 0
+                      ? `${Math.min(100, (fetchProgress.done / fetchProgress.total) * 100)}%`
+                      : "10%",
+                  }}
+                />
+              </View>
+              <Text className="text-[13px] text-muted-foreground font-barlow mt-1">
+                {fetchProgress.phase} POIs... {fetchProgress.done}/{fetchProgress.total}
+              </Text>
+            </>
+          ) : (
+            <>
+              <View className="h-2 bg-border rounded-full overflow-hidden">
+                <View
+                  className="h-full bg-primary rounded-full"
+                  style={{ width: `${Math.min(100, info.percentage)}%` }}
+                />
+              </View>
+              <Text className="text-[13px] text-muted-foreground font-barlow mt-1">
+                Downloading tiles... {Math.round(info.percentage)}%
+                {info.downloadedBytes > 0 ? ` (${formatFileSize(info.downloadedBytes)})` : ""}
+              </Text>
+            </>
+          )}
         </View>
       )}
 
       {info.status === "error" && info.error && (
         <Text className="text-[13px] text-destructive px-4 mb-2 font-barlow">
           {info.error}
+        </Text>
+      )}
+      {osmError && (
+        <Text className="text-[13px] text-destructive px-4 mb-2 font-barlow">
+          OSM: {osmError}
+        </Text>
+      )}
+      {googleError && (
+        <Text className="text-[13px] text-destructive px-4 mb-2 font-barlow">
+          Google: {googleError}
         </Text>
       )}
 

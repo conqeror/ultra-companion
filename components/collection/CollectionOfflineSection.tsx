@@ -19,6 +19,8 @@ export default function CollectionOfflineSection({ stitched }: CollectionOffline
   const deleteOfflineData = useOfflineStore((s) => s.deleteOfflineData);
   const routeInfo = useOfflineStore((s) => s.routeInfo);
   const allPois = usePoiStore((s) => s.pois);
+  const fetchProgress = usePoiStore((s) => s.fetchProgress);
+  const allSourceInfo = usePoiStore((s) => s.sourceInfo);
 
   const [isDownloading, setIsDownloading] = useState(false);
   const [progress, setProgress] = useState({ done: 0, total: 0 });
@@ -49,6 +51,16 @@ export default function CollectionOfflineSection({ stitched }: CollectionOffline
   }, [segments, routeInfo, allPois, stitched.points]);
 
   const allReady = stats.readyCount === stats.total && stats.total > 0;
+
+  const poiErrors = useMemo(() => {
+    const out: { routeName: string; source: "osm" | "google"; error: string }[] = [];
+    for (const seg of segments) {
+      const src = allSourceInfo[seg.routeId];
+      if (src?.osm?.error) out.push({ routeName: seg.routeName, source: "osm", error: src.osm.error });
+      if (src?.google?.error) out.push({ routeName: seg.routeName, source: "google", error: src.google.error });
+    }
+    return out;
+  }, [segments, allSourceInfo]);
 
   const handleDownloadAll = useCallback(async () => {
     setIsDownloading(true);
@@ -154,8 +166,23 @@ export default function CollectionOfflineSection({ stitched }: CollectionOffline
             />
           </View>
           <Text className="text-[13px] text-muted-foreground font-barlow mt-1">
-            Downloading segment {progress.done} / {progress.total}
+            {fetchProgress
+              ? `${fetchProgress.phase} POIs... ${fetchProgress.done}/${fetchProgress.total} (segment ${progress.done + 1} / ${progress.total})`
+              : `Downloading tiles... segment ${progress.done} / ${progress.total}`}
           </Text>
+        </View>
+      )}
+
+      {poiErrors.length > 0 && (
+        <View className="mx-4 mb-2">
+          {poiErrors.map((e, i) => (
+            <Text
+              key={`${e.routeName}-${e.source}-${i}`}
+              className="text-[13px] text-destructive font-barlow"
+            >
+              {e.routeName} ({e.source.toUpperCase()}): {e.error}
+            </Text>
+          ))}
         </View>
       )}
 

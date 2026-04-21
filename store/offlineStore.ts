@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { createMMKV, type MMKV } from "react-native-mmkv";
 import { addNetworkStateListener, getNetworkStateAsync } from "expo-network";
 import type { OfflineRouteInfo, RoutePoint } from "@/types";
-import { hasPOIsForRoute } from "@/db/database";
+import { getPOICountsBySource } from "@/db/database";
 import {
   downloadRouteTiles,
   deleteRoutePacks,
@@ -103,16 +103,18 @@ export const useOfflineStore = create<OfflineState>((set, get) => ({
       error: null,
     });
 
-    // Ensure POIs are fetched first
-    try {
-      const hasPOIs = await hasPOIsForRoute(routeId);
-      if (!hasPOIs) {
-        const { fetchAndStorePOIs } = await import("@/services/poiFetcher");
-        const { usePoiStore } = await import("@/store/poiStore");
-        const corridorWidthM = usePoiStore.getState().corridorWidthM;
-        await fetchAndStorePOIs(routeId, points, corridorWidthM);
-      }
-    } catch {}
+    // Fetch any missing POI sources through usePoiStore so per-source state
+    // (count, status, error, progress) stays in sync with the UI. Errors are
+    // captured in sourceInfo per-source; tile download continues regardless.
+    const { usePoiStore } = await import("@/store/poiStore");
+    const poiStore = usePoiStore.getState();
+    const counts = await getPOICountsBySource(routeId);
+    if (counts.osm === 0) {
+      await poiStore.fetchSource(routeId, "osm", points);
+    }
+    if (counts.google === 0) {
+      await poiStore.fetchSource(routeId, "google", points);
+    }
 
     // Throttled progress: update store at most every 500ms, skip MMKV persist
     let lastProgressUpdate = 0;

@@ -122,31 +122,31 @@ export const usePoiStore = create<POIState>((set, get) => ({
   selectedPOI: null,
 
   loadPOIs: async (routeId) => {
-    const existing = get().pois[routeId];
-    if (existing) return;
+    // Always read fresh from DB so state stays in sync with any writes
+    // (including those from other code paths like offline downloads).
     const pois = await getPOIsForRoute(routeId);
-    if (pois.length > 0) {
-      const osmInfo = readSourceInfo(routeId, "osm");
-      const googleInfo = readSourceInfo(routeId, "google");
-      // Derive counts from fetched data instead of a separate DB query
-      let osmCount = 0, googleCount = 0;
-      for (const p of pois) {
-        if (p.source === "google") googleCount++;
-        else osmCount++;
-      }
-      osmInfo.count = osmCount;
-      googleInfo.count = googleCount;
-      if (osmCount > 0 && osmInfo.status === "idle") osmInfo.status = "done";
-      if (googleCount > 0 && googleInfo.status === "idle") googleInfo.status = "done";
+    const existing = get().pois[routeId];
+    if (existing && existing.length === pois.length) return;
 
-      set((s) => ({
-        pois: { ...s.pois, [routeId]: pois },
-        sourceInfo: {
-          ...s.sourceInfo,
-          [routeId]: { osm: osmInfo, google: googleInfo },
-        },
-      }));
+    const osmInfo = readSourceInfo(routeId, "osm");
+    const googleInfo = readSourceInfo(routeId, "google");
+    let osmCount = 0, googleCount = 0;
+    for (const p of pois) {
+      if (p.source === "google") googleCount++;
+      else osmCount++;
     }
+    osmInfo.count = osmCount;
+    googleInfo.count = googleCount;
+    if (osmCount > 0 && osmInfo.status === "idle") osmInfo.status = "done";
+    if (googleCount > 0 && googleInfo.status === "idle") googleInfo.status = "done";
+
+    set((s) => ({
+      pois: { ...s.pois, [routeId]: pois },
+      sourceInfo: {
+        ...s.sourceInfo,
+        [routeId]: { osm: osmInfo, google: googleInfo },
+      },
+    }));
   },
 
   fetchSource: async (routeId, source, routePoints) => {
