@@ -11,6 +11,7 @@ import "react-native-reanimated";
 import "../global.css";
 import { useOfflineStore } from "@/store/offlineStore";
 import { useRouteStore } from "@/store/routeStore";
+import { useCollectionStore } from "@/store/collectionStore";
 import { COLORS } from "@/theme";
 
 export { ErrorBoundary } from "expo-router";
@@ -63,6 +64,18 @@ export default function RootLayout() {
     const unsubscribe = useOfflineStore.getState().initConnectivityListener();
     useOfflineStore.getState().refreshAllStatuses();
     return unsubscribe;
+  }, []);
+
+  // Prefetch route + collection state during splash so the first tab mount is instant.
+  useEffect(() => {
+    useRouteStore
+      .getState()
+      .loadRoutesAndPoints()
+      .catch((e) => console.warn("Route prefetch failed:", e));
+    useCollectionStore
+      .getState()
+      .loadCollections()
+      .catch((e) => console.warn("Collection prefetch failed:", e));
   }, []);
 
   // Re-detect climbs if algorithm version changed

@@ -16,7 +16,9 @@ interface DetectedClimb {
 export const CLIMB_DETECTOR_VERSION = 7;
 
 const SMOOTHING_WINDOW_M = 200;
-const MIN_GAIN_M = 50;
+/** Minimum total ascent (m) for a segment to qualify as a climb. Also used as
+ *  the threshold for self-heal re-detection in climbStore. */
+export const MIN_GAIN_M = 50;
 const MIN_AVG_GRADIENT_PCT = 2.5;
 const TRIM_BASELINE_GRADIENT_PCT = 1.5;
 const DIP_RATIO = 0.2;
@@ -338,4 +340,25 @@ export async function redetectClimbsIfNeeded(): Promise<void> {
   // Clear in-memory cache so UI loads fresh data
   const { useClimbStore } = await import("@/store/climbStore");
   useClimbStore.getState().clearClimbCache();
+}
+
+/**
+ * Run detection against a route's points and persist the result.
+ * Returns the Climb records that were inserted.
+ */
+export async function detectAndStoreClimbs(
+  routeId: string,
+  points: RoutePoint[],
+): Promise<Climb[]> {
+  const { insertClimbs } = await import("@/db/database");
+  const { generateId } = await import("@/utils/generateId");
+  const detected = detectClimbs(points);
+  const records: Climb[] = detected.map((c) => ({
+    ...c,
+    id: generateId(),
+    routeId,
+    name: null,
+  }));
+  await insertClimbs(records);
+  return records;
 }

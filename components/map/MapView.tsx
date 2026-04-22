@@ -61,7 +61,7 @@ export default function MapScreen() {
 
   const routes = useRouteStore((s) => s.routes);
   const visibleRoutePoints = useRouteStore((s) => s.visibleRoutePoints);
-  const loadRoutes = useRouteStore((s) => s.loadRoutes);
+  const loadRoutesAndPoints = useRouteStore((s) => s.loadRoutesAndPoints);
   const snappedPosition = useRouteStore((s) => s.snappedPosition);
   const setSnappedPosition = useRouteStore((s) => s.setSnappedPosition);
   const loadCollections = useCollectionStore((s) => s.loadCollections);
@@ -83,9 +83,9 @@ export default function MapScreen() {
   }, [activeData]);
 
   useEffect(() => {
-    loadRoutes();
+    loadRoutesAndPoints();
     loadCollections();
-  }, [loadRoutes, loadCollections]);
+  }, [loadRoutesAndPoints, loadCollections]);
 
   const loadClimbs = useClimbStore((s) => s.loadClimbs);
   const updateCurrentClimb = useClimbStore((s) => s.updateCurrentClimb);

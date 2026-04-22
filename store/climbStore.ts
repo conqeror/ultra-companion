@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { Climb, StitchedSegmentInfo } from "@/types";
 import { getClimbsForRoute, updateClimbName } from "@/db/database";
+import { MIN_GAIN_M } from "@/services/climbDetector";
 
 interface ClimbState {
   // Climb data per route
@@ -33,7 +34,24 @@ export const useClimbStore = create<ClimbState>((set, get) => ({
   loadClimbs: async (routeId) => {
     const existing = get().climbs[routeId];
     if (existing) return;
-    const loaded = await getClimbsForRoute(routeId);
+    let loaded = await getClimbsForRoute(routeId);
+
+    // Self-heal: if stored climbs are empty but the route has meaningful
+    // ascent, re-run detection. Catches routes whose climbs weren't persisted
+    // at import (or were wiped) — the global version gate in
+    // redetectClimbsIfNeeded won't retry individual routes once it's run.
+    if (loaded.length === 0) {
+      const { getRoute, getRoutePoints } = await import("@/db/database");
+      const route = await getRoute(routeId);
+      if (route && route.totalAscentMeters >= MIN_GAIN_M) {
+        const points = await getRoutePoints(routeId);
+        if (points.length >= 2) {
+          const { detectAndStoreClimbs } = await import("@/services/climbDetector");
+          loaded = await detectAndStoreClimbs(routeId, points);
+        }
+      }
+    }
+
     set((s) => ({
       climbs: { ...s.climbs, [routeId]: loaded },
     }));

@@ -27,6 +27,9 @@ const VARIANT_THRESHOLD_M = 5_000;
 interface CollectionState {
   collections: Collection[];
   activeStitchedCollection: StitchedCollection | null;
+  /** Fingerprint of the currently-stitched collection (id + selected segments + positions).
+   *  When the fingerprint matches, loadStitchedCollection can skip the re-stitch. */
+  activeStitchedFingerprint: string | null;
   assignedRouteIds: Set<string>;
   isLoading: boolean;
 
@@ -45,9 +48,23 @@ interface CollectionState {
   getCollectionSegmentsWithRoutes: (id: string) => Promise<CollectionSegmentWithRoute[]>;
 }
 
+function fingerprintSegments(
+  collectionId: string,
+  segments: CollectionSegment[],
+): string {
+  const selected = segments
+    .filter((s) => s.isSelected)
+    .slice()
+    .sort((a, b) => a.position - b.position)
+    .map((s) => `${s.position}:${s.routeId}`)
+    .join(",");
+  return `${collectionId}|${selected}`;
+}
+
 export const useCollectionStore = create<CollectionState>((set, get) => ({
   collections: [],
   activeStitchedCollection: null,
+  activeStitchedFingerprint: null,
   assignedRouteIds: new Set<string>(),
   isLoading: false,
 
@@ -58,12 +75,14 @@ export const useCollectionStore = create<CollectionState>((set, get) => ({
         getAllAssignedRouteIds(),
       ]);
       set({ collections, assignedRouteIds });
-      // If there's an active collection, load its stitched data
+      // If there's an active collection, load its stitched data.
+      // loadStitchedCollection is fingerprint-cached, so unchanged collections
+      // short-circuit without re-reading points.
       const active = collections.find((c) => c.isActive);
       if (active) {
         await get().loadStitchedCollection(active.id);
       } else {
-        set({ activeStitchedCollection: null });
+        set({ activeStitchedCollection: null, activeStitchedFingerprint: null });
       }
     } catch (e: any) {
       console.warn("Failed to load collections:", e);
@@ -86,7 +105,7 @@ export const useCollectionStore = create<CollectionState>((set, get) => ({
   deleteCollection: async (id) => {
     await dbDeleteCollection(id);
     if (get().activeStitchedCollection?.collectionId === id) {
-      set({ activeStitchedCollection: null });
+      set({ activeStitchedCollection: null, activeStitchedFingerprint: null });
     }
     await get().loadCollections();
   },
@@ -211,15 +230,26 @@ export const useCollectionStore = create<CollectionState>((set, get) => ({
     await setRoutesVisible(selectedRouteIds);
     // Reload route store to clear route isActive flags and pick up visibility changes
     const { useRouteStore } = await import("@/store/routeStore");
-    await useRouteStore.getState().loadRoutes();
+    await useRouteStore.getState().loadRoutesAndPoints();
     await get().loadCollections();
     set({ isLoading: false });
   },
 
   loadStitchedCollection: async (id) => {
     try {
+      // Check fingerprint first — if the selected segments haven't changed,
+      // skip the re-stitch entirely (avoids re-loading all segment points).
+      const segments = await getCollectionSegments(id);
+      const fingerprint = fingerprintSegments(id, segments);
+      if (
+        get().activeStitchedFingerprint === fingerprint &&
+        get().activeStitchedCollection?.collectionId === id
+      ) {
+        return;
+      }
+
       const stitched = await stitchCollection(id);
-      set({ activeStitchedCollection: stitched });
+      set({ activeStitchedCollection: stitched, activeStitchedFingerprint: fingerprint });
       // Inject stitched + per-segment points into routeStore so etaStore and RouteLayer work
       const { useRouteStore } = await import("@/store/routeStore");
       const current = { ...useRouteStore.getState().visibleRoutePoints };
@@ -233,7 +263,8 @@ export const useCollectionStore = create<CollectionState>((set, get) => ({
     }
   },
 
-  clearActiveStitched: () => set({ activeStitchedCollection: null }),
+  clearActiveStitched: () =>
+    set({ activeStitchedCollection: null, activeStitchedFingerprint: null }),
 
   getCollectionSegmentsWithRoutes: async (id) => {
     const segments = await getCollectionSegments(id);

@@ -31,7 +31,7 @@ export default function RoutesScreen() {
     routes,
     isLoading,
     error,
-    loadRoutes,
+    loadRouteMetadata,
     importRoute,
     deleteRoute,
     toggleVisibility,
@@ -50,10 +50,13 @@ export default function RoutesScreen() {
   const units = useSettingsStore((s) => s.units);
   const isRouteOfflineReady = useOfflineStore((s) => s.isRouteOfflineReady);
 
+  // Metadata-only refresh; _layout.tsx prefetches on app startup so this is a
+  // cheap no-op re-query in the common case. No point-fetch here — the routes
+  // list only renders metadata.
   useEffect(() => {
-    loadRoutes();
+    loadRouteMetadata();
     loadCollections();
-  }, [loadRoutes, loadCollections]);
+  }, [loadRouteMetadata, loadCollections]);
 
   useEffect(() => {
     if (error) {

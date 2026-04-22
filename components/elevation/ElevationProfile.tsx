@@ -1,6 +1,22 @@
-import React, { useMemo } from "react";
-import { View } from "react-native";
-import Svg, { Path, Circle, Defs, LinearGradient, Stop, Line, G, Rect, Text as SvgText } from "react-native-svg";
+import React, { useMemo, useRef, useState, useEffect, useCallback } from "react";
+import {
+  View,
+  ScrollView,
+  PanResponder,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
+} from "react-native";
+import Svg, {
+  Path,
+  Circle,
+  Defs,
+  LinearGradient,
+  Stop,
+  Line,
+  G,
+  Rect,
+  Text as SvgText,
+} from "react-native-svg";
 import { Text } from "@/components/ui/text";
 import { useThemeColors, gradientColor } from "@/theme";
 import { ELEVATION_STOPS } from "@/theme/elevation";
@@ -24,31 +40,43 @@ interface ElevationProfileProps {
   showLegend?: boolean;
   /** Offset added to X-axis labels so they show absolute route distance */
   distanceOffsetMeters?: number;
-  /** POIs to render as markers on the chart */
   pois?: POI[];
-  /** Called when a POI marker is tapped */
   onPOIPress?: (poi: POI) => void;
   /** Vertical boundary lines at segment junctions (for stitched collections) */
   segmentBoundaries?: SegmentBoundary[];
-  /** Climbs to render as colored shading regions */
   climbs?: Climb[];
 }
 
 const PADDING = { top: 16, right: 16, bottom: 28, left: 48 };
-const SAMPLE_INTERVAL_M = 100;
+const BASE_INTERVAL_M = 100;
+const MAX_DETAIL_SAMPLES = 8000;
+// Scrolling kicks in when fit-to-width would produce less than this many px/km.
+const MIN_PX_PER_KM = 2;
+const MAX_GRADIENT_STOPS = 120;
+const MAX_EXAGGERATION = 200;
+const OVERVIEW_HEIGHT = 52;
+const OVERVIEW_BAR_HEIGHT = 32;
+const OVERVIEW_PADDING_V = 4;
+const OVERVIEW_MAX_SAMPLES = 220;
+const OVERVIEW_MARKER_RADIUS = 3;
+const CURRENT_MARKER_RADIUS = 5;
 const POI_MARKER_RADIUS = 6;
 const POI_MARKER_OFFSET_Y = -14;
 const POI_COLLISION_MIN_PX = 12;
 const POI_COLLISION_STEP_PX = 16;
+const POI_HIT_SIZE = 48;
+const Y_LABEL_OFFSET_Y = 7;
+const X_LABEL_WIDTH = 48;
+const X_LABEL_HALF_WIDTH = X_LABEL_WIDTH / 2;
+// Target ~one X-axis tick per this many pixels of scrollable content.
+const X_TICK_TARGET_PX = 120;
 
-/** Resample route points at fixed distance intervals */
-function resampleAtInterval(
-  points: RoutePoint[],
-  intervalM: number,
-): { distance: number; elevation: number }[] {
+type Sample = { distance: number; elevation: number };
+
+function resampleAtInterval(points: RoutePoint[], intervalM: number): Sample[] {
   if (points.length === 0) return [];
 
-  const result: { distance: number; elevation: number }[] = [];
+  const result: Sample[] = [];
   const totalDist = points[points.length - 1].distanceFromStartMeters;
 
   let ptIdx = 0;
@@ -81,11 +109,7 @@ function resampleAtInterval(
   return result;
 }
 
-/** Interpolate elevation at a given distance using evenly-spaced resampled data (O(1)) */
-function interpolateElevation(
-  samples: { distance: number; elevation: number }[],
-  distance: number,
-): number {
+function interpolateElevation(samples: Sample[], distance: number): number {
   if (samples.length === 0) return 0;
   const first = samples[0].distance;
   const last = samples[samples.length - 1].distance;
@@ -101,21 +125,36 @@ function interpolateElevation(
   return samples[i].elevation + t * (samples[i + 1].elevation - samples[i].elevation);
 }
 
-/** Pick round-number elevation ticks covering the actual data range (not padded viewport). */
+/** First index in `samples` with distance >= target. Binary search (O(log n)). */
+function findFirstSampleAtOrAfter(samples: Sample[], target: number): number {
+  let lo = 0;
+  let hi = samples.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (samples[mid].distance < target) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
+/** Round-number spacing (1/2/5 × 10ⁿ) that yields ~targetCount steps over `range`. */
+function niceStep(range: number, targetCount: number): number {
+  const raw = range / targetCount;
+  const pow = Math.pow(10, Math.floor(Math.log10(raw)));
+  const norm = raw / pow;
+  const mult = norm >= 5 ? 5 : norm >= 2 ? 2 : 1;
+  return mult * pow;
+}
+
+/** Elevation ticks covering the actual data range (not padded viewport). */
 function buildYLabels(yMin: number, yMax: number, dataMin: number, dataMax: number): number[] {
   const lo = Math.max(0, yMin, Math.floor(dataMin));
   const hi = Math.min(yMax, dataMax);
   const range = hi - lo;
   if (range <= 0) return [Math.round(lo)];
 
-  const raw = range / 3;
-  const pow = Math.pow(10, Math.floor(Math.log10(raw)));
-  const norm = raw / pow;
-  const mult = norm >= 5 ? 5 : norm >= 2 ? 2 : 1;
-  const step = mult * pow;
-
+  const step = niceStep(range, 3);
   const first = Math.ceil(lo / step) * step;
-  // One tick above the data for headroom, as long as it fits in the viewport
   const lastCandidate = Math.ceil(hi / step) * step;
   const last = lastCandidate <= yMax + 1e-6 ? lastCandidate : Math.floor(hi / step) * step;
   const ticks: number[] = [];
@@ -123,6 +162,29 @@ function buildYLabels(yMin: number, yMax: number, dataMin: number, dataMax: numb
 
   if (yMin <= 0 && (ticks.length === 0 || ticks[0] !== 0)) ticks.unshift(0);
   return ticks;
+}
+
+function buildXTicks(totalD: number, targetCount: number): number[] {
+  if (totalD <= 0 || targetCount < 1) return [0];
+  const step = niceStep(totalD, targetCount);
+  const ticks: number[] = [];
+  for (let v = 0; v <= totalD + 1e-6; v += step) ticks.push(v);
+  if (ticks[ticks.length - 1] < totalD - step * 0.3) ticks.push(totalD);
+  return ticks;
+}
+
+function buildLinePath(
+  samples: Sample[],
+  xs: (d: number) => number,
+  ys: (e: number) => number,
+): string {
+  let d = "";
+  for (let i = 0; i < samples.length; i++) {
+    const x = xs(samples[i].distance);
+    const y = ys(samples[i].elevation);
+    d += i === 0 ? `M${x},${y}` : ` L${x},${y}`;
+  }
+  return d;
 }
 
 interface POIMarkerPos {
@@ -148,148 +210,133 @@ export default function ElevationProfile({
   climbs,
 }: ElevationProfileProps) {
   const colors = useThemeColors();
-  const chartWidth = width - PADDING.left - PADDING.right;
-  const chartHeight = height - PADDING.top - PADDING.bottom;
 
-  const { linePath, fillPath, gradientStops, minElev, maxElev, dataMin, dataMax, totalDist, xScale, yScale, samples } =
-    useMemo(() => {
-      if (points.length === 0) {
-        return {
-          linePath: "",
-          fillPath: "",
-          gradientStops: [] as { offset: string; color: string }[],
-          minElev: 0,
-          maxElev: 100,
-          dataMin: 0,
-          dataMax: 100,
-          totalDist: 0,
-          xScale: (_d: number) => 0,
-          yScale: (_e: number) => 0,
-          samples: [] as { distance: number; elevation: number }[],
-        };
-      }
+  const totalMeters =
+    points.length > 0 ? points[points.length - 1].distanceFromStartMeters : 0;
+  const totalKm = totalMeters / 1000;
 
-      const smp = resampleAtInterval(points, SAMPLE_INTERVAL_M);
-      if (smp.length < 2) {
-        return {
-          linePath: "",
-          fillPath: "",
-          gradientStops: [],
-          minElev: 0,
-          maxElev: 100,
-          dataMin: 0,
-          dataMax: 100,
-          totalDist: 0,
-          xScale: (_d: number) => 0,
-          yScale: (_e: number) => 0,
-          samples: smp,
-        };
-      }
+  const fitInnerWidth = Math.max(0, width - PADDING.left - PADDING.right);
+  const desiredScrollInnerWidth = totalKm * MIN_PX_PER_KM;
+  const isScrollable =
+    totalMeters > 0 && desiredScrollInnerWidth > fitInnerWidth + 0.5;
+  const innerWidth = isScrollable
+    ? Math.ceil(desiredScrollInnerWidth)
+    : fitInnerWidth;
 
-      const elevs = smp.map((s) => s.elevation);
-      const minE = Math.min(...elevs);
-      const maxE = Math.max(...elevs);
-      const rawRange = maxE - minE || 100;
-      const totalD = smp[smp.length - 1].distance;
-      // Scale min vertical range to horizontal distance (~5%), clamped to [50, 200]
-      const minRange = Math.min(200, Math.max(50, totalD * 0.05));
-      // Cap vertical exaggeration so long routes in tall charts don't make hills look like cliffs
-      const MAX_EXAGGERATION = 200;
-      const horizMPerPx = chartWidth > 0 ? totalD / chartWidth : 0;
-      const minRangeForAspect = (chartHeight * horizMPerPx) / MAX_EXAGGERATION;
-      const elevRange = Math.max(rawRange, minRange, minRangeForAspect);
-      const mid = (minE + maxE) / 2;
-      const paddedRange = elevRange * 1.2;
-      let yMin = mid - paddedRange / 2;
-      let yMax = mid + paddedRange / 2;
-      // If padding would push below sea level but actual data isn't, anchor 0 to the bottom
-      if (yMin < 0 && minE >= 0) {
-        yMax = paddedRange;
-        yMin = 0;
-      }
+  const overviewShown = isScrollable;
+  const overviewHeight = overviewShown ? OVERVIEW_HEIGHT : 0;
+  const legendHeight = showLegend ? 18 : 0;
+  const mainChartHeight = Math.max(0, height - overviewHeight - legendHeight);
+  const chartPlotHeight = Math.max(0, mainChartHeight - PADDING.top - PADDING.bottom);
+  const viewportWidth = Math.max(0, width - PADDING.left);
+  const axisY = PADDING.top + chartPlotHeight;
 
-      const xs = (d: number) =>
-        PADDING.left + (totalD > 0 ? (d / totalD) * chartWidth : 0);
-      const ys = (e: number) =>
-        PADDING.top + chartHeight - ((e - yMin) / (yMax - yMin)) * chartHeight;
+  const detailInterval = useMemo(() => {
+    if (!isScrollable) return BASE_INTERVAL_M;
+    if (totalMeters === 0 || innerWidth === 0) return BASE_INTERVAL_M;
+    // ~2 samples per content pixel, with a hard cap on total samples.
+    const byDensity = totalMeters / Math.max(1, innerWidth * 2);
+    const byCap = totalMeters / MAX_DETAIL_SAMPLES;
+    return Math.max(BASE_INTERVAL_M, byDensity, byCap);
+  }, [isScrollable, totalMeters, innerWidth]);
 
-      // Compute gradient at each sample point
-      const grads: number[] = [];
-      for (let i = 0; i < smp.length; i++) {
-        if (i === 0) {
-          const dist = smp[1].distance - smp[0].distance;
-          const elevDiff = smp[1].elevation - smp[0].elevation;
-          grads.push(dist > 0 ? (elevDiff / dist) * 100 : 0);
-        } else if (i === smp.length - 1) {
-          const dist = smp[i].distance - smp[i - 1].distance;
-          const elevDiff = smp[i].elevation - smp[i - 1].elevation;
-          grads.push(dist > 0 ? (elevDiff / dist) * 100 : 0);
-        } else {
-          const dist = smp[i + 1].distance - smp[i - 1].distance;
-          const elevDiff = smp[i + 1].elevation - smp[i - 1].elevation;
-          grads.push(dist > 0 ? (elevDiff / dist) * 100 : 0);
-        }
-      }
+  const samples = useMemo(
+    () => resampleAtInterval(points, detailInterval),
+    [points, detailInterval],
+  );
 
-      // Build gradient stops
-      const stops: { offset: string; color: string }[] = [];
-      for (let i = 0; i < smp.length; i++) {
-        const fraction = totalD > 0 ? smp[i].distance / totalD : 0;
-        stops.push({
-          offset: fraction.toFixed(4),
-          color: gradientColor(grads[i]),
-        });
-      }
+  const overviewInterval = useMemo(() => {
+    if (!overviewShown || totalMeters === 0) return BASE_INTERVAL_M;
+    return Math.max(BASE_INTERVAL_M, totalMeters / OVERVIEW_MAX_SAMPLES);
+  }, [overviewShown, totalMeters]);
 
-      // Build line path
-      let lineD = "";
-      for (let i = 0; i < smp.length; i++) {
-        const x = xs(smp[i].distance);
-        const y = ys(smp[i].elevation);
-        lineD += i === 0 ? `M${x},${y}` : ` L${x},${y}`;
-      }
+  const overviewSamples = useMemo(
+    () => (overviewShown ? resampleAtInterval(points, overviewInterval) : []),
+    [overviewShown, points, overviewInterval],
+  );
 
-      // Fill path
-      const fillD =
-        lineD +
-        ` L${xs(totalD)},${PADDING.top + chartHeight}` +
-        ` L${xs(0)},${PADDING.top + chartHeight} Z`;
+  const { yMin, yMax, dataMin, dataMax } = useMemo(() => {
+    if (samples.length < 2) {
+      return { yMin: 0, yMax: 100, dataMin: 0, dataMax: 100 };
+    }
+    let minE = Infinity;
+    let maxE = -Infinity;
+    for (const s of samples) {
+      if (s.elevation < minE) minE = s.elevation;
+      if (s.elevation > maxE) maxE = s.elevation;
+    }
+    const rawRange = maxE - minE || 100;
+    const totalD = samples[samples.length - 1].distance;
+    const minRange = Math.min(200, Math.max(50, totalD * 0.05));
+    const horizMPerPx = innerWidth > 0 ? totalD / innerWidth : 0;
+    // Cap vertical exaggeration so long routes in tall charts don't look like cliffs.
+    const minRangeForAspect = (chartPlotHeight * horizMPerPx) / MAX_EXAGGERATION;
+    const elevRange = Math.max(rawRange, minRange, minRangeForAspect);
+    const mid = (minE + maxE) / 2;
+    const paddedRange = elevRange * 1.2;
+    let yn = mid - paddedRange / 2;
+    let yx = mid + paddedRange / 2;
+    // If padding would push below sea level but actual data isn't, anchor 0 to bottom.
+    if (yn < 0 && minE >= 0) {
+      yx = paddedRange;
+      yn = 0;
+    }
+    return { yMin: yn, yMax: yx, dataMin: minE, dataMax: maxE };
+  }, [samples, innerWidth, chartPlotHeight]);
 
+  const xScale = useCallback(
+    (d: number) => (totalMeters > 0 ? (d / totalMeters) * innerWidth : 0),
+    [totalMeters, innerWidth],
+  );
+  const yScale = useCallback(
+    (e: number) =>
+      PADDING.top +
+      chartPlotHeight -
+      ((e - yMin) / Math.max(1e-6, yMax - yMin)) * chartPlotHeight,
+    [chartPlotHeight, yMin, yMax],
+  );
+
+  const { linePath, fillPath, gradientStops } = useMemo(() => {
+    if (samples.length < 2) {
       return {
-        linePath: lineD,
-        fillPath: fillD,
-        gradientStops: stops,
-        minElev: yMin,
-        maxElev: yMax,
-        dataMin: minE,
-        dataMax: maxE,
-        totalDist: totalD,
-        xScale: xs,
-        yScale: ys,
-        samples: smp,
+        linePath: "",
+        fillPath: "",
+        gradientStops: [] as { offset: string; color: string }[],
       };
-    }, [points, chartWidth, chartHeight]);
+    }
+    const lineD = buildLinePath(samples, xScale, yScale);
+    const fillD =
+      lineD + ` L${xScale(totalMeters)},${axisY} L${xScale(0)},${axisY} Z`;
 
-  const currentPos = useMemo(() => {
-    if (currentPointIndex == null || currentPointIndex < 0 || currentPointIndex >= points.length)
-      return null;
-    const p = points[currentPointIndex];
-    return {
-      x: xScale(p.distanceFromStartMeters),
-      y: yScale(p.elevationMeters ?? 0),
-    };
-  }, [currentPointIndex, points, xScale, yScale]);
+    // Decimated gradient stops, smoothed by step interval.
+    const n = samples.length;
+    const step = Math.max(1, Math.floor(n / MAX_GRADIENT_STOPS));
+    const stops: { offset: string; color: string }[] = [];
+    for (let i = 0; i < n; i += step) {
+      const prev = samples[Math.max(0, i - step)];
+      const cur = samples[i];
+      const dist = cur.distance - prev.distance;
+      const grad = dist > 0 ? ((cur.elevation - prev.elevation) / dist) * 100 : 0;
+      const fraction = totalMeters > 0 ? cur.distance / totalMeters : 0;
+      stops.push({ offset: Math.min(1, fraction).toFixed(4), color: gradientColor(grad) });
+    }
+    if (stops.length === 0 || stops[stops.length - 1].offset !== "1.0000") {
+      const last = samples[n - 1];
+      const prev = samples[Math.max(0, n - 1 - step)];
+      const dist = last.distance - prev.distance;
+      const grad = dist > 0 ? ((last.elevation - prev.elevation) / dist) * 100 : 0;
+      stops.push({ offset: "1.0000", color: gradientColor(grad) });
+    }
+    return { linePath: lineD, fillPath: fillD, gradientStops: stops };
+  }, [samples, xScale, yScale, axisY, totalMeters]);
 
-  // Compute POI marker positions with collision avoidance
-  const poiMarkers = useMemo(() => {
-    if (!pois || pois.length === 0 || samples.length === 0 || totalDist === 0) return [];
+  const poiMarkers = useMemo<POIMarkerPos[]>(() => {
+    if (!pois || pois.length === 0 || samples.length === 0 || totalMeters === 0) return [];
 
     const markers: POIMarkerPos[] = [];
-
     for (const poi of pois) {
-      // Convert POI's absolute distanceAlongRouteMeters to local chart distance
       const localDist = poi.distanceAlongRouteMeters - distanceOffsetMeters;
-      if (localDist < 0 || localDist > totalDist) continue;
+      if (localDist < 0 || localDist > totalMeters) continue;
 
       const x = xScale(localDist);
       const elev = interpolateElevation(samples, localDist);
@@ -309,57 +356,316 @@ export default function ElevationProfile({
       });
     }
 
-    // Simple collision avoidance: if markers overlap horizontally, offset upward
     markers.sort((a, b) => a.x - b.x);
     for (let i = 1; i < markers.length; i++) {
       if (markers[i].x - markers[i - 1].x < POI_COLLISION_MIN_PX) {
         markers[i].y = markers[i - 1].y - POI_COLLISION_STEP_PX;
       }
     }
-
-    // Clamp to chart area
     for (const m of markers) {
       m.y = Math.max(PADDING.top + POI_MARKER_RADIUS + 2, m.y);
     }
-
     return markers;
-  }, [pois, samples, totalDist, distanceOffsetMeters, xScale, yScale, colors]);
+  }, [pois, samples, totalMeters, distanceOffsetMeters, xScale, yScale, colors]);
 
-  // Compute climb shading regions
   const climbRegions = useMemo(() => {
-    if (!climbs || climbs.length === 0 || samples.length === 0 || totalDist === 0) return [];
+    if (!climbs || climbs.length === 0 || samples.length === 0 || totalMeters === 0) return [];
 
-    return climbs.map((climb) => {
+    const regions: { id: string; color: string; fillPath: string }[] = [];
+    for (const climb of climbs) {
       const localStart = climb.startDistanceMeters - distanceOffsetMeters;
       const localEnd = climb.endDistanceMeters - distanceOffsetMeters;
       const visStart = Math.max(0, localStart);
-      const visEnd = Math.min(totalDist, localEnd);
-      if (visStart >= visEnd) return null;
+      const visEnd = Math.min(totalMeters, localEnd);
+      if (visStart >= visEnd) continue;
 
-      const color = climbDifficultyColor(climb.difficultyScore);
-
-      // Build fill path: trace elevation line from visStart to visEnd, then close to X-axis
-      let d = "";
       const startX = xScale(visStart);
       const startElev = interpolateElevation(samples, visStart);
-      d = `M${startX},${yScale(startElev)}`;
+      let d = `M${startX},${yScale(startElev)}`;
 
-      for (const s of samples) {
+      const startIdx = findFirstSampleAtOrAfter(samples, visStart);
+      const endIdx = findFirstSampleAtOrAfter(samples, visEnd);
+      for (let i = startIdx; i < endIdx; i++) {
+        const s = samples[i];
         if (s.distance <= visStart) continue;
-        if (s.distance >= visEnd) break;
         d += ` L${xScale(s.distance)},${yScale(s.elevation)}`;
       }
 
       const endX = xScale(visEnd);
       const endElev = interpolateElevation(samples, visEnd);
       d += ` L${endX},${yScale(endElev)}`;
-
-      const axisY = PADDING.top + chartHeight;
       d += ` L${endX},${axisY} L${startX},${axisY} Z`;
 
-      return { id: climb.id, color, fillPath: d };
-    }).filter(Boolean) as { id: string; color: string; fillPath: string }[];
-  }, [climbs, samples, totalDist, distanceOffsetMeters, xScale, yScale, chartHeight]);
+      regions.push({
+        id: climb.id,
+        color: climbDifficultyColor(climb.difficultyScore),
+        fillPath: d,
+      });
+    }
+    return regions;
+  }, [climbs, samples, totalMeters, distanceOffsetMeters, xScale, yScale, axisY]);
+
+  const currentPos = useMemo(() => {
+    if (currentPointIndex == null || currentPointIndex < 0 || currentPointIndex >= points.length)
+      return null;
+    const p = points[currentPointIndex];
+    return {
+      x: xScale(p.distanceFromStartMeters),
+      y: yScale(p.elevationMeters ?? 0),
+    };
+  }, [currentPointIndex, points, xScale, yScale]);
+
+  const scrollRef = useRef<ScrollView | null>(null);
+  const [scrollX, setScrollX] = useState(0);
+
+  const onScroll = useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      setScrollX(e.nativeEvent.contentOffset.x);
+    },
+    [],
+  );
+
+  const didAutoScroll = useRef(false);
+  useEffect(() => {
+    if (!isScrollable) return;
+    if (didAutoScroll.current) return;
+    if (innerWidth <= viewportWidth) return;
+    didAutoScroll.current = true;
+    if (currentPos) {
+      const target = Math.max(0, Math.min(innerWidth - viewportWidth, currentPos.x - viewportWidth / 2));
+      scrollRef.current?.scrollTo({ x: target, animated: false });
+      setScrollX(target);
+    }
+  }, [isScrollable, currentPos, innerWidth, viewportWidth]);
+
+  const overviewWidth = width;
+  const overviewInnerWidth = Math.max(0, overviewWidth - PADDING.left - PADDING.right);
+  const overviewPlotHeight = OVERVIEW_BAR_HEIGHT - OVERVIEW_PADDING_V * 2;
+
+  const { overviewLinePath, overviewFillPath } = useMemo(() => {
+    if (!overviewShown || overviewSamples.length < 2 || overviewInnerWidth === 0) {
+      return { overviewLinePath: "", overviewFillPath: "" };
+    }
+    let minE = Infinity;
+    let maxE = -Infinity;
+    for (const s of overviewSamples) {
+      if (s.elevation < minE) minE = s.elevation;
+      if (s.elevation > maxE) maxE = s.elevation;
+    }
+    const range = maxE - minE || 100;
+    const pad = range * 0.1;
+    const oyMin = minE - pad;
+    const oyMax = maxE + pad;
+    const oxs = (d: number) =>
+      PADDING.left + (totalMeters > 0 ? (d / totalMeters) * overviewInnerWidth : 0);
+    const oys = (e: number) =>
+      OVERVIEW_PADDING_V +
+      overviewPlotHeight -
+      ((e - oyMin) / Math.max(1e-6, oyMax - oyMin)) * overviewPlotHeight;
+
+    const d = buildLinePath(overviewSamples, oxs, oys);
+    const ay = OVERVIEW_PADDING_V + overviewPlotHeight;
+    const fillD = d + ` L${oxs(totalMeters)},${ay} L${oxs(0)},${ay} Z`;
+    return { overviewLinePath: d, overviewFillPath: fillD };
+  }, [overviewShown, overviewSamples, overviewInnerWidth, overviewPlotHeight, totalMeters]);
+
+  const seekFromOverviewX = useCallback(
+    (touchX: number) => {
+      if (!overviewShown) return;
+      const px = Math.max(0, Math.min(overviewInnerWidth, touchX - PADDING.left));
+      const frac = overviewInnerWidth > 0 ? px / overviewInnerWidth : 0;
+      const targetContentX = frac * innerWidth;
+      const target = Math.max(0, Math.min(innerWidth - viewportWidth, targetContentX - viewportWidth / 2));
+      scrollRef.current?.scrollTo({ x: target, animated: false });
+      setScrollX(target);
+    },
+    [overviewShown, overviewInnerWidth, innerWidth, viewportWidth],
+  );
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: (e) => seekFromOverviewX(e.nativeEvent.locationX),
+      onPanResponderMove: (e) => seekFromOverviewX(e.nativeEvent.locationX),
+    }),
+  ).current;
+
+  const viewportIndicator = useMemo(() => {
+    if (!overviewShown || innerWidth === 0) return null;
+    const fracStart = scrollX / innerWidth;
+    const fracEnd = Math.min(1, (scrollX + viewportWidth) / innerWidth);
+    const x = PADDING.left + fracStart * overviewInnerWidth;
+    const w = Math.max(4, (fracEnd - fracStart) * overviewInnerWidth);
+    return { x, w };
+  }, [overviewShown, innerWidth, scrollX, viewportWidth, overviewInnerWidth]);
+
+  const overviewCurrentX = useMemo(() => {
+    if (!overviewShown || !currentPos || totalMeters === 0 || currentPointIndex == null) return null;
+    const frac = points[currentPointIndex].distanceFromStartMeters / totalMeters;
+    return PADDING.left + frac * overviewInnerWidth;
+  }, [overviewShown, currentPos, totalMeters, currentPointIndex, points, overviewInnerWidth]);
+
+  const yLabels = useMemo(
+    () =>
+      buildYLabels(yMin, yMax, dataMin, dataMax).map((value) => ({
+        value,
+        y: yScale(value),
+      })),
+    [yMin, yMax, dataMin, dataMax, yScale],
+  );
+
+  const xLabels = useMemo(() => {
+    if (totalMeters <= 0) return [];
+    if (!isScrollable) {
+      return [0, totalMeters / 2, totalMeters].map((d) => ({ value: d, x: xScale(d) }));
+    }
+    const target = Math.max(3, Math.round(innerWidth / X_TICK_TARGET_PX));
+    return buildXTicks(totalMeters, target).map((d) => ({ value: d, x: xScale(d) }));
+  }, [totalMeters, isScrollable, innerWidth, xScale]);
+
+  // Memoized SVG tree — avoids re-rendering thousands of nodes on every scroll
+  // frame. None of its deps change while the user pans the detail chart.
+  const detailSvg = useMemo(
+    () => (
+      <Svg width={innerWidth} height={mainChartHeight}>
+        <Defs>
+          <LinearGradient id="elevFill" x1="0" y1="0" x2="0" y2="1">
+            <Stop offset="0" stopColor={colors.textTertiary} stopOpacity="0.15" />
+            <Stop offset="1" stopColor={colors.textTertiary} stopOpacity="0.03" />
+          </LinearGradient>
+          <LinearGradient id="lineGrad" x1="0" y1="0" x2="1" y2="0">
+            {gradientStops.map((s, i) => (
+              <Stop key={i} offset={s.offset} stopColor={s.color} />
+            ))}
+          </LinearGradient>
+        </Defs>
+
+        {yLabels.map((l, i) => (
+          <Line
+            key={`grid-${i}`}
+            x1={0}
+            y1={l.y}
+            x2={innerWidth}
+            y2={l.y}
+            stroke={colors.border}
+            strokeWidth={0.5}
+          />
+        ))}
+
+        <Path d={fillPath} fill="url(#elevFill)" />
+
+        {climbRegions.map((region) => (
+          <Path
+            key={`climb-${region.id}`}
+            d={region.fillPath}
+            fill={region.color}
+            opacity={0.2}
+          />
+        ))}
+
+        <Path
+          d={linePath}
+          stroke="url(#lineGrad)"
+          strokeWidth={2.5}
+          fill="none"
+          strokeLinejoin="round"
+        />
+
+        {currentPos && (
+          <>
+            <Line
+              x1={currentPos.x}
+              y1={PADDING.top}
+              x2={currentPos.x}
+              y2={axisY}
+              stroke={colors.accent}
+              strokeWidth={1}
+              strokeDasharray="4,4"
+            />
+            <Circle
+              cx={currentPos.x}
+              cy={currentPos.y}
+              r={CURRENT_MARKER_RADIUS}
+              fill={colors.accent}
+            />
+          </>
+        )}
+
+        {segmentBoundaries?.map((b, i) => {
+          const localDist = b.distanceMeters - distanceOffsetMeters;
+          if (localDist <= 0 || localDist >= totalMeters) return null;
+          const bx = xScale(localDist);
+          return (
+            <Line
+              key={`seg-boundary-${i}`}
+              x1={bx}
+              y1={PADDING.top}
+              x2={bx}
+              y2={axisY}
+              stroke={colors.border}
+              strokeWidth={1}
+              strokeDasharray="3,3"
+              opacity={0.6}
+            />
+          );
+        })}
+
+        {poiMarkers.map((m) => (
+          <G key={m.poi.id} onPress={onPOIPress ? () => onPOIPress(m.poi) : undefined}>
+            {m.ohRingColor && (
+              <Circle
+                cx={m.x}
+                cy={m.y}
+                r={POI_MARKER_RADIUS + 2.5}
+                fill="none"
+                stroke={m.ohRingColor}
+                strokeWidth={2}
+              />
+            )}
+            <Circle cx={m.x} cy={m.y} r={POI_MARKER_RADIUS} fill={m.color} />
+            <SvgText
+              x={m.x}
+              y={m.y + 3.5}
+              fontSize={9}
+              fontWeight="bold"
+              fill="white"
+              textAnchor="middle"
+            >
+              {m.letter}
+            </SvgText>
+            {onPOIPress && (
+              <Rect
+                x={m.x - POI_HIT_SIZE / 2}
+                y={m.y - POI_HIT_SIZE / 2}
+                width={POI_HIT_SIZE}
+                height={POI_HIT_SIZE}
+                fill="transparent"
+              />
+            )}
+          </G>
+        ))}
+      </Svg>
+    ),
+    [
+      innerWidth,
+      mainChartHeight,
+      colors,
+      gradientStops,
+      yLabels,
+      fillPath,
+      climbRegions,
+      linePath,
+      currentPos,
+      axisY,
+      segmentBoundaries,
+      distanceOffsetMeters,
+      totalMeters,
+      xScale,
+      poiMarkers,
+      onPOIPress,
+    ],
+  );
 
   if (points.length === 0) {
     return (
@@ -371,180 +677,128 @@ export default function ElevationProfile({
     );
   }
 
-  const yLabels = buildYLabels(minElev, maxElev, dataMin, dataMax).map((value) => ({
-    value,
-    y: yScale(value),
-  }));
-
-  const xLabels = [0, totalDist / 2, totalDist].map((d) => ({
-    value: d,
-    x: xScale(d),
-  }));
-
-  return (
-    <View className="bg-surface" style={{ width, height }}>
-      <Svg width={width} height={height}>
-        <Defs>
-          <LinearGradient id="elevFill" x1="0" y1="0" x2="0" y2="1">
-            <Stop offset="0" stopColor={colors.textTertiary} stopOpacity="0.15" />
-            <Stop offset="1" stopColor={colors.textTertiary} stopOpacity="0.03" />
-          </LinearGradient>
-          {/* Horizontal gradient matching terrain steepness */}
-          <LinearGradient id="lineGrad" x1="0" y1="0" x2="1" y2="0">
-            {gradientStops.map((s, i) => (
-              <Stop key={i} offset={s.offset} stopColor={s.color} />
-            ))}
-          </LinearGradient>
-        </Defs>
-
-        {/* Grid lines */}
-        {yLabels.map((l, i) => (
-          <Line
-            key={`grid-${i}`}
-            x1={PADDING.left}
-            y1={l.y}
-            x2={width - PADDING.right}
-            y2={l.y}
-            stroke={colors.border}
-            strokeWidth={0.5}
-          />
-        ))}
-
-        {/* Fill area */}
-        <Path d={fillPath} fill="url(#elevFill)" />
-
-        {/* Climb shading */}
-        {climbRegions.map((region) => (
-          <Path
-            key={`climb-${region.id}`}
-            d={region.fillPath}
-            fill={region.color}
-            opacity={0.2}
-          />
-        ))}
-
-        {/* Single path with blended gradient stroke */}
-        <Path
-          d={linePath}
-          stroke="url(#lineGrad)"
-          strokeWidth={2.5}
-          fill="none"
-          strokeLinejoin="round"
-        />
-
-        {/* Current position marker */}
-        {currentPos && (
-          <>
-            <Line
-              x1={currentPos.x}
-              y1={PADDING.top}
-              x2={currentPos.x}
-              y2={PADDING.top + chartHeight}
-              stroke={colors.accent}
-              strokeWidth={1}
-              strokeDasharray="4,4"
-            />
-            <Circle cx={currentPos.x} cy={currentPos.y} r={5} fill={colors.accent} />
-          </>
-        )}
-
-        {/* Segment boundary lines */}
-        {segmentBoundaries?.map((b, i) => {
-          const localDist = b.distanceMeters - distanceOffsetMeters;
-          if (localDist <= 0 || localDist >= totalDist) return null;
-          const bx = xScale(localDist);
-          return (
-            <Line
-              key={`seg-boundary-${i}`}
-              x1={bx}
-              y1={PADDING.top}
-              x2={bx}
-              y2={PADDING.top + chartHeight}
-              stroke={colors.border}
-              strokeWidth={1}
-              strokeDasharray="3,3"
-              opacity={0.6}
-            />
-          );
-        })}
-
-        {/* POI markers */}
-        {poiMarkers.map((m) => (
-          <G
-            key={m.poi.id}
-            onPress={onPOIPress ? () => onPOIPress(m.poi) : undefined}
-          >
-            {/* Opening hours ring */}
-            {m.ohRingColor && (
-              <Circle
-                cx={m.x}
-                cy={m.y}
-                r={POI_MARKER_RADIUS + 2.5}
-                fill="none"
-                stroke={m.ohRingColor}
-                strokeWidth={2}
-              />
-            )}
-            {/* Category circle */}
-            <Circle
-              cx={m.x}
-              cy={m.y}
-              r={POI_MARKER_RADIUS}
-              fill={m.color}
-            />
-            {/* Category letter */}
-            <SvgText
-              x={m.x}
-              y={m.y + 3.5}
-              fontSize={9}
-              fontWeight="bold"
-              fill="white"
-              textAnchor="middle"
-            >
-              {m.letter}
-            </SvgText>
-            {/* Invisible touch target */}
-            {onPOIPress && (
-              <Rect
-                x={m.x - 24}
-                y={m.y - 24}
-                width={48}
-                height={48}
-                fill="transparent"
-              />
-            )}
-          </G>
-        ))}
-      </Svg>
-
-      {/* Y-axis labels */}
-      {yLabels.map((l, i) => (
-        <Text
-          key={`yl-${i}`}
-          className="font-barlow-sc-medium text-[10px] text-muted-foreground"
-          style={{ position: "absolute", left: 2, top: l.y - 7 }}
-        >
-          {formatElevation(l.value, units)}
-        </Text>
-      ))}
-
-      {/* X-axis labels */}
+  const detailBody = (
+    <View style={{ width: innerWidth, height: mainChartHeight }}>
+      {detailSvg}
       {xLabels.map((l, i) => (
         <Text
           key={`xl-${i}`}
           className="font-barlow-sc-medium text-[10px] text-muted-foreground text-center"
-          style={{ position: "absolute", left: l.x - 20, bottom: 4, width: 40 }}
+          style={{
+            position: "absolute",
+            left: l.x - X_LABEL_HALF_WIDTH,
+            bottom: 4,
+            width: X_LABEL_WIDTH,
+          }}
         >
           {formatDistance(l.value + distanceOffsetMeters, units)}
         </Text>
       ))}
+    </View>
+  );
 
-      {/* Gradient legend */}
+  return (
+    <View className="bg-surface" style={{ width, height }}>
+      {overviewShown && (
+        <View
+          style={{ height: OVERVIEW_HEIGHT, width: overviewWidth }}
+          {...panResponder.panHandlers}
+        >
+          <Svg width={overviewWidth} height={OVERVIEW_BAR_HEIGHT}>
+            <Defs>
+              <LinearGradient id="ovFill" x1="0" y1="0" x2="0" y2="1">
+                <Stop offset="0" stopColor={colors.textTertiary} stopOpacity="0.25" />
+                <Stop offset="1" stopColor={colors.textTertiary} stopOpacity="0.05" />
+              </LinearGradient>
+            </Defs>
+            <Path d={overviewFillPath} fill="url(#ovFill)" />
+            <Path
+              d={overviewLinePath}
+              stroke={colors.textTertiary}
+              strokeWidth={1}
+              fill="none"
+            />
+            {viewportIndicator && (
+              <Rect
+                x={viewportIndicator.x}
+                y={OVERVIEW_PADDING_V - 2}
+                width={viewportIndicator.w}
+                height={overviewPlotHeight + 4}
+                fill={colors.accent}
+                fillOpacity={0.18}
+                stroke={colors.accent}
+                strokeWidth={1}
+                rx={2}
+              />
+            )}
+            {overviewCurrentX != null && (
+              <Circle
+                cx={overviewCurrentX}
+                cy={OVERVIEW_PADDING_V + overviewPlotHeight / 2}
+                r={OVERVIEW_MARKER_RADIUS}
+                fill={colors.accent}
+              />
+            )}
+          </Svg>
+          <View
+            style={{
+              position: "absolute",
+              left: PADDING.left,
+              right: PADDING.right,
+              top: OVERVIEW_BAR_HEIGHT + 2,
+              flexDirection: "row",
+              justifyContent: "space-between",
+            }}
+          >
+            <Text className="font-barlow-sc-medium text-[10px] text-muted-foreground">
+              {formatDistance(distanceOffsetMeters, units)}
+            </Text>
+            <Text className="font-barlow-sc-medium text-[10px] text-muted-foreground">
+              {formatDistance(distanceOffsetMeters + totalMeters, units)}
+            </Text>
+          </View>
+        </View>
+      )}
+
+      <View style={{ flexDirection: "row", height: mainChartHeight }}>
+        <View style={{ width: PADDING.left, height: mainChartHeight }}>
+          {yLabels.map((l, i) => (
+            <Text
+              key={`yl-${i}`}
+              className="font-barlow-sc-medium text-[10px] text-muted-foreground"
+              style={{ position: "absolute", left: 2, top: l.y - Y_LABEL_OFFSET_Y }}
+            >
+              {formatElevation(l.value, units)}
+            </Text>
+          ))}
+        </View>
+
+        {isScrollable ? (
+          <ScrollView
+            ref={scrollRef}
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            scrollEventThrottle={16}
+            onScroll={onScroll}
+            bounces={false}
+            overScrollMode="never"
+            style={{ width: viewportWidth }}
+          >
+            {detailBody}
+          </ScrollView>
+        ) : (
+          <View style={{ width: viewportWidth, height: mainChartHeight }}>{detailBody}</View>
+        )}
+      </View>
+
       {showLegend && (
         <View className="flex-row items-center justify-center pb-1 gap-1">
           {ELEVATION_STOPS.map((stop) => (
             <React.Fragment key={stop.label}>
-              <View className="w-2 h-2 rounded-full ml-1" style={{ backgroundColor: stop.color }} />
+              <View
+                className="w-2 h-2 rounded-full ml-1"
+                style={{ backgroundColor: stop.color }}
+              />
               <Text className="text-[9px] text-muted-foreground">{stop.label}</Text>
             </React.Fragment>
           ))}

@@ -14,7 +14,7 @@ import { parseGPX } from "@/services/gpxParser";
 import { parseKML } from "@/services/kmlParser";
 import { INACTIVE_ROUTE_COLOR } from "@/constants";
 import { generateId } from "@/utils/generateId";
-import type { Route, RouteWithPoints, RoutePoint, SnappedPosition, Climb } from "@/types";
+import type { Route, RouteWithPoints, RoutePoint, SnappedPosition } from "@/types";
 
 interface RouteState {
   routes: Route[];
@@ -25,14 +25,22 @@ interface RouteState {
   // Snapped position on active route
   snappedPosition: SnappedPosition | null;
 
-  loadRoutes: () => Promise<void>;
+  /** Fetch route metadata only. Cheap; safe to call on every tab mount. */
+  loadRouteMetadata: () => Promise<void>;
+  /**
+   * Ensure `visibleRoutePoints` contains points for every currently-visible
+   * route. Reuses already-cached entries and fetches missing ones in parallel.
+   * Drops entries for routes that are no longer visible.
+   */
+  loadVisibleRoutePoints: () => Promise<void>;
+  /** Load metadata, then visible points. Use when both are needed. */
+  loadRoutesAndPoints: () => Promise<void>;
   importRoute: () => Promise<void>;
   importFromUri: (uri: string, fileName: string) => Promise<Route>;
   deleteRoute: (id: string) => Promise<void>;
   toggleVisibility: (id: string) => Promise<void>;
   setActiveRoute: (id: string) => Promise<void>;
   getRouteDetail: (id: string) => Promise<RouteWithPoints | null>;
-  loadVisibleRoutePoints: () => Promise<void>;
   setSnappedPosition: (pos: SnappedPosition | null) => void;
   clearError: () => void;
 }
@@ -44,14 +52,18 @@ export const useRouteStore = create<RouteState>((set, get) => ({
   visibleRoutePoints: {},
   snappedPosition: null,
 
-  loadRoutes: async () => {
+  loadRouteMetadata: async () => {
     try {
       const routes = await getAllRoutes();
       set({ routes });
-      await get().loadVisibleRoutePoints();
     } catch (e: any) {
       set({ error: e.message });
     }
+  },
+
+  loadRoutesAndPoints: async () => {
+    await get().loadRouteMetadata();
+    await get().loadVisibleRoutePoints();
   },
 
   importFromUri: async (uri: string, fileName: string) => {
@@ -93,18 +105,10 @@ export const useRouteStore = create<RouteState>((set, get) => ({
     await insertRoute(route, parsed.points);
 
     // Detect and store climbs
-    const { detectClimbs } = await import("@/services/climbDetector");
-    const { insertClimbs } = await import("@/db/database");
-    const detected = detectClimbs(parsed.points);
-    const climbRecords: Climb[] = detected.map((c) => ({
-      ...c,
-      id: generateId(),
-      routeId: route.id,
-      name: null,
-    }));
-    await insertClimbs(climbRecords);
+    const { detectAndStoreClimbs } = await import("@/services/climbDetector");
+    await detectAndStoreClimbs(route.id, parsed.points);
 
-    await get().loadRoutes();
+    await get().loadRoutesAndPoints();
     return route;
   },
 
@@ -141,7 +145,14 @@ export const useRouteStore = create<RouteState>((set, get) => ({
       // Scrub per-route POI state (DB cascade handles the rows themselves)
       const { usePoiStore } = await import("@/store/poiStore");
       usePoiStore.getState().cleanupRouteState(id);
-      await get().loadRoutes();
+      // Drop points cache entry for the deleted route
+      const current = get().visibleRoutePoints;
+      if (current[id]) {
+        const next = { ...current };
+        delete next[id];
+        set({ visibleRoutePoints: next });
+      }
+      await get().loadRouteMetadata();
       // Reload collections in case this route was in one (cascade deletes the segment)
       const { useCollectionStore } = await import("@/store/collectionStore");
       await useCollectionStore.getState().loadCollections();
@@ -154,7 +165,7 @@ export const useRouteStore = create<RouteState>((set, get) => ({
     const route = get().routes.find((r) => r.id === id);
     if (!route) return;
     await updateRouteVisibility(id, !route.isVisible);
-    await get().loadRoutes();
+    await get().loadRoutesAndPoints();
   },
 
   setActiveRoute: async (id) => {
@@ -163,7 +174,8 @@ export const useRouteStore = create<RouteState>((set, get) => ({
     const { useCollectionStore } = await import("@/store/collectionStore");
     useCollectionStore.getState().clearActiveStitched();
     await useCollectionStore.getState().loadCollections();
-    await get().loadRoutes();
+    // Active flag only; visibility didn't change, so no point fetch needed.
+    await get().loadRouteMetadata();
   },
 
   getRouteDetail: async (id) => {
@@ -172,13 +184,34 @@ export const useRouteStore = create<RouteState>((set, get) => ({
 
   loadVisibleRoutePoints: async () => {
     const routes = get().routes.filter((r) => r.isVisible);
-    const visibleRoutePoints: Record<string, RoutePoint[]> = {};
+    const current = get().visibleRoutePoints;
+    const visibleIds = new Set(routes.map((r) => r.id));
 
-    for (const route of routes) {
-      visibleRoutePoints[route.id] = await getRoutePoints(route.id);
+    const toLoad = routes.filter((r) => !current[r.id]);
+
+    // Fast path: nothing new to load. Still drop stale entries for routes
+    // that are no longer visible.
+    if (toLoad.length === 0) {
+      let changed = false;
+      const next: Record<string, RoutePoint[]> = {};
+      for (const [id, pts] of Object.entries(current)) {
+        if (visibleIds.has(id)) next[id] = pts;
+        else changed = true;
+      }
+      if (changed) set({ visibleRoutePoints: next });
+      return;
     }
 
-    set({ visibleRoutePoints });
+    const loaded = await Promise.all(
+      toLoad.map(async (r) => [r.id, await getRoutePoints(r.id)] as const),
+    );
+
+    const next: Record<string, RoutePoint[]> = {};
+    for (const [id, pts] of Object.entries(current)) {
+      if (visibleIds.has(id)) next[id] = pts;
+    }
+    for (const [id, pts] of loaded) next[id] = pts;
+    set({ visibleRoutePoints: next });
   },
 
   setSnappedPosition: (snappedPosition) => {
