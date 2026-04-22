@@ -45,6 +45,8 @@ interface ElevationProfileProps {
   /** Vertical boundary lines at segment junctions (for stitched collections) */
   segmentBoundaries?: SegmentBoundary[];
   climbs?: Climb[];
+  /** Force fit-to-width — disables horizontal scrolling and the overview minimap */
+  fitToWidth?: boolean;
 }
 
 const PADDING = { top: 16, right: 16, bottom: 28, left: 48 };
@@ -66,6 +68,8 @@ const POI_COLLISION_MIN_PX = 12;
 const POI_COLLISION_STEP_PX = 16;
 const POI_HIT_SIZE = 48;
 const Y_LABEL_OFFSET_Y = 7;
+const Y_LABEL_MIN_STEP_M = 5;
+const Y_LABEL_MIN_SPACING_PX = 18;
 const X_LABEL_WIDTH = 48;
 const X_LABEL_HALF_WIDTH = X_LABEL_WIDTH / 2;
 // Target ~one X-axis tick per this many pixels of scrollable content.
@@ -153,7 +157,8 @@ function buildYLabels(yMin: number, yMax: number, dataMin: number, dataMax: numb
   const range = hi - lo;
   if (range <= 0) return [Math.round(lo)];
 
-  const step = niceStep(range, 3);
+  // Floor step to avoid dense tick stacks on flat profiles (e.g. 138/140/142/144).
+  const step = Math.max(Y_LABEL_MIN_STEP_M, niceStep(range, 3));
   const first = Math.ceil(lo / step) * step;
   const lastCandidate = Math.ceil(hi / step) * step;
   const last = lastCandidate <= yMax + 1e-6 ? lastCandidate : Math.floor(hi / step) * step;
@@ -208,6 +213,7 @@ export default function ElevationProfile({
   onPOIPress,
   segmentBoundaries,
   climbs,
+  fitToWidth = false,
 }: ElevationProfileProps) {
   const colors = useThemeColors();
 
@@ -216,7 +222,8 @@ export default function ElevationProfile({
 
   const fitInnerWidth = Math.max(0, width - PADDING.left - PADDING.right);
   const desiredScrollInnerWidth = totalKm * MIN_PX_PER_KM;
-  const isScrollable = totalMeters > 0 && desiredScrollInnerWidth > fitInnerWidth + 0.5;
+  const isScrollable =
+    !fitToWidth && totalMeters > 0 && desiredScrollInnerWidth > fitInnerWidth + 0.5;
   const innerWidth = isScrollable ? Math.ceil(desiredScrollInnerWidth) : fitInnerWidth;
 
   const overviewShown = isScrollable;
@@ -503,14 +510,23 @@ export default function ElevationProfile({
     return PADDING.left + frac * overviewInnerWidth;
   }, [overviewShown, currentPos, totalMeters, currentPointIndex, points, overviewInnerWidth]);
 
-  const yLabels = useMemo(
-    () =>
-      buildYLabels(yMin, yMax, dataMin, dataMax).map((value) => ({
-        value,
-        y: yScale(value),
-      })),
-    [yMin, yMax, dataMin, dataMax, yScale],
-  );
+  const yLabels = useMemo(() => {
+    const raw = buildYLabels(yMin, yMax, dataMin, dataMax).map((value) => ({
+      value,
+      y: yScale(value),
+    }));
+    // Drop ticks that would render within MIN_SPACING_PX of the previous one
+    // to prevent visual overlap on flat profiles or cramped chart heights.
+    if (raw.length <= 1) return raw;
+    const sorted = [...raw].sort((a, b) => b.y - a.y);
+    const kept: typeof raw = [sorted[0]];
+    for (let i = 1; i < sorted.length; i++) {
+      if (kept[kept.length - 1].y - sorted[i].y >= Y_LABEL_MIN_SPACING_PX) {
+        kept.push(sorted[i]);
+      }
+    }
+    return kept;
+  }, [yMin, yMax, dataMin, dataMax, yScale]);
 
   const xLabels = useMemo(() => {
     if (totalMeters <= 0) return [];

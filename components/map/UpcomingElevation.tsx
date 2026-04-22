@@ -20,6 +20,8 @@ interface UpcomingElevationProps {
   onPOIPress?: (poi: POI) => void;
   /** Climbs to render as shading */
   climbs?: Climb[];
+  /** Force fit-to-width — disables horizontal scrolling and the overview minimap */
+  fitToWidth?: boolean;
 }
 
 export default function UpcomingElevation({
@@ -32,6 +34,7 @@ export default function UpcomingElevation({
   pois,
   onPOIPress,
   climbs,
+  fitToWidth,
 }: UpcomingElevationProps) {
   const { slicedPoints, currentIdxInSlice, offsetMeters, sliceEndDist } = useMemo(() => {
     if (points.length < 2)
@@ -43,19 +46,31 @@ export default function UpcomingElevation({
       };
 
     const currentDist = points[currentPointIndex].distanceFromStartMeters;
+    const totalDist = points[points.length - 1].distanceFromStartMeters;
 
-    // Look-back: ~20% of visible chart is behind current position
-    const lookBackM = lookAhead * LOOK_BACK_RATIO;
+    // Window is the selected range total, split 25/75 behind/ahead of the rider.
+    // Near route edges, shift the split instead of shrinking the window — the
+    // horizontal scale stays constant across ticks on the zoom selector.
+    const totalWindow = Math.min(lookAhead, totalDist);
+    const desiredBack = totalWindow * LOOK_BACK_RATIO;
+    const desiredAhead = totalWindow - desiredBack;
 
-    // Find start index by scanning backwards
-    const startDist = Math.max(0, currentDist - lookBackM);
+    let startDist: number;
+    if (currentDist - desiredBack < 0) {
+      startDist = 0;
+    } else if (currentDist + desiredAhead > totalDist) {
+      startDist = totalDist - totalWindow;
+    } else {
+      startDist = currentDist - desiredBack;
+    }
+
     let startIdx = currentPointIndex;
     while (startIdx > 0 && points[startIdx - 1].distanceFromStartMeters >= startDist) {
       startIdx--;
     }
 
     const sliceOffsetMeters = points[startIdx].distanceFromStartMeters;
-    const totalSliceM = currentDist - sliceOffsetMeters + lookAhead;
+    const totalSliceM = totalWindow;
     const sliced = extractRouteSlice(points, startIdx, totalSliceM);
     const idxInSlice = currentPointIndex - startIdx;
 
@@ -104,6 +119,7 @@ export default function UpcomingElevation({
       pois={visiblePOIs}
       onPOIPress={onPOIPress}
       climbs={visibleClimbs}
+      fitToWidth={fitToWidth}
     />
   );
 }

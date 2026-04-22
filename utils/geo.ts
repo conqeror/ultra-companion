@@ -215,6 +215,22 @@ export function computeSliceAscent(
   return ascent;
 }
 
+/** Compute descent within a distance-bounded slice starting at a given index */
+export function computeSliceDescent(
+  points: RoutePoint[],
+  startIndex: number,
+  endDistanceMeters: number,
+): number {
+  let descent = 0;
+  for (let i = startIndex + 1; i < points.length; i++) {
+    if (points[i].distanceFromStartMeters > endDistanceMeters) break;
+    const prev = points[i - 1].elevationMeters;
+    const curr = points[i].elevationMeters;
+    if (prev != null && curr != null && curr < prev) descent += prev - curr;
+  }
+  return descent;
+}
+
 // --- Phase 3: POI-to-route association ---
 
 /**
