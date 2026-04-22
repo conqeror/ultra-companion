@@ -13,7 +13,8 @@
     "db:migrate": "npm run db:generate && npm run db:bundle",
     "lint": "oxlint",
     "format": "oxfmt",
-    "format:check": "oxfmt --check"
+    "format:check": "oxfmt --check",
+    "postinstall": "git config core.hooksPath .githooks"
   },
   "dependencies": {
     "@react-navigation/native": "^7.1.33",

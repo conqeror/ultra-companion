@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+staged_ts=$(git diff --cached --name-only --diff-filter=ACMR -- '*.ts' '*.tsx')
+
+if [ -n "$staged_ts" ]; then
+  echo "→ oxfmt"
+  echo "$staged_ts" | xargs npx oxfmt
+
+  echo "→ oxlint --fix"
+  echo "$staged_ts" | xargs npx oxlint --fix
+
+  echo "$staged_ts" | xargs git add
+fi
+
+echo "→ tsc --noEmit"
+npx tsc --noEmit
