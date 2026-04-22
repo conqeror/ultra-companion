@@ -4,6 +4,8 @@ import type { PowerModelConfig, ETAResult, RoutePoint, POI } from "@/types";
 import { DEFAULT_POWER_CONFIG } from "@/constants";
 import { computeRouteETA, getETAToDistance } from "@/services/etaCalculator";
 import { useRouteStore } from "./routeStore";
+import { useCollectionStore } from "./collectionStore";
+import { usePoiStore } from "./poiStore";
 
 let storage: MMKV | null = null;
 
@@ -26,6 +28,7 @@ interface ETAState {
   powerConfig: PowerModelConfig;
   cumulativeTime: number[] | null;
   routeId: string | null;
+  cachedPoints: RoutePoint[] | null;
 
   updatePowerConfig: (partial: Partial<PowerModelConfig>) => void;
   computeETAForRoute: (routeId: string, points: RoutePoint[]) => void;
@@ -40,28 +43,47 @@ export const useEtaStore = create<ETAState>((set, get) => ({
   powerConfig: loadConfig(),
   cumulativeTime: null,
   routeId: null,
+  cachedPoints: null,
 
   updatePowerConfig: (partial) => {
     const next = { ...get().powerConfig, ...partial };
     try {
       getStorage().set("powerConfig", JSON.stringify(next));
     } catch {}
-    set({ powerConfig: next, cumulativeTime: null, routeId: null });
+    set({ powerConfig: next, cumulativeTime: null, routeId: null, cachedPoints: null });
   },
 
   computeETAForRoute: (routeId, points) => {
-    // Skip if already computed for this route
-    if (get().routeId === routeId && get().cumulativeTime) return;
+    // Skip if the exact same points array was already used for this route.
+    // Reference equality handles variant swaps within a collection: same id,
+    // different points array → fresh compute.
+    if (get().routeId === routeId && get().cachedPoints === points && get().cumulativeTime) {
+      return;
+    }
     const cumulative = computeRouteETA(points, get().powerConfig);
-    set({ cumulativeTime: cumulative, routeId });
+    set({ cumulativeTime: cumulative, routeId, cachedPoints: points });
   },
 
   invalidateCache: () => {
-    set({ cumulativeTime: null, routeId: null });
+    set({ cumulativeTime: null, routeId: null, cachedPoints: null });
   },
 
   getETAToPOI: (poi) => {
-    return get()._resolveETA(poi.distanceAlongRouteMeters);
+    // Canonicalize the distance: look up the raw POI from the store so we
+    // don't double-apply the offset when a caller passes a POI that's
+    // already been rewritten by stitchPOIs.
+    const rawPoi = usePoiStore.getState().pois[poi.routeId]?.find((p) => p.id === poi.id);
+    let targetDist = (rawPoi ?? poi).distanceAlongRouteMeters;
+
+    // If the active context is a stitched collection, shift the POI into
+    // stitched coords so it aligns with cumulativeTime / snapped pointIndex.
+    const stitched = useCollectionStore.getState().activeStitchedCollection;
+    if (stitched && stitched.collectionId === get().routeId) {
+      const seg = stitched.segments.find((s) => s.routeId === poi.routeId);
+      if (seg) targetDist += seg.distanceOffsetMeters;
+    }
+
+    return get()._resolveETA(targetDist);
   },
 
   getETAToDistance: (distAlongRouteM) => {

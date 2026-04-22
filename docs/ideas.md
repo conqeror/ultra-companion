@@ -41,3 +41,11 @@ Future feature ideas and improvements.
 ### Planning
 
 - Sleep planner — suggest optimal sleep stops based on route profile, accommodation POIs, and target daily distance
+
+## Refactors
+
+### Unify POI/climb coordinate space
+
+- **Problem.** POIs and climbs carry raw (per-route) distances, but downstream code (snapped position, `cumulativeTime`, elevation profile) operates in stitched coords. Every consumer has to remember to apply `segment.distanceOffsetMeters`; missing one silently returns `null` or wrong values (see `docs/architecture.md` → Collections and Stitching for the full list of conversion sites).
+- **Proposal.** Extend the POI/climb display types with an `effectiveDistanceMeters` field populated once — at stitch time for collections, equal to the raw distance for standalone routes. Every consumer reads that field; the raw↔stitched conversion exists in exactly one place (`stitchPOIs` / `getClimbsForDisplay`). `etaStore.getETAToPOI` collapses back to a one-liner.
+- **Blockers.** Touches many call sites with no regression tests. Gate on the unit-test backlog (`docs/tests.md`) landing first, then refactor with a safety net.

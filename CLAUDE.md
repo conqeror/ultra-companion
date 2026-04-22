@@ -10,6 +10,7 @@ Logistics companion app for ultra-distance cycling races. iOS only, personal use
 - `docs/ideas.md` — future feature ideas
 - `docs/design-system.md` — colors, typography, component patterns
 - `docs/known-issues.md` — bugs and warnings
+- `docs/tests.md` — unit test backlog (not yet implemented)
 
 ## Stack
 
