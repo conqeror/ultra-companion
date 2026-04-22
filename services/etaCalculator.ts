@@ -5,13 +5,10 @@ import { computeSegmentTime } from "./powerModel";
  * Compute cumulative riding time (seconds) at each route point.
  * cumulativeTime[0] = 0, cumulativeTime[i] = total seconds from point 0 to point i.
  */
-export function computeRouteETA(
-  points: RoutePoint[],
-  config: PowerModelConfig,
-): number[] {
+export function computeRouteETA(points: RoutePoint[], config: PowerModelConfig): number[] {
   if (points.length === 0) return [];
 
-  const cumulative = new Array<number>(points.length);
+  const cumulative = Array.from<number>({ length: points.length });
   cumulative[0] = 0;
 
   for (let i = 1; i < points.length; i++) {

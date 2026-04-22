@@ -25,14 +25,8 @@ export default function TabLayout() {
           headerShown: false,
         }}
       />
-      <Tabs.Screen
-        name="routes"
-        options={{ href: null }}
-      />
-      <Tabs.Screen
-        name="settings"
-        options={{ href: null }}
-      />
+      <Tabs.Screen name="routes" options={{ href: null }} />
+      <Tabs.Screen name="settings" options={{ href: null }} />
     </Tabs>
   );
 }

@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import { View, ScrollView, TouchableOpacity } from "react-native";
+import { ScrollView, TouchableOpacity } from "react-native";
 import { Text } from "@/components/ui/text";
 import { Clock } from "lucide-react-native";
 import { cn } from "@/lib/cn";
@@ -30,10 +30,7 @@ export default function POIFilterBar({ routeIds }: POIFilterBarProps) {
   const showOpenOnly = usePoiStore((s) => s.showOpenOnly);
   const toggleShowOpenOnly = usePoiStore((s) => s.toggleShowOpenOnly);
 
-  const enabledSet = useMemo(
-    () => new Set(enabledCategories),
-    [enabledCategories],
-  );
+  const enabledSet = useMemo(() => new Set(enabledCategories), [enabledCategories]);
 
   const categoryCounts = useMemo(() => {
     if (!pois) return {};
@@ -56,17 +53,12 @@ export default function POIFilterBar({ routeIds }: POIFilterBarProps) {
       <TouchableOpacity
         className={cn(
           "flex-row items-center px-3 min-h-[48px] rounded-full",
-          showOpenOnly
-            ? "bg-muted border border-border"
-            : "border border-transparent",
+          showOpenOnly ? "bg-muted border border-border" : "border border-transparent",
         )}
         onPress={toggleShowOpenOnly}
         accessibilityLabel={showOpenOnly ? "Show all POIs" : "Show only open POIs"}
       >
-        <Clock
-          size={13}
-          color={showOpenOnly ? colors.positive : colors.textTertiary}
-        />
+        <Clock size={13} color={showOpenOnly ? colors.positive : colors.textTertiary} />
         <Text
           className={cn(
             "ml-1 text-[12px] font-barlow-medium",
@@ -87,19 +79,12 @@ export default function POIFilterBar({ routeIds }: POIFilterBarProps) {
             key={cat.key}
             className={cn(
               "flex-row items-center px-3 min-h-[48px] rounded-full",
-              isEnabled
-                ? "bg-muted border border-border"
-                : "border border-transparent",
+              isEnabled ? "bg-muted border border-border" : "border border-transparent",
             )}
             onPress={() => toggleCategory(cat.key)}
             accessibilityLabel={`${isEnabled ? "Hide" : "Show"} ${cat.label}`}
           >
-            {IconComp && (
-              <IconComp
-                size={13}
-                color={isEnabled ? cat.color : colors.textTertiary}
-              />
-            )}
+            {IconComp && <IconComp size={13} color={isEnabled ? cat.color : colors.textTertiary} />}
             <Text
               className={cn(
                 "ml-1 text-[12px] font-barlow-medium",

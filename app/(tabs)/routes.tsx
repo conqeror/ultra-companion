@@ -66,36 +66,28 @@ export default function RoutesScreen() {
 
   const handleDeleteRoute = useCallback(
     (route: Route) => {
-      Alert.alert(
-        "Delete Route",
-        `Delete "${route.name}"? This cannot be undone.`,
-        [
-          { text: "Cancel", style: "cancel" },
-          {
-            text: "Delete",
-            style: "destructive",
-            onPress: () => deleteRoute(route.id),
-          },
-        ],
-      );
+      Alert.alert("Delete Route", `Delete "${route.name}"? This cannot be undone.`, [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: () => deleteRoute(route.id),
+        },
+      ]);
     },
     [deleteRoute],
   );
 
   const handleDeleteCollection = useCallback(
     (collection: Collection) => {
-      Alert.alert(
-        "Delete Collection",
-        `Delete "${collection.name}"? Routes will not be deleted.`,
-        [
-          { text: "Cancel", style: "cancel" },
-          {
-            text: "Delete",
-            style: "destructive",
-            onPress: () => deleteCollection(collection.id),
-          },
-        ],
-      );
+      Alert.alert("Delete Collection", `Delete "${collection.name}"? Routes will not be deleted.`, [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: () => deleteCollection(collection.id),
+        },
+      ]);
     },
     [deleteCollection],
   );
@@ -158,9 +150,16 @@ export default function RoutesScreen() {
               <View className="flex-row items-center mb-2">
                 <View
                   className="w-3 h-3 rounded-full mr-3"
-                  style={{ backgroundColor: collection.isActive ? ACTIVE_ROUTE_COLOR : INACTIVE_ROUTE_COLOR }}
+                  style={{
+                    backgroundColor: collection.isActive
+                      ? ACTIVE_ROUTE_COLOR
+                      : INACTIVE_ROUTE_COLOR,
+                  }}
                 />
-                <Text className="flex-1 text-[17px] font-barlow-semibold text-foreground" numberOfLines={1}>
+                <Text
+                  className="flex-1 text-[17px] font-barlow-semibold text-foreground"
+                  numberOfLines={1}
+                >
                   {collection.name}
                 </Text>
                 {collection.isActive && <Badge label="Active" className="ml-2" />}
@@ -195,10 +194,12 @@ export default function RoutesScreen() {
                   onPress={() => !collection.isActive && setActiveCollection(collection.id)}
                   hitSlop={8}
                 >
-                  <Text className={cn(
-                    "text-[15px] font-barlow-medium",
-                    collection.isActive ? "text-muted-foreground" : "text-primary",
-                  )}>
+                  <Text
+                    className={cn(
+                      "text-[15px] font-barlow-medium",
+                      collection.isActive ? "text-muted-foreground" : "text-primary",
+                    )}
+                  >
                     {collection.isActive ? "Active" : "Set Active"}
                   </Text>
                 </TouchableOpacity>
@@ -208,9 +209,7 @@ export default function RoutesScreen() {
                   onPress={() => handleDeleteCollection(collection)}
                   hitSlop={8}
                 >
-                  <Text className="text-[15px] font-barlow-medium text-destructive">
-                    Delete
-                  </Text>
+                  <Text className="text-[15px] font-barlow-medium text-destructive">Delete</Text>
                 </TouchableOpacity>
               </View>
             </Card>
@@ -220,21 +219,25 @@ export default function RoutesScreen() {
 
       const route = item.data;
       return (
-        <TouchableOpacity
-          activeOpacity={0.7}
-          onPress={() => router.push(`/route/${route.id}`)}
-        >
+        <TouchableOpacity activeOpacity={0.7} onPress={() => router.push(`/route/${route.id}`)}>
           <Card className="mb-3">
             <View className="flex-row items-center mb-2">
               <View
                 className="w-3 h-3 rounded-full mr-3"
-                style={{ backgroundColor: route.isActive ? ACTIVE_ROUTE_COLOR : INACTIVE_ROUTE_COLOR }}
+                style={{
+                  backgroundColor: route.isActive ? ACTIVE_ROUTE_COLOR : INACTIVE_ROUTE_COLOR,
+                }}
               />
-              <Text className="flex-1 text-[17px] font-barlow-semibold text-foreground" numberOfLines={1}>
+              <Text
+                className="flex-1 text-[17px] font-barlow-semibold text-foreground"
+                numberOfLines={1}
+              >
                 {route.name}
               </Text>
               {route.isActive && <Badge label="Active" className="ml-2" />}
-              {isRouteOfflineReady(route.id) && <Badge label="Offline" variant="outline" className="ml-2" />}
+              {isRouteOfflineReady(route.id) && (
+                <Badge label="Offline" variant="outline" className="ml-2" />
+              )}
             </View>
 
             <View className="flex-row items-center mb-3">
@@ -260,10 +263,12 @@ export default function RoutesScreen() {
                 onPress={() => !route.isActive && setActiveRoute(route.id)}
                 hitSlop={8}
               >
-                <Text className={cn(
-                  "text-[15px] font-barlow-medium",
-                  route.isActive ? "text-muted-foreground" : "text-primary",
-                )}>
+                <Text
+                  className={cn(
+                    "text-[15px] font-barlow-medium",
+                    route.isActive ? "text-muted-foreground" : "text-primary",
+                  )}
+                >
                   {route.isActive ? "Active" : "Set Active"}
                 </Text>
               </TouchableOpacity>
@@ -283,16 +288,25 @@ export default function RoutesScreen() {
                 onPress={() => handleDeleteRoute(route)}
                 hitSlop={8}
               >
-                <Text className="text-[15px] font-barlow-medium text-destructive">
-                  Delete
-                </Text>
+                <Text className="text-[15px] font-barlow-medium text-destructive">Delete</Text>
               </TouchableOpacity>
             </View>
           </Card>
         </TouchableOpacity>
       );
     },
-    [units, router, setActiveRoute, setActiveCollection, toggleVisibility, handleDeleteRoute, handleDeleteCollection, borderColor, isRouteOfflineReady, activeStitchedCollection],
+    [
+      units,
+      router,
+      setActiveRoute,
+      setActiveCollection,
+      toggleVisibility,
+      handleDeleteRoute,
+      handleDeleteCollection,
+      borderColor,
+      isRouteOfflineReady,
+      activeStitchedCollection,
+    ],
   );
 
   const renderSectionHeader = useCallback(

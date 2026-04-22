@@ -9,7 +9,7 @@ export default {
     ],
   },
   migrations: {
-    "m0000": `CREATE TABLE \`pois\` (
+    m0000: `CREATE TABLE \`pois\` (
 	\`id\` text PRIMARY KEY NOT NULL,
 	\`sourceId\` text NOT NULL,
 	\`source\` text DEFAULT 'osm' NOT NULL,
@@ -71,7 +71,7 @@ CREATE TABLE \`routes\` (
 	\`createdAt\` text NOT NULL
 );
 `,
-    "m0001": `CREATE TABLE \`climbs\` (
+    m0001: `CREATE TABLE \`climbs\` (
 	\`id\` text PRIMARY KEY NOT NULL,
 	\`routeId\` text NOT NULL,
 	\`name\` text,

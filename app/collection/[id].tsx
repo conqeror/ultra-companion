@@ -1,10 +1,5 @@
 import React, { useEffect, useState, useMemo, useCallback, useRef } from "react";
-import {
-  View,
-  useWindowDimensions,
-  ActivityIndicator,
-  Alert,
-} from "react-native";
+import { View, useWindowDimensions, ActivityIndicator, Alert } from "react-native";
 import { NestableScrollContainer } from "react-native-draggable-flatlist";
 import { useLocalSearchParams, useRouter, Stack } from "expo-router";
 import { Camera, MapView as MapboxMapView } from "@rnmapbox/maps";
@@ -43,7 +38,9 @@ export default function CollectionDetailScreen() {
   const [showAddSheet, setShowAddSheet] = useState(false);
 
   const collections = useCollectionStore((s) => s.collections);
-  const getCollectionSegmentsWithRoutes = useCollectionStore((s) => s.getCollectionSegmentsWithRoutes);
+  const getCollectionSegmentsWithRoutes = useCollectionStore(
+    (s) => s.getCollectionSegmentsWithRoutes,
+  );
   const addSegment = useCollectionStore((s) => s.addSegment);
   const removeSegment = useCollectionStore((s) => s.removeSegment);
   const selectVariant = useCollectionStore((s) => s.selectVariant);
@@ -76,11 +73,10 @@ export default function CollectionDetailScreen() {
         }
         setStitched(s);
         // Inject per-segment points for mini map RouteLayer rendering
-        const { useRouteStore } = await import("@/store/routeStore");
-        const currentPoints = { ...useRouteStore.getState().visibleRoutePoints };
-        for (const [routeId, points] of Object.entries(s.pointsByRouteId)) {
-          currentPoints[routeId] = points;
-        }
+        const currentPoints = {
+          ...useRouteStore.getState().visibleRoutePoints,
+          ...s.pointsByRouteId,
+        };
         useRouteStore.setState({ visibleRoutePoints: currentPoints });
       } catch {
         setStitched(null);
@@ -95,7 +91,10 @@ export default function CollectionDetailScreen() {
     loadData();
   }, [loadData]);
 
-  const screenOptions = useMemo(() => ({ title: collection?.name ?? "Collection" }), [collection?.name]);
+  const screenOptions = useMemo(
+    () => ({ title: collection?.name ?? "Collection" }),
+    [collection?.name],
+  );
 
   const bounds = useMemo(() => {
     if (!stitched?.points.length) return null;
@@ -120,9 +119,7 @@ export default function CollectionDetailScreen() {
 
   // Get route points for each selected segment (for mini map RouteLayer)
   const selectedSegmentRoutes = useMemo(() => {
-    return segmentsWithRoutes
-      .filter((sw) => sw.segment.isSelected)
-      .map((sw) => sw.route);
+    return segmentsWithRoutes.filter((sw) => sw.segment.isSelected).map((sw) => sw.route);
   }, [segmentsWithRoutes]);
 
   const existingRouteIds = useMemo(
@@ -130,21 +127,22 @@ export default function CollectionDetailScreen() {
     [segmentsWithRoutes],
   );
 
-  const handleAddSegment = useCallback(async (routeId: string) => {
-    if (!id) return;
-    setShowAddSheet(false);
-    setIsBusy(true);
-    await addSegment(id, routeId);
-    await loadData();
-    setIsBusy(false);
-  }, [id, addSegment, loadData]);
+  const handleAddSegment = useCallback(
+    async (routeId: string) => {
+      if (!id) return;
+      setShowAddSheet(false);
+      setIsBusy(true);
+      await addSegment(id, routeId);
+      await loadData();
+      setIsBusy(false);
+    },
+    [id, addSegment, loadData],
+  );
 
-  const handleRemoveSegment = useCallback(async (routeId: string) => {
-    if (!id) return;
-    Alert.alert(
-      "Remove Segment",
-      "Remove this segment from the collection?",
-      [
+  const handleRemoveSegment = useCallback(
+    async (routeId: string) => {
+      if (!id) return;
+      Alert.alert("Remove Segment", "Remove this segment from the collection?", [
         { text: "Cancel", style: "cancel" },
         {
           text: "Remove",
@@ -156,26 +154,33 @@ export default function CollectionDetailScreen() {
             setIsBusy(false);
           },
         },
-      ],
-    );
-  }, [id, removeSegment, loadData]);
+      ]);
+    },
+    [id, removeSegment, loadData],
+  );
 
-  const handleSelectVariant = useCallback(async (routeId: string) => {
-    if (!id) return;
-    setIsBusy(true);
-    await selectVariant(id, routeId);
-    await loadData();
-    setIsBusy(false);
-  }, [id, selectVariant, loadData]);
+  const handleSelectVariant = useCallback(
+    async (routeId: string) => {
+      if (!id) return;
+      setIsBusy(true);
+      await selectVariant(id, routeId);
+      await loadData();
+      setIsBusy(false);
+    },
+    [id, selectVariant, loadData],
+  );
 
-  const handleReorder = useCallback(async (positions: { routeId: string; position: number }[]) => {
-    if (!id) return;
-    setIsBusy(true);
-    const { updateSegmentPositions } = await import("@/db/database");
-    await updateSegmentPositions(id, positions);
-    await loadData();
-    setIsBusy(false);
-  }, [id, loadData]);
+  const handleReorder = useCallback(
+    async (positions: { routeId: string; position: number }[]) => {
+      if (!id) return;
+      setIsBusy(true);
+      const { updateSegmentPositions } = await import("@/db/database");
+      await updateSegmentPositions(id, positions);
+      await loadData();
+      setIsBusy(false);
+    },
+    [id, loadData],
+  );
 
   const handleSetActive = useCallback(async () => {
     if (!id) return;
@@ -186,21 +191,17 @@ export default function CollectionDetailScreen() {
 
   const handleDelete = useCallback(() => {
     if (!id || !collection) return;
-    Alert.alert(
-      "Delete Collection",
-      `Delete "${collection.name}"? Routes will not be deleted.`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: async () => {
-            await deleteCollection(id);
-            router.back();
-          },
+    Alert.alert("Delete Collection", `Delete "${collection.name}"? Routes will not be deleted.`, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: async () => {
+          await deleteCollection(id);
+          router.back();
         },
-      ],
-    );
+      },
+    ]);
   }, [id, collection, deleteCollection, router]);
 
   // Load climbs for all segments
@@ -220,6 +221,8 @@ export default function CollectionDetailScreen() {
     if (!stitched) return [];
     const routeIds = stitched.segments.map((s) => s.routeId);
     return getClimbsForDisplay(routeIds, stitched.segments);
+    // allClimbs is a reactivity trigger: getClimbsForDisplay reads store via get() and is not itself reactive
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stitched, getClimbsForDisplay, allClimbs]);
 
   // Segment boundaries for elevation profile
@@ -304,10 +307,7 @@ export default function CollectionDetailScreen() {
         {/* Stats */}
         {stitched && (
           <View className="flex-row px-4 mt-3 mb-3 gap-3">
-            <StatBox
-              label="Distance"
-              value={formatDistance(stitched.totalDistanceMeters, units)}
-            />
+            <StatBox label="Distance" value={formatDistance(stitched.totalDistanceMeters, units)} />
             <StatBox
               label="Ascent"
               value={"↑ " + formatElevation(stitched.totalAscentMeters, units)}
@@ -334,11 +334,7 @@ export default function CollectionDetailScreen() {
         </View>
 
         <View className="px-4 mt-3">
-          <Button
-            variant="secondary"
-            onPress={() => setShowAddSheet(true)}
-            label="Add Segment"
-          />
+          <Button variant="secondary" onPress={() => setShowAddSheet(true)} label="Add Segment" />
         </View>
 
         {/* Elevation Profile */}
@@ -372,11 +368,7 @@ export default function CollectionDetailScreen() {
             disabled={collection.isActive || segmentsWithRoutes.length === 0}
             label={collection.isActive ? "Active" : "Set Active"}
           />
-          <Button
-            variant="destructive"
-            onPress={handleDelete}
-            label="Delete Collection"
-          />
+          <Button variant="destructive" onPress={handleDelete} label="Delete Collection" />
         </View>
       </NestableScrollContainer>
 

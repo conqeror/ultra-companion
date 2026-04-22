@@ -35,10 +35,14 @@ export default function UpcomingElevation({
 }: UpcomingElevationProps) {
   const { slicedPoints, currentIdxInSlice, offsetMeters, sliceEndDist } = useMemo(() => {
     if (points.length < 2)
-      return { slicedPoints: [] as RoutePoint[], currentIdxInSlice: 0, offsetMeters: 0, sliceEndDist: 0 };
+      return {
+        slicedPoints: [] as RoutePoint[],
+        currentIdxInSlice: 0,
+        offsetMeters: 0,
+        sliceEndDist: 0,
+      };
 
     const currentDist = points[currentPointIndex].distanceFromStartMeters;
-    const totalDist = points[points.length - 1].distanceFromStartMeters;
 
     // Look-back: ~20% of visible chart is behind current position
     const lookBackM = lookAhead * LOOK_BACK_RATIO;
@@ -51,7 +55,7 @@ export default function UpcomingElevation({
     }
 
     const sliceOffsetMeters = points[startIdx].distanceFromStartMeters;
-    const totalSliceM = (currentDist - sliceOffsetMeters) + lookAhead;
+    const totalSliceM = currentDist - sliceOffsetMeters + lookAhead;
     const sliced = extractRouteSlice(points, startIdx, totalSliceM);
     const idxInSlice = currentPointIndex - startIdx;
 
@@ -68,8 +72,7 @@ export default function UpcomingElevation({
     if (!pois) return undefined;
     return pois.filter(
       (p) =>
-        p.distanceAlongRouteMeters >= offsetMeters &&
-        p.distanceAlongRouteMeters <= sliceEndDist,
+        p.distanceAlongRouteMeters >= offsetMeters && p.distanceAlongRouteMeters <= sliceEndDist,
     );
   }, [pois, offsetMeters, sliceEndDist]);
 
@@ -77,18 +80,14 @@ export default function UpcomingElevation({
   const visibleClimbs = useMemo(() => {
     if (!climbs) return undefined;
     return climbs.filter(
-      (c) =>
-        c.endDistanceMeters >= offsetMeters &&
-        c.startDistanceMeters <= sliceEndDist,
+      (c) => c.endDistanceMeters >= offsetMeters && c.startDistanceMeters <= sliceEndDist,
     );
   }, [climbs, offsetMeters, sliceEndDist]);
 
   if (slicedPoints.length <= 1) {
     return (
       <View className="flex-1 items-center justify-center">
-        <Text className="text-sm text-muted-foreground">
-          Near the end of your route
-        </Text>
+        <Text className="text-sm text-muted-foreground">Near the end of your route</Text>
       </View>
     );
   }

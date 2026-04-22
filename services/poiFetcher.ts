@@ -4,10 +4,7 @@ import { fetchAllPOIs } from "./overpassClient";
 import { mapOverpassToPOIs, type ClassifiedPOI } from "./poiClassifier";
 import { fetchGooglePlacesPOIs } from "./googlePlacesClient";
 import { computePOIRouteAssociation } from "@/utils/geo";
-import {
-  insertPOIs,
-  deletePOIsBySource,
-} from "@/db/database";
+import { insertPOIs, deletePOIsBySource } from "@/db/database";
 
 /** Associate classified POIs with route and filter by corridor */
 function associateAndFilter(
@@ -77,4 +74,3 @@ export async function fetchGooglePOIs(
   onProgress?.("Done", 1, 1);
   return pois.length;
 }
-

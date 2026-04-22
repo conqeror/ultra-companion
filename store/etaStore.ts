@@ -43,7 +43,9 @@ export const useEtaStore = create<ETAState>((set, get) => ({
 
   updatePowerConfig: (partial) => {
     const next = { ...get().powerConfig, ...partial };
-    try { getStorage().set("powerConfig", JSON.stringify(next)); } catch {}
+    try {
+      getStorage().set("powerConfig", JSON.stringify(next));
+    } catch {}
     set({ powerConfig: next, cumulativeTime: null, routeId: null });
   },
 

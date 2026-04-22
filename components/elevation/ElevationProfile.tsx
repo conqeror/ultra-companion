@@ -211,17 +211,13 @@ export default function ElevationProfile({
 }: ElevationProfileProps) {
   const colors = useThemeColors();
 
-  const totalMeters =
-    points.length > 0 ? points[points.length - 1].distanceFromStartMeters : 0;
+  const totalMeters = points.length > 0 ? points[points.length - 1].distanceFromStartMeters : 0;
   const totalKm = totalMeters / 1000;
 
   const fitInnerWidth = Math.max(0, width - PADDING.left - PADDING.right);
   const desiredScrollInnerWidth = totalKm * MIN_PX_PER_KM;
-  const isScrollable =
-    totalMeters > 0 && desiredScrollInnerWidth > fitInnerWidth + 0.5;
-  const innerWidth = isScrollable
-    ? Math.ceil(desiredScrollInnerWidth)
-    : fitInnerWidth;
+  const isScrollable = totalMeters > 0 && desiredScrollInnerWidth > fitInnerWidth + 0.5;
+  const innerWidth = isScrollable ? Math.ceil(desiredScrollInnerWidth) : fitInnerWidth;
 
   const overviewShown = isScrollable;
   const overviewHeight = overviewShown ? OVERVIEW_HEIGHT : 0;
@@ -290,9 +286,7 @@ export default function ElevationProfile({
   );
   const yScale = useCallback(
     (e: number) =>
-      PADDING.top +
-      chartPlotHeight -
-      ((e - yMin) / Math.max(1e-6, yMax - yMin)) * chartPlotHeight,
+      PADDING.top + chartPlotHeight - ((e - yMin) / Math.max(1e-6, yMax - yMin)) * chartPlotHeight,
     [chartPlotHeight, yMin, yMax],
   );
 
@@ -305,8 +299,7 @@ export default function ElevationProfile({
       };
     }
     const lineD = buildLinePath(samples, xScale, yScale);
-    const fillD =
-      lineD + ` L${xScale(totalMeters)},${axisY} L${xScale(0)},${axisY} Z`;
+    const fillD = lineD + ` L${xScale(totalMeters)},${axisY} L${xScale(0)},${axisY} Z`;
 
     // Decimated gradient stops, smoothed by step interval.
     const n = samples.length;
@@ -418,12 +411,9 @@ export default function ElevationProfile({
   const scrollRef = useRef<ScrollView | null>(null);
   const [scrollX, setScrollX] = useState(0);
 
-  const onScroll = useCallback(
-    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-      setScrollX(e.nativeEvent.contentOffset.x);
-    },
-    [],
-  );
+  const onScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    setScrollX(e.nativeEvent.contentOffset.x);
+  }, []);
 
   const didAutoScroll = useRef(false);
   useEffect(() => {
@@ -432,7 +422,10 @@ export default function ElevationProfile({
     if (innerWidth <= viewportWidth) return;
     didAutoScroll.current = true;
     if (currentPos) {
-      const target = Math.max(0, Math.min(innerWidth - viewportWidth, currentPos.x - viewportWidth / 2));
+      const target = Math.max(
+        0,
+        Math.min(innerWidth - viewportWidth, currentPos.x - viewportWidth / 2),
+      );
       scrollRef.current?.scrollTo({ x: target, animated: false });
       setScrollX(target);
     }
@@ -475,7 +468,10 @@ export default function ElevationProfile({
       const px = Math.max(0, Math.min(overviewInnerWidth, touchX - PADDING.left));
       const frac = overviewInnerWidth > 0 ? px / overviewInnerWidth : 0;
       const targetContentX = frac * innerWidth;
-      const target = Math.max(0, Math.min(innerWidth - viewportWidth, targetContentX - viewportWidth / 2));
+      const target = Math.max(
+        0,
+        Math.min(innerWidth - viewportWidth, targetContentX - viewportWidth / 2),
+      );
       scrollRef.current?.scrollTo({ x: target, animated: false });
       setScrollX(target);
     },
@@ -501,7 +497,8 @@ export default function ElevationProfile({
   }, [overviewShown, innerWidth, scrollX, viewportWidth, overviewInnerWidth]);
 
   const overviewCurrentX = useMemo(() => {
-    if (!overviewShown || !currentPos || totalMeters === 0 || currentPointIndex == null) return null;
+    if (!overviewShown || !currentPos || totalMeters === 0 || currentPointIndex == null)
+      return null;
     const frac = points[currentPointIndex].distanceFromStartMeters / totalMeters;
     return PADDING.left + frac * overviewInnerWidth;
   }, [overviewShown, currentPos, totalMeters, currentPointIndex, points, overviewInnerWidth]);
@@ -535,15 +532,15 @@ export default function ElevationProfile({
             <Stop offset="1" stopColor={colors.textTertiary} stopOpacity="0.03" />
           </LinearGradient>
           <LinearGradient id="lineGrad" x1="0" y1="0" x2="1" y2="0">
-            {gradientStops.map((s, i) => (
-              <Stop key={i} offset={s.offset} stopColor={s.color} />
+            {gradientStops.map((s) => (
+              <Stop key={`${s.offset}-${s.color}`} offset={s.offset} stopColor={s.color} />
             ))}
           </LinearGradient>
         </Defs>
 
-        {yLabels.map((l, i) => (
+        {yLabels.map((l) => (
           <Line
-            key={`grid-${i}`}
+            key={`grid-${l.value}`}
             x1={0}
             y1={l.y}
             x2={innerWidth}
@@ -556,12 +553,7 @@ export default function ElevationProfile({
         <Path d={fillPath} fill="url(#elevFill)" />
 
         {climbRegions.map((region) => (
-          <Path
-            key={`climb-${region.id}`}
-            d={region.fillPath}
-            fill={region.color}
-            opacity={0.2}
-          />
+          <Path key={`climb-${region.id}`} d={region.fillPath} fill={region.color} opacity={0.2} />
         ))}
 
         <Path
@@ -592,13 +584,13 @@ export default function ElevationProfile({
           </>
         )}
 
-        {segmentBoundaries?.map((b, i) => {
+        {segmentBoundaries?.map((b) => {
           const localDist = b.distanceMeters - distanceOffsetMeters;
           if (localDist <= 0 || localDist >= totalMeters) return null;
           const bx = xScale(localDist);
           return (
             <Line
-              key={`seg-boundary-${i}`}
+              key={`seg-boundary-${b.distanceMeters}`}
               x1={bx}
               y1={PADDING.top}
               x2={bx}
@@ -670,9 +662,7 @@ export default function ElevationProfile({
   if (points.length === 0) {
     return (
       <View className="bg-surface" style={{ width, height }}>
-        <Text className="text-center text-muted-foreground mt-10">
-          No elevation data
-        </Text>
+        <Text className="text-center text-muted-foreground mt-10">No elevation data</Text>
       </View>
     );
   }
@@ -680,9 +670,9 @@ export default function ElevationProfile({
   const detailBody = (
     <View style={{ width: innerWidth, height: mainChartHeight }}>
       {detailSvg}
-      {xLabels.map((l, i) => (
+      {xLabels.map((l) => (
         <Text
-          key={`xl-${i}`}
+          key={`xl-${l.value}`}
           className="font-barlow-sc-medium text-[10px] text-muted-foreground text-center"
           style={{
             position: "absolute",
@@ -712,12 +702,7 @@ export default function ElevationProfile({
               </LinearGradient>
             </Defs>
             <Path d={overviewFillPath} fill="url(#ovFill)" />
-            <Path
-              d={overviewLinePath}
-              stroke={colors.textTertiary}
-              strokeWidth={1}
-              fill="none"
-            />
+            <Path d={overviewLinePath} stroke={colors.textTertiary} strokeWidth={1} fill="none" />
             {viewportIndicator && (
               <Rect
                 x={viewportIndicator.x}
@@ -762,9 +747,9 @@ export default function ElevationProfile({
 
       <View style={{ flexDirection: "row", height: mainChartHeight }}>
         <View style={{ width: PADDING.left, height: mainChartHeight }}>
-          {yLabels.map((l, i) => (
+          {yLabels.map((l) => (
             <Text
-              key={`yl-${i}`}
+              key={`yl-${l.value}`}
               className="font-barlow-sc-medium text-[10px] text-muted-foreground"
               style={{ position: "absolute", left: 2, top: l.y - Y_LABEL_OFFSET_Y }}
             >
@@ -795,10 +780,7 @@ export default function ElevationProfile({
         <View className="flex-row items-center justify-center pb-1 gap-1">
           {ELEVATION_STOPS.map((stop) => (
             <React.Fragment key={stop.label}>
-              <View
-                className="w-2 h-2 rounded-full ml-1"
-                style={{ backgroundColor: stop.color }}
-              />
+              <View className="w-2 h-2 rounded-full ml-1" style={{ backgroundColor: stop.color }} />
               <Text className="text-[9px] text-muted-foreground">{stop.label}</Text>
             </React.Fragment>
           ))}

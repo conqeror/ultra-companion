@@ -4,7 +4,17 @@ import { openDatabaseSync } from "expo-sqlite";
 import { sql, eq, and, inArray, desc, asc, count, max } from "drizzle-orm";
 import { routes, routePoints, pois, collections, collectionSegments, climbs } from "./schema";
 import migrations from "../drizzle/migrations";
-import type { Route, RoutePoint, RouteWithPoints, POI, POICategory, POISource, Collection, CollectionSegment, Climb } from "@/types";
+import type {
+  Route,
+  RoutePoint,
+  RouteWithPoints,
+  POI,
+  POICategory,
+  POISource,
+  Collection,
+  CollectionSegment,
+  Climb,
+} from "@/types";
 
 // --- Database init ---
 
@@ -12,45 +22,48 @@ const expoDb = openDatabaseSync("ultra.db");
 expoDb.execSync("PRAGMA journal_mode = WAL;");
 expoDb.execSync("PRAGMA foreign_keys = ON;");
 
-export const db = drizzle(expoDb, { schema: { routes, routePoints, pois, collections, collectionSegments, climbs } });
+export const db = drizzle(expoDb, {
+  schema: { routes, routePoints, pois, collections, collectionSegments, climbs },
+});
 
 // Apply schema from drizzle/migrations.ts (generated from db/schema.ts via `npm run db:migrate`)
 migrate(db, migrations);
 
 // --- Route CRUD ---
 
-export async function insertRoute(
-  route: Route,
-  points: RoutePoint[],
-): Promise<void> {
+export async function insertRoute(route: Route, points: RoutePoint[]): Promise<void> {
   db.transaction((tx) => {
-    tx.insert(routes).values({
-      id: route.id,
-      name: route.name,
-      fileName: route.fileName,
-      color: route.color,
-      isActive: route.isActive,
-      isVisible: route.isVisible,
-      totalDistanceMeters: route.totalDistanceMeters,
-      totalAscentMeters: route.totalAscentMeters,
-      totalDescentMeters: route.totalDescentMeters,
-      pointCount: route.pointCount,
-      createdAt: route.createdAt,
-    }).run();
+    tx.insert(routes)
+      .values({
+        id: route.id,
+        name: route.name,
+        fileName: route.fileName,
+        color: route.color,
+        isActive: route.isActive,
+        isVisible: route.isVisible,
+        totalDistanceMeters: route.totalDistanceMeters,
+        totalAscentMeters: route.totalAscentMeters,
+        totalDescentMeters: route.totalDescentMeters,
+        pointCount: route.pointCount,
+        createdAt: route.createdAt,
+      })
+      .run();
 
     const CHUNK = 500;
     for (let i = 0; i < points.length; i += CHUNK) {
       const chunk = points.slice(i, i + CHUNK);
-      tx.insert(routePoints).values(
-        chunk.map((p) => ({
-          routeId: route.id,
-          idx: p.idx,
-          latitude: p.latitude,
-          longitude: p.longitude,
-          elevationMeters: p.elevationMeters,
-          distanceFromStartMeters: p.distanceFromStartMeters,
-        })),
-      ).run();
+      tx.insert(routePoints)
+        .values(
+          chunk.map((p) => ({
+            routeId: route.id,
+            idx: p.idx,
+            latitude: p.latitude,
+            longitude: p.longitude,
+            elevationMeters: p.elevationMeters,
+            distanceFromStartMeters: p.distanceFromStartMeters,
+          })),
+        )
+        .run();
     }
   });
 }
@@ -131,10 +144,7 @@ export async function deleteRoute(routeId: string): Promise<void> {
   db.delete(routes).where(eq(routes.id, routeId)).run();
 }
 
-export async function updateRouteVisibility(
-  routeId: string,
-  isVisible: boolean,
-): Promise<void> {
+export async function updateRouteVisibility(routeId: string, isVisible: boolean): Promise<void> {
   db.update(routes).set({ isVisible }).where(eq(routes.id, routeId)).run();
 }
 
@@ -160,32 +170,35 @@ export async function insertPOIs(newPois: POI[]): Promise<void> {
     const CHUNK = 500;
     for (let i = 0; i < newPois.length; i += CHUNK) {
       const chunk = newPois.slice(i, i + CHUNK);
-      tx.insert(pois).values(
-        chunk.map((p) => ({
-          id: p.id,
-          sourceId: p.sourceId,
-          source: p.source,
-          routeId: p.routeId,
-          name: p.name,
-          category: p.category,
-          latitude: p.latitude,
-          longitude: p.longitude,
-          tags: p.tags,
-          distanceFromRouteMeters: p.distanceFromRouteMeters,
-          distanceAlongRouteMeters: p.distanceAlongRouteMeters,
-        })),
-      ).onConflictDoUpdate({
-        target: pois.id,
-        set: {
-          name: sql`excluded.name`,
-          category: sql`excluded.category`,
-          latitude: sql`excluded.latitude`,
-          longitude: sql`excluded.longitude`,
-          tags: sql`excluded.tags`,
-          distanceFromRouteMeters: sql`excluded.distanceFromRouteMeters`,
-          distanceAlongRouteMeters: sql`excluded.distanceAlongRouteMeters`,
-        },
-      }).run();
+      tx.insert(pois)
+        .values(
+          chunk.map((p) => ({
+            id: p.id,
+            sourceId: p.sourceId,
+            source: p.source,
+            routeId: p.routeId,
+            name: p.name,
+            category: p.category,
+            latitude: p.latitude,
+            longitude: p.longitude,
+            tags: p.tags,
+            distanceFromRouteMeters: p.distanceFromRouteMeters,
+            distanceAlongRouteMeters: p.distanceAlongRouteMeters,
+          })),
+        )
+        .onConflictDoUpdate({
+          target: pois.id,
+          set: {
+            name: sql`excluded.name`,
+            category: sql`excluded.category`,
+            latitude: sql`excluded.latitude`,
+            longitude: sql`excluded.longitude`,
+            tags: sql`excluded.tags`,
+            distanceFromRouteMeters: sql`excluded.distanceFromRouteMeters`,
+            distanceAlongRouteMeters: sql`excluded.distanceAlongRouteMeters`,
+          },
+        })
+        .run();
     }
   });
 }
@@ -217,19 +230,19 @@ export async function deletePOIsForRoute(routeId: string): Promise<void> {
 }
 
 export async function deletePOIsBySource(routeId: string, source: POISource): Promise<void> {
-  db.delete(pois).where(and(eq(pois.routeId, routeId), eq(pois.source, source))).run();
+  db.delete(pois)
+    .where(and(eq(pois.routeId, routeId), eq(pois.source, source)))
+    .run();
 }
 
 export async function hasPOIsForRoute(routeId: string): Promise<boolean> {
-  const row = db
-    .select({ count: count() })
-    .from(pois)
-    .where(eq(pois.routeId, routeId))
-    .get();
+  const row = db.select({ count: count() }).from(pois).where(eq(pois.routeId, routeId)).get();
   return (row?.count ?? 0) > 0;
 }
 
-export async function getPOICountsBySource(routeId: string): Promise<{ osm: number; google: number }> {
+export async function getPOICountsBySource(
+  routeId: string,
+): Promise<{ osm: number; google: number }> {
   const rows = db
     .select({ source: pois.source, cnt: count() })
     .from(pois)
@@ -237,7 +250,8 @@ export async function getPOICountsBySource(routeId: string): Promise<{ osm: numb
     .groupBy(pois.source)
     .all();
 
-  let osm = 0, google = 0;
+  let osm = 0,
+    google = 0;
   for (const row of rows) {
     if (row.source === "google") google = row.cnt;
     else osm += row.cnt;
@@ -253,22 +267,24 @@ export async function insertClimbs(newClimbs: Climb[]): Promise<void> {
     const CHUNK = 500;
     for (let i = 0; i < newClimbs.length; i += CHUNK) {
       const chunk = newClimbs.slice(i, i + CHUNK);
-      tx.insert(climbs).values(
-        chunk.map((c) => ({
-          id: c.id,
-          routeId: c.routeId,
-          name: c.name,
-          startDistanceMeters: c.startDistanceMeters,
-          endDistanceMeters: c.endDistanceMeters,
-          lengthMeters: c.lengthMeters,
-          totalAscentMeters: c.totalAscentMeters,
-          startElevationMeters: c.startElevationMeters,
-          endElevationMeters: c.endElevationMeters,
-          averageGradientPercent: c.averageGradientPercent,
-          maxGradientPercent: c.maxGradientPercent,
-          difficultyScore: c.difficultyScore,
-        })),
-      ).run();
+      tx.insert(climbs)
+        .values(
+          chunk.map((c) => ({
+            id: c.id,
+            routeId: c.routeId,
+            name: c.name,
+            startDistanceMeters: c.startDistanceMeters,
+            endDistanceMeters: c.endDistanceMeters,
+            lengthMeters: c.lengthMeters,
+            totalAscentMeters: c.totalAscentMeters,
+            startElevationMeters: c.startElevationMeters,
+            endElevationMeters: c.endElevationMeters,
+            averageGradientPercent: c.averageGradientPercent,
+            maxGradientPercent: c.maxGradientPercent,
+            difficultyScore: c.difficultyScore,
+          })),
+        )
+        .run();
     }
   });
 }
@@ -293,12 +309,14 @@ export async function updateClimbName(climbId: string, name: string | null): Pro
 // --- Collection CRUD ---
 
 export async function insertCollection(collection: Collection): Promise<void> {
-  db.insert(collections).values({
-    id: collection.id,
-    name: collection.name,
-    isActive: collection.isActive,
-    createdAt: collection.createdAt,
-  }).run();
+  db.insert(collections)
+    .values({
+      id: collection.id,
+      name: collection.name,
+      isActive: collection.isActive,
+      createdAt: collection.createdAt,
+    })
+    .run();
 }
 
 export async function getAllCollections(): Promise<Collection[]> {
@@ -329,12 +347,14 @@ export async function clearActiveCollection(): Promise<void> {
 // --- Collection Segment CRUD ---
 
 export async function insertCollectionSegment(segment: CollectionSegment): Promise<void> {
-  db.insert(collectionSegments).values({
-    collectionId: segment.collectionId,
-    routeId: segment.routeId,
-    position: segment.position,
-    isSelected: segment.isSelected,
-  }).run();
+  db.insert(collectionSegments)
+    .values({
+      collectionId: segment.collectionId,
+      routeId: segment.routeId,
+      position: segment.position,
+      isSelected: segment.isSelected,
+    })
+    .run();
 }
 
 export async function deleteCollectionSegment(
@@ -342,13 +362,16 @@ export async function deleteCollectionSegment(
   routeId: string,
 ): Promise<void> {
   db.delete(collectionSegments)
-    .where(and(eq(collectionSegments.collectionId, collectionId), eq(collectionSegments.routeId, routeId)))
+    .where(
+      and(
+        eq(collectionSegments.collectionId, collectionId),
+        eq(collectionSegments.routeId, routeId),
+      ),
+    )
     .run();
 }
 
-export async function getCollectionSegments(
-  collectionId: string,
-): Promise<CollectionSegment[]> {
+export async function getCollectionSegments(collectionId: string): Promise<CollectionSegment[]> {
   const rows = db
     .select()
     .from(collectionSegments)
@@ -358,25 +381,37 @@ export async function getCollectionSegments(
   return rows;
 }
 
-export async function selectVariant(
-  collectionId: string,
-  routeId: string,
-): Promise<void> {
+export async function selectVariant(collectionId: string, routeId: string): Promise<void> {
   const row = db
     .select({ position: collectionSegments.position })
     .from(collectionSegments)
-    .where(and(eq(collectionSegments.collectionId, collectionId), eq(collectionSegments.routeId, routeId)))
+    .where(
+      and(
+        eq(collectionSegments.collectionId, collectionId),
+        eq(collectionSegments.routeId, routeId),
+      ),
+    )
     .get();
   if (!row) return;
 
   db.transaction((tx) => {
     tx.update(collectionSegments)
       .set({ isSelected: false })
-      .where(and(eq(collectionSegments.collectionId, collectionId), eq(collectionSegments.position, row.position)))
+      .where(
+        and(
+          eq(collectionSegments.collectionId, collectionId),
+          eq(collectionSegments.position, row.position),
+        ),
+      )
       .run();
     tx.update(collectionSegments)
       .set({ isSelected: true })
-      .where(and(eq(collectionSegments.collectionId, collectionId), eq(collectionSegments.routeId, routeId)))
+      .where(
+        and(
+          eq(collectionSegments.collectionId, collectionId),
+          eq(collectionSegments.routeId, routeId),
+        ),
+      )
       .run();
   });
 }
@@ -389,7 +424,12 @@ export async function updateSegmentPositions(
     for (const { routeId, position } of positions) {
       tx.update(collectionSegments)
         .set({ position })
-        .where(and(eq(collectionSegments.collectionId, collectionId), eq(collectionSegments.routeId, routeId)))
+        .where(
+          and(
+            eq(collectionSegments.collectionId, collectionId),
+            eq(collectionSegments.routeId, routeId),
+          ),
+        )
         .run();
     }
   });

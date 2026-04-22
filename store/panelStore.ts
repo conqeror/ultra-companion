@@ -36,7 +36,7 @@ interface PanelState {
 
 const DEFAULT_PANEL_MODE: PanelMode = "upcoming-50";
 
-const PANEL_TABS: PanelTab[] = ["profile", "weather", "climbs", "pois"];
+const PANEL_TABS: ReadonlySet<PanelTab> = new Set(["profile", "weather", "climbs", "pois"]);
 
 function readPanelMode(): PanelMode {
   const raw = readString("panelMode");
@@ -46,7 +46,7 @@ function readPanelMode(): PanelMode {
 
 function readPanelTab(): PanelTab {
   const raw = readString("panelTab");
-  if (raw && PANEL_TABS.includes(raw as PanelTab)) return raw as PanelTab;
+  if (raw && PANEL_TABS.has(raw as PanelTab)) return raw as PanelTab;
   return "profile";
 }
 
@@ -57,19 +57,25 @@ export const usePanelStore = create<PanelState>((set, get) => ({
     const current = get().panelMode;
     const idx = PANEL_MODES.indexOf(current);
     const next = PANEL_MODES[(idx + 1) % PANEL_MODES.length];
-    try { getStorage().set("panelMode", next); } catch {}
+    try {
+      getStorage().set("panelMode", next);
+    } catch {}
     set({ panelMode: next });
   },
 
   setPanelMode: (panelMode) => {
-    try { getStorage().set("panelMode", panelMode); } catch {}
+    try {
+      getStorage().set("panelMode", panelMode);
+    } catch {}
     set({ panelMode });
   },
 
   panelTab: readPanelTab(),
 
   setPanelTab: (panelTab) => {
-    try { getStorage().set("panelTab", panelTab); } catch {}
+    try {
+      getStorage().set("panelTab", panelTab);
+    } catch {}
     set({ panelTab });
   },
 

@@ -11,24 +11,17 @@ function toDeg(rad: number): number {
 }
 
 /** Bearing in degrees (0=N, clockwise) from point A to point B */
-export function computeBearing(
-  lat1: number, lon1: number,
-  lat2: number, lon2: number,
-): number {
+export function computeBearing(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const dLon = toRad(lon2 - lon1);
   const y = Math.sin(dLon) * Math.cos(toRad(lat2));
-  const x = Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) -
+  const x =
+    Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) -
     Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(dLon);
   return (toDeg(Math.atan2(y, x)) + 360) % 360;
 }
 
 /** Haversine distance between two points in meters */
-export function haversineDistance(
-  lat1: number,
-  lon1: number,
-  lat2: number,
-  lon2: number,
-): number {
+export function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const dLat = toRad(lat2 - lat1);
   const dLon = toRad(lon2 - lon1);
   const a =
@@ -108,10 +101,9 @@ export function findNearestPointOnRoute(
 }
 
 /** Downsample an array to at most maxPoints using Ramer-Douglas-Peucker on elevation vs distance */
-export function downsampleForChart<T extends { distanceFromStartMeters: number; elevationMeters: number | null }>(
-  points: T[],
-  maxPoints: number,
-): T[] {
+export function downsampleForChart<
+  T extends { distanceFromStartMeters: number; elevationMeters: number | null },
+>(points: T[], maxPoints: number): T[] {
   if (points.length <= maxPoints) return points;
 
   // Simple uniform sampling — preserves first and last
@@ -178,7 +170,9 @@ export function extractRouteSlice(
 
   const slice = points.slice(startIndex, endIndex + 1);
   return slice.map((p, i) => ({
-    ...p,
+    latitude: p.latitude,
+    longitude: p.longitude,
+    elevationMeters: p.elevationMeters,
     distanceFromStartMeters: p.distanceFromStartMeters - startDist,
     idx: i,
   }));
@@ -283,8 +277,10 @@ export function computePOIRouteAssociation(
   if (routePoints.length === 1) {
     return {
       distanceFromRouteMeters: haversineDistance(
-        poiLat, poiLon,
-        routePoints[0].latitude, routePoints[0].longitude,
+        poiLat,
+        poiLon,
+        routePoints[0].latitude,
+        routePoints[0].longitude,
       ),
       distanceAlongRouteMeters: routePoints[0].distanceFromStartMeters,
       nearestIndex: 0,
@@ -300,9 +296,12 @@ export function computePOIRouteAssociation(
     const b = routePoints[i + 1];
 
     const { distanceMeters, fraction } = pointToSegmentDistance(
-      poiLat, poiLon,
-      a.latitude, a.longitude,
-      b.latitude, b.longitude,
+      poiLat,
+      poiLon,
+      a.latitude,
+      a.longitude,
+      b.latitude,
+      b.longitude,
     );
 
     if (distanceMeters < bestDist) {

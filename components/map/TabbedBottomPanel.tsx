@@ -113,17 +113,18 @@ export default function TabbedBottomPanel({ activeData }: TabbedBottomPanelProps
   return (
     <Animated.View
       className="absolute bottom-0 left-0 right-0 rounded-t-2xl shadow-lg border-t border-border"
-      style={[
-        { height: expandedHeight, backgroundColor: colors.surface },
-        animatedSheetStyle,
-      ]}
+      style={[{ height: expandedHeight, backgroundColor: colors.surface }, animatedSheetStyle]}
     >
       {/* Handle + tabs — single compact gesture target */}
       <GestureDetector gesture={panGesture}>
         <Animated.View>
           <View
             className="px-2"
-            style={{ height: HEADER_HEIGHT, borderBottomWidth: 1, borderBottomColor: colors.borderSubtle }}
+            style={{
+              height: HEADER_HEIGHT,
+              borderBottomWidth: 1,
+              borderBottomColor: colors.borderSubtle,
+            }}
           >
             {/* Drag handle pill */}
             <View className="items-center pt-1.5 pb-0.5">
@@ -179,16 +180,8 @@ export default function TabbedBottomPanel({ activeData }: TabbedBottomPanelProps
           />
         )}
         {panelTab === "weather" && <WeatherPanel />}
-        {panelTab === "climbs" && (
-          <ClimbTabContent
-            activeData={activeData}
-          />
-        )}
-        {panelTab === "pois" && (
-          <POITabContent
-            activeData={activeData}
-          />
-        )}
+        {panelTab === "climbs" && <ClimbTabContent activeData={activeData} />}
+        {panelTab === "pois" && <POITabContent activeData={activeData} />}
       </View>
     </Animated.View>
   );

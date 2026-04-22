@@ -50,7 +50,9 @@ export const useMapStore = create<MapState>((set, get) => ({
 
   persistCamera: (center, zoom) => {
     set({ center, zoom });
-    try { getStorage().set("camera", JSON.stringify({ center, zoom })); } catch {}
+    try {
+      getStorage().set("camera", JSON.stringify({ center, zoom }));
+    } catch {}
   },
 
   refreshPosition: async () => {

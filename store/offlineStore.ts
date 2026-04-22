@@ -88,7 +88,7 @@ export const useOfflineStore = create<OfflineState>((set, get) => ({
       set((s) => {
         const updated = {
           ...s.routeInfo,
-          [routeId]: { ...s.routeInfo[routeId] ?? DEFAULT_ROUTE_INFO, ...partial },
+          [routeId]: { ...(s.routeInfo[routeId] ?? DEFAULT_ROUTE_INFO), ...partial },
         };
         persistRouteInfo(updated);
         return { routeInfo: updated };
@@ -130,7 +130,11 @@ export const useOfflineStore = create<OfflineState>((set, get) => ({
         set((s) => ({
           routeInfo: {
             ...s.routeInfo,
-            [routeId]: { ...s.routeInfo[routeId] ?? DEFAULT_ROUTE_INFO, percentage, downloadedBytes: completedBytes },
+            [routeId]: {
+              ...(s.routeInfo[routeId] ?? DEFAULT_ROUTE_INFO),
+              percentage,
+              downloadedBytes: completedBytes,
+            },
           },
         }));
       },
@@ -196,9 +200,11 @@ export const useOfflineStore = create<OfflineState>((set, get) => ({
   },
 
   initConnectivityListener: () => {
-    getNetworkStateAsync().then((state) => {
-      set({ isConnected: state.isConnected ?? true });
-    }).catch(() => {});
+    getNetworkStateAsync()
+      .then((state) => {
+        set({ isConnected: state.isConnected ?? true });
+      })
+      .catch(() => {});
 
     const subscription = addNetworkStateListener((event) => {
       set({ isConnected: event.isConnected ?? true });

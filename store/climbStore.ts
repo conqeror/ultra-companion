@@ -21,7 +21,11 @@ interface ClimbState {
 
   // Computed
   getClimbsForDisplay: (routeIds: string[], segments: StitchedSegmentInfo[] | null) => Climb[];
-  updateCurrentClimb: (distanceAlongRoute: number, routeIds: string[], segments: StitchedSegmentInfo[] | null) => void;
+  updateCurrentClimb: (
+    distanceAlongRoute: number,
+    routeIds: string[],
+    segments: StitchedSegmentInfo[] | null,
+  ) => void;
   getCurrentClimb: () => Climb | null;
 }
 
@@ -66,9 +70,12 @@ export const useClimbStore = create<ClimbState>((set, get) => ({
       return {
         climbs: {
           ...s.climbs,
-          [routeId]: routeClimbs.map((c) =>
-            c.id === climbId ? { ...c, name } : c,
-          ),
+          [routeId]: routeClimbs.map((c) => {
+            if (c.id !== climbId) return c;
+            const out = Object.assign({}, c);
+            out.name = name;
+            return out;
+          }),
         },
       };
     });
@@ -133,10 +140,11 @@ export const useClimbStore = create<ClimbState>((set, get) => ({
         }
         if (newId) break;
       }
-    } else if (routeIds.length >= 1) {
+    } else if (routeIds.length > 0) {
       const routeClimbs = state.climbs[routeIds[0]];
       const found = routeClimbs?.find(
-        (c) => distanceAlongRoute >= c.startDistanceMeters && distanceAlongRoute <= c.endDistanceMeters,
+        (c) =>
+          distanceAlongRoute >= c.startDistanceMeters && distanceAlongRoute <= c.endDistanceMeters,
       );
       if (found) newId = found.id;
     }
@@ -164,10 +172,7 @@ export const useClimbStore = create<ClimbState>((set, get) => ({
  * Merge climbs at collection segment boundaries using the absorption rule.
  * Only merges pairs that directly straddle a junction — no cascading.
  */
-function mergeAdjacentClimbs(
-  sorted: Climb[],
-  segments: StitchedSegmentInfo[],
-): Climb[] {
+function mergeAdjacentClimbs(sorted: Climb[], segments: StitchedSegmentInfo[]): Climb[] {
   if (sorted.length <= 1 || segments.length <= 1) return sorted;
 
   // Build the set of interior junction distances (where segments meet)
@@ -177,7 +182,7 @@ function mergeAdjacentClimbs(
   }
 
   // First pass: identify which adjacent pairs should merge (no cascading)
-  const mergeWithNext = new Array<boolean>(sorted.length).fill(false);
+  const mergeWithNext: boolean[] = Array.from({ length: sorted.length }, () => false);
 
   for (let i = 0; i < sorted.length - 1; i++) {
     const a = sorted[i];
@@ -194,7 +199,10 @@ function mergeAdjacentClimbs(
 
     let hasJunction = false;
     for (const j of junctions) {
-      if (j >= gapStart - 1 && j <= gapEnd + 1) { hasJunction = true; break; }
+      if (j >= gapStart - 1 && j <= gapEnd + 1) {
+        hasJunction = true;
+        break;
+      }
     }
     if (!hasJunction) continue;
 
@@ -225,7 +233,7 @@ function mergeAdjacentClimbs(
         endElevationMeters: b.endElevationMeters,
         lengthMeters: mergedLength,
         totalAscentMeters: mergedAscent,
-        averageGradientPercent: Math.round(((mergedAscent / mergedLength) * 100) * 10) / 10,
+        averageGradientPercent: Math.round((mergedAscent / mergedLength) * 100 * 10) / 10,
         maxGradientPercent: Math.max(a.maxGradientPercent, b.maxGradientPercent),
         difficultyScore: a.difficultyScore + b.difficultyScore,
       });

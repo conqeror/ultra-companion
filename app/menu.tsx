@@ -54,9 +54,7 @@ export default function MenuScreen() {
       </View>
 
       {/* Content */}
-      <View style={{ flex: 1 }}>
-        {tab === "routes" ? <RoutesScreen /> : <SettingsScreen />}
-      </View>
+      <View style={{ flex: 1 }}>{tab === "routes" ? <RoutesScreen /> : <SettingsScreen />}</View>
     </SafeAreaView>
   );
 }

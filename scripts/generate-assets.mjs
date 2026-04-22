@@ -3,7 +3,7 @@
  * Run: node scripts/generate-assets.mjs
  */
 import { Resvg } from "@resvg/resvg-js";
-import { writeFileSync, mkdirSync } from "fs";
+import { writeFileSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 

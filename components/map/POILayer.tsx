@@ -6,9 +6,7 @@ import { POI_CATEGORIES } from "@/constants";
 import { haversineDistance } from "@/utils/geo";
 import type { POI } from "@/types";
 
-const categoryColorMap = Object.fromEntries(
-  POI_CATEGORIES.map((c) => [c.key, c.color]),
-);
+const categoryColorMap = Object.fromEntries(POI_CATEGORIES.map((c) => [c.key, c.color]));
 
 interface POILayerProps {
   routeIds: string[];

@@ -144,12 +144,12 @@ function buildRouteScrubPatch(
 ) {
   const { [routeId]: removed, ...remainingPois } = s.pois;
   const removedIds = new Set((removed ?? []).map((p) => p.id));
-  const nextStarred = new Set(
-    [...s.starredPOIIds].filter((id) => !removedIds.has(id)),
-  );
+  const nextStarred = new Set([...s.starredPOIIds].filter((id) => !removedIds.has(id)));
   const starredChanged = nextStarred.size !== s.starredPOIIds.size;
   if (starredChanged) {
-    try { getStorage().set("starredPOIIds", JSON.stringify([...nextStarred])); } catch {}
+    try {
+      getStorage().set("starredPOIIds", JSON.stringify([...nextStarred]));
+    } catch {}
   }
 
   let sourceInfo: typeof s.sourceInfo;
@@ -224,7 +224,8 @@ export const usePoiStore = create<POIState>((set, get) => ({
     // never clobber an active "fetching" or surfaced "error" status — only
     // fall back to MMKV when there's no in-memory entry yet (cold start).
     const pois = await getPOIsForRoute(routeId);
-    let osmCount = 0, googleCount = 0;
+    let osmCount = 0,
+      googleCount = 0;
     for (const p of pois) {
       if (p.source === "google") googleCount++;
       else osmCount++;
@@ -322,24 +323,32 @@ export const usePoiStore = create<POIState>((set, get) => ({
     const next = current.includes(category)
       ? current.filter((c) => c !== category)
       : [...current, category];
-    try { getStorage().set("enabledCategories", JSON.stringify(next)); } catch {}
+    try {
+      getStorage().set("enabledCategories", JSON.stringify(next));
+    } catch {}
     set({ enabledCategories: next });
   },
 
   setCorridorWidth: (widthM) => {
-    try { getStorage().set("corridorWidthM", String(widthM)); } catch {}
+    try {
+      getStorage().set("corridorWidthM", String(widthM));
+    } catch {}
     set({ corridorWidthM: widthM });
   },
 
   setAllCategories: (enabled) => {
     const next = enabled ? POI_CATEGORIES.map((c) => c.key) : [];
-    try { getStorage().set("enabledCategories", JSON.stringify(next)); } catch {}
+    try {
+      getStorage().set("enabledCategories", JSON.stringify(next));
+    } catch {}
     set({ enabledCategories: next });
   },
 
   toggleShowOpenOnly: () => {
     const next = !get().showOpenOnly;
-    try { getStorage().set("showOpenOnly", String(next)); } catch {}
+    try {
+      getStorage().set("showOpenOnly", String(next));
+    } catch {}
     set({ showOpenOnly: next });
   },
 
@@ -351,7 +360,9 @@ export const usePoiStore = create<POIState>((set, get) => ({
     } else {
       next.add(poiId);
     }
-    try { getStorage().set("starredPOIIds", JSON.stringify([...next])); } catch {}
+    try {
+      getStorage().set("starredPOIIds", JSON.stringify([...next]));
+    } catch {}
     set({ starredPOIIds: next });
   },
 

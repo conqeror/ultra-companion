@@ -20,8 +20,7 @@ const OUTPUT = resolve(__dirname, "../assets/map-styles/outdoors-v12-dark.json")
 // HSL parsing / serialization
 // ---------------------------------------------------------------------------
 
-const HSL_RE =
-  /^hsla?\(\s*([\d.]+)\s*,\s*([\d.]+)%\s*,\s*([\d.]+)%\s*(?:,\s*([\d.]+))?\s*\)$/;
+const HSL_RE = /^hsla?\(\s*([\d.]+)\s*,\s*([\d.]+)%\s*,\s*([\d.]+)%\s*(?:,\s*([\d.]+))?\s*\)$/;
 
 function parseHSL(color) {
   const m = color.match(HSL_RE);
@@ -73,14 +72,14 @@ const transforms = {
       ? { ...c, s: 0, l: 30 }
       : { ...c, s: Math.min(c.s, 60), l: Math.max(35, c.l * 0.5) },
   roadCase: (c) => desat(setL(c, 15), 0.3),
-  path: (c) => (c.l > 60 ? { ...c, l: 30, s: Math.min(c.s, 20) } : { ...c, l: Math.min(c.l + 10, 45) }),
+  path: (c) =>
+    c.l > 60 ? { ...c, l: 30, s: Math.min(c.s, 20) } : { ...c, l: Math.min(c.l + 10, 45) },
   contour: (c) => setL(c, 48),
   boundary: (c) => ({ ...c, s: Math.min(c.s, 25), l: Math.max(35, c.l) }),
 
   // Labels
   labelText: (c) => (c.l < 50 ? { ...c, s: Math.min(c.s, 10), l: 82 } : c),
-  labelHalo: (c) =>
-    c.l > 60 ? { ...c, s: Math.min(c.s, 8), l: 12, a: Math.min(c.a, 0.85) } : c,
+  labelHalo: (c) => (c.l > 60 ? { ...c, s: Math.min(c.s, 8), l: 12, a: Math.min(c.a, 0.85) } : c),
   contourLabelText: (c) => setL(c, 50),
   contourLabelHalo: (c) => setL(c, 12),
   waterLabel: (c) => desat(setL(c, 55), 0.7),
@@ -95,11 +94,7 @@ const transforms = {
   buildingLabelHalo: (c) => ({ ...c, s: 0, l: 12, a: 0.4 }),
   genericFill: (c) => desat({ ...c, l: clamp(100 - c.l - 10) }, 0.5),
   genericLine: (c) =>
-    c.l > 60
-      ? desat(setL(c, 30), 0.5)
-      : c.l < 30
-        ? desat(setL(c, 50), 0.5)
-        : desat(c, 0.5),
+    c.l > 60 ? desat(setL(c, 30), 0.5) : c.l < 30 ? desat(setL(c, 50), 0.5) : desat(c, 0.5),
 };
 
 // ---------------------------------------------------------------------------
@@ -138,8 +133,7 @@ function classifyLayer(layer) {
   if (id === "contour-label") return "contourLabel";
   if (id.startsWith("contour")) return "contour";
 
-  const isRoadLike =
-    id.startsWith("road-") || id.startsWith("bridge-") || id.startsWith("tunnel-");
+  const isRoadLike = id.startsWith("road-") || id.startsWith("bridge-") || id.startsWith("tunnel-");
   if (isRoadLike && id.endsWith("-case")) return "roadCase";
   if (
     id.includes("path") ||
@@ -250,7 +244,5 @@ writeFileSync(OUTPUT, JSON.stringify(dark), "utf-8");
 
 const lightLayers = style.layers.length;
 const darkLayers = dark.layers.length;
-console.log(
-  `✓ Generated dark style: ${darkLayers} layers (from ${lightLayers} light layers)`,
-);
+console.log(`✓ Generated dark style: ${darkLayers} layers (from ${lightLayers} light layers)`);
 console.log(`  → ${OUTPUT}`);

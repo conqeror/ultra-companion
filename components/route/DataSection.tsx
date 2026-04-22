@@ -23,7 +23,6 @@ function formatDate(iso: string): string {
 }
 
 export default function DataSection({ routeId, points }: DataSectionProps) {
-
   // Map tiles state
   const tileInfo = useOfflineStore((s) => s.getRouteInfo(routeId));
   const isConnected = useOfflineStore((s) => s.isConnected);
@@ -61,9 +60,7 @@ export default function DataSection({ routeId, points }: DataSectionProps) {
 
   return (
     <View>
-      <Text className="text-[22px] font-barlow-semibold text-foreground px-4 mt-4 mb-3">
-        Data
-      </Text>
+      <Text className="text-[22px] font-barlow-semibold text-foreground px-4 mt-4 mb-3">Data</Text>
 
       {/* Map Tiles */}
       <DataRow
@@ -78,7 +75,6 @@ export default function DataSection({ routeId, points }: DataSectionProps) {
         timestamp={tileInfo.downloadedAt ? formatDate(tileInfo.downloadedAt) : null}
         error={tileInfo.status === "error" ? tileInfo.error : null}
         progress={tilesDownloading ? tileInfo.percentage : undefined}
-
       />
       <View className="flex-row px-4 mb-4 gap-3">
         {tilesDownloading ? (
@@ -165,11 +161,7 @@ function DataRow({
           Fetched {timestamp}
         </Text>
       )}
-      {error && (
-        <Text className="text-[13px] text-destructive font-barlow mt-1">
-          {error}
-        </Text>
-      )}
+      {error && <Text className="text-[13px] text-destructive font-barlow mt-1">{error}</Text>}
     </View>
   );
 }
@@ -204,7 +196,6 @@ function SourceRow({
         }
         timestamp={info.fetchedAt ? formatDate(info.fetchedAt) : null}
         error={info.status === "error" ? info.error : null}
-
       />
       <View className="flex-row px-4 mb-4 gap-3">
         <View className="flex-1">
@@ -218,12 +209,7 @@ function SourceRow({
         </View>
         {hasData && (
           <View className="flex-1">
-            <Button
-              size="sm"
-              variant="destructive"
-              onPress={onDelete}
-              label="Delete"
-            />
+            <Button size="sm" variant="destructive" onPress={onDelete} label="Delete" />
           </View>
         )}
       </View>

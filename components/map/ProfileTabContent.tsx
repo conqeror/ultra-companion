@@ -16,7 +16,7 @@ import { formatDistance, formatElevation, formatDuration } from "@/utils/formatt
 import { stitchPOIs } from "@/services/stitchingService";
 import UpcomingElevation from "./UpcomingElevation";
 import ElevationProfile from "@/components/elevation/ElevationProfile";
-import type { RoutePoint, PanelMode, POI, ActiveRouteData } from "@/types";
+import type { PanelMode, POI, ActiveRouteData } from "@/types";
 
 const MAX_SNAP_DISTANCE_M = 1000;
 
@@ -36,7 +36,7 @@ export default function ProfileTabContent({ activeData, width, height }: Profile
   const { bottom: safeBottom } = useSafeAreaInsets();
   const activeRoutePoints = activeData?.points ?? null;
   const activeId = activeData?.id ?? null;
-  const activeRouteIds = activeData?.routeIds ?? [];
+  const activeRouteIds = useMemo(() => activeData?.routeIds ?? [], [activeData?.routeIds]);
   const activeSegments = activeData?.segments ?? null;
   const activeTotalDistance = activeData?.totalDistanceMeters ?? 0;
 
@@ -66,6 +66,8 @@ export default function ProfileTabContent({ activeData, width, height }: Profile
       return stitchPOIs(activeSegments, poisByRoute);
     }
     return getStarredPOIs(activeRouteIds[0]);
+    // starredPOIIds is a reactivity trigger: getStarredPOIs reads store via get() and is not itself reactive
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeId, activeRouteIds, activeSegments, getStarredPOIs, starredPOIIds]);
 
   // Climbs for chart
@@ -74,6 +76,8 @@ export default function ProfileTabContent({ activeData, width, height }: Profile
   const climbsForChart = useMemo(() => {
     if (!activeId || activeRouteIds.length === 0) return [];
     return getClimbsForDisplay(activeRouteIds, activeSegments);
+    // allClimbs is a reactivity trigger: getClimbsForDisplay reads store via get() and is not itself reactive
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeId, activeRouteIds, activeSegments, getClimbsForDisplay, allClimbs]);
 
   // Climb zoom mode
@@ -97,7 +101,10 @@ export default function ProfileTabContent({ activeData, width, height }: Profile
         break;
       }
     }
-    const totalSliceM = (currentClimb.endDistanceMeters + padding) - activeRoutePoints[startIdx].distanceFromStartMeters;
+    const totalSliceM =
+      currentClimb.endDistanceMeters +
+      padding -
+      activeRoutePoints[startIdx].distanceFromStartMeters;
     const sliced = extractRouteSlice(activeRoutePoints, startIdx, totalSliceM);
     let currentIdxInSlice: number | undefined;
     if (isSnapped) {
@@ -106,7 +113,11 @@ export default function ProfileTabContent({ activeData, width, height }: Profile
         currentIdxInSlice = undefined;
       }
     }
-    return { points: sliced, currentIdxInSlice, offsetMeters: activeRoutePoints[startIdx].distanceFromStartMeters };
+    return {
+      points: sliced,
+      currentIdxInSlice,
+      offsetMeters: activeRoutePoints[startIdx].distanceFromStartMeters,
+    };
   }, [currentClimb, activeRoutePoints, isSnapped, snappedPosition]);
 
   const climbProgressText = useMemo(() => {
@@ -114,7 +125,11 @@ export default function ProfileTabContent({ activeData, width, height }: Profile
     const currentDist = snappedPosition.distanceAlongRouteMeters;
     const distToTop = currentClimb.endDistanceMeters - currentDist;
     if (distToTop <= 0) return null;
-    const ascentRemaining = computeSliceAscent(activeRoutePoints, snappedPosition.pointIndex, currentClimb.endDistanceMeters);
+    const ascentRemaining = computeSliceAscent(
+      activeRoutePoints,
+      snappedPosition.pointIndex,
+      currentClimb.endDistanceMeters,
+    );
     return `↑ ${formatElevation(ascentRemaining, units)} remaining  ·  ${formatDistance(distToTop, units)} to top  ·  ${currentClimb.averageGradientPercent}% avg`;
   }, [currentClimb, isSnapped, snappedPosition, activeRoutePoints, units]);
 
@@ -149,7 +164,16 @@ export default function ProfileTabContent({ activeData, width, height }: Profile
     }
     const base = `\u2191 ${formatElevation(sliceAscent, units)}`;
     return durationSuffix ? `${base}  \u00B7  ${durationSuffix}` : base;
-  }, [isSnapped, snappedPosition, activeId, activeTotalDistance, activeRoutePoints, units, panelMode, cumulativeTime]);
+  }, [
+    isSnapped,
+    snappedPosition,
+    activeId,
+    activeTotalDistance,
+    activeRoutePoints,
+    units,
+    panelMode,
+    cumulativeTime,
+  ]);
 
   // Lookahead +/- controls
   const modeIdx = PANEL_MODES.indexOf(panelMode);
@@ -166,9 +190,7 @@ export default function ProfileTabContent({ activeData, width, height }: Profile
   if (!activeId || !activeRoutePoints?.length) {
     return (
       <View className="flex-1 items-center justify-center">
-        <Text className="text-[15px] text-muted-foreground">
-          Import and activate a route
-        </Text>
+        <Text className="text-[15px] text-muted-foreground">Import and activate a route</Text>
       </View>
     );
   }
@@ -180,7 +202,7 @@ export default function ProfileTabContent({ activeData, width, height }: Profile
   const HORIZONTAL_PADDING = 8;
   const showClimbHeader = isExpanded && showClimbZoom && !!climbProgressText;
   const showStats = isExpanded && !showClimbZoom && !!statsText;
-  const headerHeight = (showStats || showClimbHeader) ? HEADER_HEIGHT : 0;
+  const headerHeight = showStats || showClimbHeader ? HEADER_HEIGHT : 0;
   const chartHeight = height - headerHeight - safeBottom;
   const chartWidth = width - HORIZONTAL_PADDING * 2;
 
@@ -209,10 +231,19 @@ export default function ProfileTabContent({ activeData, width, height }: Profile
             { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
           ]}
         >
-          <Text className="text-[13px] text-muted-foreground font-barlow-sc-medium flex-1 text-center" numberOfLines={1}>
+          <Text
+            className="text-[13px] text-muted-foreground font-barlow-sc-medium flex-1 text-center"
+            numberOfLines={1}
+          >
             {statsText}
           </Text>
-          <ZoomControls km={km} canZoomIn={canZoomIn} canZoomOut={canZoomOut} onZoomIn={handleZoomIn} onZoomOut={handleZoomOut} />
+          <ZoomControls
+            km={km}
+            canZoomIn={canZoomIn}
+            canZoomOut={canZoomOut}
+            onZoomIn={handleZoomIn}
+            onZoomOut={handleZoomOut}
+          />
         </View>
       )}
       <View className="items-center px-2">
@@ -244,13 +275,22 @@ export default function ProfileTabContent({ activeData, width, height }: Profile
           />
         )}
       </View>
-
     </View>
   );
 }
 
-function ZoomControls({ km, canZoomIn, canZoomOut, onZoomIn, onZoomOut }: {
-  km: string; canZoomIn: boolean; canZoomOut: boolean; onZoomIn: () => void; onZoomOut: () => void;
+function ZoomControls({
+  km,
+  canZoomIn,
+  canZoomOut,
+  onZoomIn,
+  onZoomOut,
+}: {
+  km: string;
+  canZoomIn: boolean;
+  canZoomOut: boolean;
+  onZoomIn: () => void;
+  onZoomOut: () => void;
 }) {
   const colors = useThemeColors();
   return (

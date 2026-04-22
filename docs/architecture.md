@@ -47,8 +47,15 @@ interface POI {
 }
 
 type POICategory =
-  | 'water' | 'groceries' | 'gas_station' | 'cafe_restaurant'
-  | 'accommodation' | 'bike_shop' | 'atm' | 'pharmacy' | 'toilet_shower';
+  | "water"
+  | "groceries"
+  | "gas_station"
+  | "cafe_restaurant"
+  | "accommodation"
+  | "bike_shop"
+  | "atm"
+  | "pharmacy"
+  | "toilet_shower";
 ```
 
 ### Power Model
@@ -57,11 +64,11 @@ type POICategory =
 interface PowerModelConfig {
   powerWatts: number;
   totalMassKg: number;
-  cda: number;                   // default 0.4 m²
-  crr: number;                   // default 0.005
-  airDensity: number;            // default 1.225 kg/m³
-  maxDescentSpeedKmh: number;    // default 60
-  drivetrainEfficiency: number;  // default 0.97
+  cda: number; // default 0.4 m²
+  crr: number; // default 0.005
+  airDensity: number; // default 1.225 kg/m³
+  maxDescentSpeedKmh: number; // default 60
+  drivetrainEfficiency: number; // default 0.97
 }
 ```
 
@@ -70,40 +77,47 @@ ETA computation: for each route segment, solve `P = (Crr × m × g × cos(θ) + 
 ## Offline Strategy
 
 ### Map Tiles
+
 - On route import, compute bounding corridor (route + 10km buffer)
 - Download vector tiles for zoom 6–15 via Mapbox `OfflineManager`
 - Enable predictive caching along route geometry
 - ~50–150 MB per 1000 km route
 
 ### POI Data
+
 - Overpass API for OSM categories, Google Places for gas stations and groceries
 - Route split into ~50km segments for Overpass queries, ~8km sampling for Google
 - Stored in SQLite with spatial indexing
 - ~1–5 MB per 1000 km route corridor
 
 ### Elevation Data
+
 - Extracted from GPX (most files include elevation)
 - Stored as part of route model — always offline
 
 ## Third-Party Services
 
-| Service | Purpose | Cost |
-|---------|---------|------|
-| Mapbox Maps SDK | Tiles, styling, offline | Free (25k MAU/mo) |
-| Overpass API (OSM) | POI data (most categories) | Free |
-| Google Places API | Gas stations + groceries (better hours) | Free ($200/mo credit) |
-| Open-Meteo API | Weather forecasts | Free, no API key |
+| Service            | Purpose                                 | Cost                  |
+| ------------------ | --------------------------------------- | --------------------- |
+| Mapbox Maps SDK    | Tiles, styling, offline                 | Free (25k MAU/mo)     |
+| Overpass API (OSM) | POI data (most categories)              | Free                  |
+| Google Places API  | Gas stations + groceries (better hours) | Free ($200/mo credit) |
+| Open-Meteo API     | Weather forecasts                       | Free, no API key      |
 
 ## Key Technical Decisions
 
 ### SQLite over AsyncStorage for POIs
+
 Spatial queries ("find POIs within X meters of route") need indexed range queries across thousands of POIs. AsyncStorage is key-value only.
 
 ### Two POI sources (Overpass + Google Places)
+
 OSM opening hours are often missing or wrong for gas stations and groceries — the two categories where open/closed matters most. Google Places has user-reported, verified hours. Other categories stay on Overpass (free, no API key, good coverage for water/bike shops/etc).
 
 ### Collections and Stitching
+
 Routes are stored individually. Collections reference routes via `race_segments` table with position-based slots. At display time, selected segments are stitched (points concatenated with distance offsets). All downstream services (snapping, ETA, weather, elevation) work on the stitched `RoutePoint[]` unchanged.
 
 ### Climb Detection
+
 Runs on import, stored per-route. Algorithm: smooth elevation (200m window), find rising segments with dip absorption (descent < 20% of accumulated gain), qualify (50m+ gain, 2.5%+ avg gradient). Difficulty: Climbbybike method (gradient² × length, summed). For stitched collections, cross-segment climbs are merged at display time.

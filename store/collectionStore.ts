@@ -19,7 +19,12 @@ import {
 import { stitchCollection } from "@/services/stitchingService";
 import { generateId } from "@/utils/generateId";
 import { haversineDistance } from "@/utils/geo";
-import type { Collection, CollectionSegment, CollectionSegmentWithRoute, RoutePoint, StitchedCollection } from "@/types";
+import type {
+  Collection,
+  CollectionSegment,
+  CollectionSegmentWithRoute,
+  StitchedCollection,
+} from "@/types";
 
 /** Max distance (meters) between start/end points to consider two routes as variants */
 const VARIANT_THRESHOLD_M = 5_000;
@@ -48,10 +53,7 @@ interface CollectionState {
   getCollectionSegmentsWithRoutes: (id: string) => Promise<CollectionSegmentWithRoute[]>;
 }
 
-function fingerprintSegments(
-  collectionId: string,
-  segments: CollectionSegment[],
-): string {
+function fingerprintSegments(collectionId: string, segments: CollectionSegment[]): string {
   const selected = segments
     .filter((s) => s.isSelected)
     .slice()
@@ -141,12 +143,16 @@ export const useCollectionStore = create<CollectionState>((set, get) => ({
       for (const { pos, endpoints } of checks) {
         if (!endpoints) continue;
         const startDist = haversineDistance(
-          newEndpoints.first.latitude, newEndpoints.first.longitude,
-          endpoints.first.latitude, endpoints.first.longitude,
+          newEndpoints.first.latitude,
+          newEndpoints.first.longitude,
+          endpoints.first.latitude,
+          endpoints.first.longitude,
         );
         const endDist = haversineDistance(
-          newEndpoints.last.latitude, newEndpoints.last.longitude,
-          endpoints.last.latitude, endpoints.last.longitude,
+          newEndpoints.last.latitude,
+          newEndpoints.last.longitude,
+          endpoints.last.latitude,
+          endpoints.last.longitude,
         );
         if (startDist <= VARIANT_THRESHOLD_M && endDist <= VARIANT_THRESHOLD_M) {
           matchedPosition = pos;
@@ -252,11 +258,11 @@ export const useCollectionStore = create<CollectionState>((set, get) => ({
       set({ activeStitchedCollection: stitched, activeStitchedFingerprint: fingerprint });
       // Inject stitched + per-segment points into routeStore so etaStore and RouteLayer work
       const { useRouteStore } = await import("@/store/routeStore");
-      const current = { ...useRouteStore.getState().visibleRoutePoints };
-      current[id] = stitched.points;
-      for (const [routeId, points] of Object.entries(stitched.pointsByRouteId)) {
-        current[routeId] = points;
-      }
+      const current = {
+        ...useRouteStore.getState().visibleRoutePoints,
+        [id]: stitched.points,
+        ...stitched.pointsByRouteId,
+      };
       useRouteStore.setState({ visibleRoutePoints: current });
     } catch (e: any) {
       console.warn("Failed to stitch collection:", e);

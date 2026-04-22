@@ -16,13 +16,13 @@ How the app is actually used, based on real race experience. This document shoul
 
 ## 2. Daily Rhythm
 
-| Window | Activity |
-|--------|----------|
-| 06:00–07:00 | Wake, pack, start riding |
-| Daytime | Ride with brief stops every 4–6 hours (food, water, toilet) |
-| Evening | Grocery run before shops close — carry enough food for the night |
-| Night | Continue riding until 01:00–02:00 |
-| 01:00–06:00 | Sleep (minimal for short races) |
+| Window      | Activity                                                         |
+| ----------- | ---------------------------------------------------------------- |
+| 06:00–07:00 | Wake, pack, start riding                                         |
+| Daytime     | Ride with brief stops every 4–6 hours (food, water, toilet)      |
+| Evening     | Grocery run before shops close — carry enough food for the night |
+| Night       | Continue riding until 01:00–02:00                                |
+| 01:00–06:00 | Sleep (minimal for short races)                                  |
 
 - **Short races** (< ~1 week): minimize sleep, push through
 - **Long races** (1–2+ weeks): every 2nd night in accommodation to recharge devices and wash clothes
@@ -48,6 +48,7 @@ Stops are optimized — the rider thinks ahead about what the next stop needs to
 ## 4. Device Setup
 
 ### Phone: iPhone 15 Pro
+
 - **Mounting**: aerobar mount (primary) or shorts side pocket
 - **Interaction while riding**: yes — tap, scroll, glance. The phone is within easy reach on aerobars
 - **Airplane mode**: frequently enabled to save battery
@@ -55,17 +56,20 @@ Stops are optimized — the rider thinks ahead about what the next stop needs to
 - **Battery strategy**: powerbanks carried but reserved primarily for the front light (critical for night riding). Phone battery is rationed.
 
 ### Other devices
+
 - **Bike computer**: primary navigation and ride stats (speed, power, HR, distance)
 - **Power meter + HR monitor**: paired to bike computer
 - **GPS tracker**: provided by race organizers, mandatory carry — tracking website shows all participants
 - **Powerbanks**: carried for front light first, phone second
 
 ### What the phone is NOT used for
+
 - Navigation (bike computer handles this)
 - GPS tracking (dedicated tracker from organizers)
 - Ride stats (bike computer)
 
 ### What the phone IS used for
+
 - **Logistics planning**: where to stop, what's available ahead
 - **ETA calculations**: when will I reach a town, a shop, a checkpoint
 - **Weather**: what's coming in the next hours along the route
@@ -102,13 +106,13 @@ The rider is operating under:
 
 ## 7. Current Pain Points
 
-| Pain point | Current workaround | Why it fails |
-|------------|-------------------|--------------|
-| Where should I stop next? | Google Maps + mental math | Requires connectivity, multiple searches, no route context |
-| What's at a POI on the elevation profile? | Komoot + mental cross-referencing | Can't see POIs overlaid on elevation, no ETA |
-| When will I reach a place? | Mental math from bike computer stats | Error-prone when fatigued, doesn't account for terrain |
-| What's the weather ahead? | Weather app + guessing based on direction | No route-aware forecast, needs connectivity |
-| Offline access to any of this | None | Google Maps/Komoot need connectivity for POI search |
+| Pain point                                | Current workaround                        | Why it fails                                               |
+| ----------------------------------------- | ----------------------------------------- | ---------------------------------------------------------- |
+| Where should I stop next?                 | Google Maps + mental math                 | Requires connectivity, multiple searches, no route context |
+| What's at a POI on the elevation profile? | Komoot + mental cross-referencing         | Can't see POIs overlaid on elevation, no ETA               |
+| When will I reach a place?                | Mental math from bike computer stats      | Error-prone when fatigued, doesn't account for terrain     |
+| What's the weather ahead?                 | Weather app + guessing based on direction | No route-aware forecast, needs connectivity                |
+| Offline access to any of this             | None                                      | Google Maps/Komoot need connectivity for POI search        |
 
 **The core problem**: no single app combines route-aware POI search, terrain-aware ETAs, and weather — and none of it works offline.
 

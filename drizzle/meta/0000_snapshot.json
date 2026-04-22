@@ -89,34 +89,22 @@
       "indexes": {
         "idx_pois_route_category": {
           "name": "idx_pois_route_category",
-          "columns": [
-            "routeId",
-            "category"
-          ],
+          "columns": ["routeId", "category"],
           "isUnique": false
         },
         "idx_pois_route_along": {
           "name": "idx_pois_route_along",
-          "columns": [
-            "routeId",
-            "distanceAlongRouteMeters"
-          ],
+          "columns": ["routeId", "distanceAlongRouteMeters"],
           "isUnique": false
         },
         "idx_pois_route_source": {
           "name": "idx_pois_route_source",
-          "columns": [
-            "routeId",
-            "source"
-          ],
+          "columns": ["routeId", "source"],
           "isUnique": false
         },
         "uq_pois_route_source": {
           "name": "uq_pois_route_source",
-          "columns": [
-            "routeId",
-            "sourceId"
-          ],
+          "columns": ["routeId", "sourceId"],
           "isUnique": true
         }
       },
@@ -125,12 +113,8 @@
           "name": "pois_routeId_routes_id_fk",
           "tableFrom": "pois",
           "tableTo": "routes",
-          "columnsFrom": [
-            "routeId"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["routeId"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -175,10 +159,7 @@
       "indexes": {
         "idx_race_segments_race_pos": {
           "name": "idx_race_segments_race_pos",
-          "columns": [
-            "raceId",
-            "position"
-          ],
+          "columns": ["raceId", "position"],
           "isUnique": false
         }
       },
@@ -187,12 +168,8 @@
           "name": "race_segments_raceId_races_id_fk",
           "tableFrom": "race_segments",
           "tableTo": "races",
-          "columnsFrom": [
-            "raceId"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["raceId"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -200,22 +177,15 @@
           "name": "race_segments_routeId_routes_id_fk",
           "tableFrom": "race_segments",
           "tableTo": "routes",
-          "columnsFrom": [
-            "routeId"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["routeId"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {
         "race_segments_raceId_routeId_pk": {
-          "columns": [
-            "raceId",
-            "routeId"
-          ],
+          "columns": ["raceId", "routeId"],
           "name": "race_segments_raceId_routeId_pk"
         }
       },
@@ -313,22 +283,15 @@
           "name": "route_points_routeId_routes_id_fk",
           "tableFrom": "route_points",
           "tableTo": "routes",
-          "columnsFrom": [
-            "routeId"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["routeId"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {
         "route_points_routeId_idx_pk": {
-          "columns": [
-            "routeId",
-            "idx"
-          ],
+          "columns": ["routeId", "idx"],
           "name": "route_points_routeId_idx_pk"
         }
       },

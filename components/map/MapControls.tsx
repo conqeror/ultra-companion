@@ -3,15 +3,18 @@ import { View, TouchableOpacity } from "react-native";
 import { useRouter } from "expo-router";
 import { Text } from "@/components/ui/text";
 import { Locate, LocateFixed, Menu } from "lucide-react-native";
-import Animated, { useAnimatedStyle, withRepeat, withTiming, Easing, useSharedValue } from "react-native-reanimated";
+import Animated, {
+  useAnimatedStyle,
+  withRepeat,
+  withTiming,
+  Easing,
+  useSharedValue,
+} from "react-native-reanimated";
 import { cn } from "@/lib/cn";
 import { useThemeColors } from "@/theme";
 import { useMapStore } from "@/store/mapStore";
 import { formatTimeDelta } from "@/utils/formatters";
-import {
-  POSITION_AGE_VISIBLE_THRESHOLD_MS,
-  GPS_STALE_THRESHOLD_MS,
-} from "@/constants";
+import { POSITION_AGE_VISIBLE_THRESHOLD_MS, GPS_STALE_THRESHOLD_MS } from "@/constants";
 
 interface MapControlsProps {
   onLocate: () => void;
@@ -59,6 +62,8 @@ export default function MapControls({ onLocate }: MapControlsProps) {
     } else {
       pulse.value = withTiming(0, { duration: 300 });
     }
+    // pulse is a Reanimated SharedValue with a stable ref; reading .value should not be a dep
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isRefreshing]);
 
   const pulseStyle = useAnimatedStyle(() => ({
@@ -103,9 +108,12 @@ export default function MapControls({ onLocate }: MapControlsProps) {
           {positionAge && !isRefreshing && (
             <Text
               className="text-[10px] font-barlow-semibold mt-1"
-              style={{ color: positionAge.isStale
-                ? colors.warning
-                : followUser ? colors.accentForeground : colors.textTertiary
+              style={{
+                color: positionAge.isStale
+                  ? colors.warning
+                  : followUser
+                    ? colors.accentForeground
+                    : colors.textTertiary,
               }}
             >
               {positionAge.label}

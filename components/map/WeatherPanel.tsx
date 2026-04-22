@@ -3,9 +3,19 @@ import { View, FlatList, StyleSheet } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Text } from "@/components/ui/text";
 import {
-  Sun, CloudSun, Cloud, CloudFog, CloudDrizzle, CloudRain,
-  CloudRainWind, CloudSnow, Snowflake, CloudLightning,
-  Wind, ArrowUp, Droplets,
+  Sun,
+  CloudSun,
+  Cloud,
+  CloudFog,
+  CloudDrizzle,
+  CloudRain,
+  CloudRainWind,
+  CloudSnow,
+  Snowflake,
+  CloudLightning,
+  Wind,
+  ArrowUp,
+  Droplets,
 } from "lucide-react-native";
 import { useThemeColors } from "@/theme";
 import { useWeatherStore } from "@/store/weatherStore";
@@ -16,8 +26,16 @@ import { classifyWind } from "@/services/weatherService";
 import type { WeatherPoint, WindRelative } from "@/types";
 
 const ICON_MAP: Record<string, React.ComponentType<{ size: number; color: string }>> = {
-  Sun, CloudSun, Cloud, CloudFog, CloudDrizzle, CloudRain,
-  CloudRainWind, CloudSnow, Snowflake, CloudLightning,
+  Sun,
+  CloudSun,
+  Cloud,
+  CloudFog,
+  CloudDrizzle,
+  CloudRain,
+  CloudRainWind,
+  CloudSnow,
+  Snowflake,
+  CloudLightning,
 };
 
 function WeatherIcon({ code, size, color }: { code: number; size: number; color: string }) {
@@ -29,9 +47,12 @@ function WeatherIcon({ code, size, color }: { code: number; size: number; color:
 function windColor(rel: WindRelative | null, colors: ReturnType<typeof useThemeColors>): string {
   if (!rel) return colors.textTertiary;
   switch (rel) {
-    case "headwind": return colors.destructive;
-    case "tailwind": return colors.positive;
-    default: return colors.warning;
+    case "headwind":
+      return colors.destructive;
+    case "tailwind":
+      return colors.positive;
+    default:
+      return colors.warning;
   }
 }
 
@@ -42,10 +63,14 @@ function windArrowRotation(windDirectionDeg: number, routeBearingDeg: number | n
 
 function windRelativeLabel(rel: WindRelative): string {
   switch (rel) {
-    case "headwind": return "Headwind";
-    case "tailwind": return "Tailwind";
-    case "crosswind-left": return "Crosswind L";
-    case "crosswind-right": return "Crosswind R";
+    case "headwind":
+      return "Headwind";
+    case "tailwind":
+      return "Tailwind";
+    case "crosswind-left":
+      return "Crosswind L";
+    case "crosswind-right":
+      return "Crosswind R";
   }
 }
 
@@ -66,16 +91,20 @@ const WeatherRow = React.memo(function WeatherRow({
   point: WeatherPoint;
   colors: ReturnType<typeof useThemeColors>;
 }) {
-  const windRel = point.routeBearingDeg != null
-    ? classifyWind(point.windDirectionDeg, point.routeBearingDeg)
-    : null;
+  const windRel =
+    point.routeBearingDeg != null
+      ? classifyWind(point.windDirectionDeg, point.routeBearingDeg)
+      : null;
   const rotation = windArrowRotation(point.windDirectionDeg, point.routeBearingDeg);
   const wColor = windColor(windRel, colors);
 
   return (
     <View
       className="flex-row items-center px-4 py-2"
-      style={{ borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.borderSubtle }}
+      style={{
+        borderBottomWidth: StyleSheet.hairlineWidth,
+        borderBottomColor: colors.borderSubtle,
+      }}
     >
       {/* Time */}
       <Text className="text-[13px] font-barlow-sc-medium text-muted-foreground w-[48px]">
@@ -97,7 +126,10 @@ const WeatherRow = React.memo(function WeatherRow({
         {point.precipitationMm > 0 ? (
           <>
             <Droplets size={11} color={colors.accent} />
-            <Text className="text-[12px] font-barlow-sc-medium ml-1" style={{ color: colors.accent }}>
+            <Text
+              className="text-[12px] font-barlow-sc-medium ml-1"
+              style={{ color: colors.accent }}
+            >
               {point.precipitationMm.toFixed(1)}
             </Text>
           </>
@@ -113,7 +145,11 @@ const WeatherRow = React.memo(function WeatherRow({
           {Math.round(point.windSpeedKmh)}
         </Text>
         {windRel && (
-          <Text className="text-[11px] font-barlow-medium ml-1" style={{ color: wColor }} numberOfLines={1}>
+          <Text
+            className="text-[11px] font-barlow-medium ml-1"
+            style={{ color: wColor }}
+            numberOfLines={1}
+          >
             {windRelativeLabel(windRel)}
           </Text>
         )}
@@ -194,9 +230,10 @@ export default function WeatherPanel() {
   }
 
   const weatherInfo = current ? getWeatherInfo(current.weatherCode) : null;
-  const currentWindRel = current?.routeBearingDeg != null
-    ? classifyWind(current.windDirectionDeg, current.routeBearingDeg)
-    : null;
+  const currentWindRel =
+    current?.routeBearingDeg != null
+      ? classifyWind(current.windDirectionDeg, current.routeBearingDeg)
+      : null;
 
   return (
     <View className="flex-1">
@@ -215,8 +252,12 @@ export default function WeatherPanel() {
               {weatherInfo?.label}
             </Text>
             {current.windSpeedKmh > 0 && (
-              <Text className="text-[13px] font-barlow-sc-medium" style={{ color: windColor(currentWindRel, colors) }}>
-                {currentWindRel ? windRelativeLabel(currentWindRel) : ""} {Math.round(current.windSpeedKmh)} km/h
+              <Text
+                className="text-[13px] font-barlow-sc-medium"
+                style={{ color: windColor(currentWindRel, colors) }}
+              >
+                {currentWindRel ? windRelativeLabel(currentWindRel) : ""}{" "}
+                {Math.round(current.windSpeedKmh)} km/h
               </Text>
             )}
           </View>
@@ -229,11 +270,7 @@ export default function WeatherPanel() {
       )}
 
       {/* Hourly timeline — vertical rows */}
-      <TimelineList
-        timeline={timeline.slice(1)}
-        colors={colors}
-        isExpanded={isExpanded}
-      />
+      <TimelineList timeline={timeline.slice(1)} colors={colors} isExpanded={isExpanded} />
     </View>
   );
 }

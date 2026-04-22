@@ -1,5 +1,9 @@
 import type { RoutePoint, WeatherPoint, WindRelative } from "@/types";
-import { WEATHER_WAYPOINT_INTERVAL_M, WEATHER_LOOKAHEAD_M, WEATHER_TIMELINE_HOURS } from "@/constants";
+import {
+  WEATHER_WAYPOINT_INTERVAL_M,
+  WEATHER_LOOKAHEAD_M,
+  WEATHER_TIMELINE_HOURS,
+} from "@/constants";
 import { fetchForecasts, type HourlyForecast } from "./weatherClient";
 import { getETAToDistance } from "./etaCalculator";
 import { computeBearing } from "@/utils/geo";
@@ -12,14 +16,19 @@ export function sampleWaypoints(
 
   const startDist = points[fromIndex].distanceFromStartMeters;
   const maxDist = startDist + WEATHER_LOOKAHEAD_M;
-  const waypoints: { latitude: number; longitude: number; distanceAlongRouteM: number; index: number }[] = [];
-
-  waypoints.push({
-    latitude: points[fromIndex].latitude,
-    longitude: points[fromIndex].longitude,
-    distanceAlongRouteM: 0,
-    index: fromIndex,
-  });
+  const waypoints: {
+    latitude: number;
+    longitude: number;
+    distanceAlongRouteM: number;
+    index: number;
+  }[] = [
+    {
+      latitude: points[fromIndex].latitude,
+      longitude: points[fromIndex].longitude,
+      distanceAlongRouteM: 0,
+      index: fromIndex,
+    },
+  ];
 
   let nextThreshold = startDist + WEATHER_WAYPOINT_INTERVAL_M;
   for (let i = fromIndex + 1; i < points.length; i++) {
@@ -45,8 +54,10 @@ function getBearingAtIndex(points: RoutePoint[], index: number): number | null {
   const prev = Math.max(index - 1, 0);
   if (prev === next) return null;
   return computeBearing(
-    points[prev].latitude, points[prev].longitude,
-    points[next].latitude, points[next].longitude,
+    points[prev].latitude,
+    points[prev].longitude,
+    points[next].latitude,
+    points[next].longitude,
   );
 }
 
@@ -91,13 +102,23 @@ export async function buildWeatherTimeline(
   const waypointETAs = waypointForecasts.map((wpf) => {
     const targetDist = startDist + wpf.waypoint.distanceAlongRouteM;
     const eta = getETAToDistance(cumulativeTime, points, fromIndex, targetDist);
-    return { ...wpf, ridingTimeSeconds: eta?.ridingTimeSeconds ?? 0 };
+    return {
+      waypoint: wpf.waypoint,
+      forecast: wpf.forecast,
+      ridingTimeSeconds: eta?.ridingTimeSeconds ?? 0,
+    };
   });
 
   // Pre-parse forecast hour timestamps once per forecast
-  const parsedForecasts = new Map<HourlyForecast, { time: number; data: HourlyForecast["hours"][number] }[]>();
+  const parsedForecasts = new Map<
+    HourlyForecast,
+    { time: number; data: HourlyForecast["hours"][number] }[]
+  >();
   for (const f of forecasts) {
-    parsedForecasts.set(f, f.hours.map((h) => ({ time: new Date(h.time).getTime(), data: h })));
+    parsedForecasts.set(
+      f,
+      f.hours.map((h) => ({ time: new Date(h.time).getTime(), data: h })),
+    );
   }
 
   const now = new Date();

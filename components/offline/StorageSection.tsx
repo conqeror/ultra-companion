@@ -17,16 +17,12 @@ export default function StorageSection() {
   const totalBytes = getTotalStorageBytes();
 
   // Only show routes that have offline data
-  const offlineRoutes = routes.filter(
-    (r) => routeInfo[r.id]?.status === "complete",
-  );
+  const offlineRoutes = routes.filter((r) => routeInfo[r.id]?.status === "complete");
 
   if (offlineRoutes.length === 0 && totalBytes === 0) {
     return (
       <View>
-        <Text className="text-[22px] font-barlow-semibold text-foreground mt-8 mb-3">
-          Storage
-        </Text>
+        <Text className="text-[22px] font-barlow-semibold text-foreground mt-8 mb-3">Storage</Text>
         <Text className="text-[14px] text-muted-foreground font-barlow">
           No offline data downloaded
         </Text>
@@ -54,21 +50,15 @@ export default function StorageSection() {
   };
 
   const handleDeleteRoute = (routeId: string, routeName: string) => {
-    Alert.alert(
-      "Delete Offline Data",
-      `Remove map tiles for "${routeName}"?`,
-      [
-        { text: "Keep", style: "cancel" },
-        { text: "Delete", style: "destructive", onPress: () => deleteOfflineData(routeId) },
-      ],
-    );
+    Alert.alert("Delete Offline Data", `Remove map tiles for "${routeName}"?`, [
+      { text: "Keep", style: "cancel" },
+      { text: "Delete", style: "destructive", onPress: () => deleteOfflineData(routeId) },
+    ]);
   };
 
   return (
     <View>
-      <Text className="text-[22px] font-barlow-semibold text-foreground mt-8 mb-1">
-        Storage
-      </Text>
+      <Text className="text-[22px] font-barlow-semibold text-foreground mt-8 mb-1">Storage</Text>
       <Text className="text-[13px] text-muted-foreground font-barlow mb-3">
         {formatFileSize(totalBytes)} used for offline maps
       </Text>
@@ -80,7 +70,10 @@ export default function StorageSection() {
             <View key={route.id}>
               {index > 0 && (
                 <View
-                  style={{ borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border }}
+                  style={{
+                    borderTopWidth: StyleSheet.hairlineWidth,
+                    borderTopColor: colors.border,
+                  }}
                 />
               )}
               <View className="flex-row items-center justify-between py-3">
@@ -89,7 +82,10 @@ export default function StorageSection() {
                     className="w-3 h-3 rounded-full mr-2"
                     style={{ backgroundColor: route.isActive ? "#E63946" : "#94A3B8" }}
                   />
-                  <Text className="text-[15px] font-barlow text-foreground flex-1" numberOfLines={1}>
+                  <Text
+                    className="text-[15px] font-barlow text-foreground flex-1"
+                    numberOfLines={1}
+                  >
                     {route.name}
                   </Text>
                 </View>
@@ -102,9 +98,7 @@ export default function StorageSection() {
                     onPress={() => handleDeleteRoute(route.id, route.name)}
                     hitSlop={8}
                   >
-                    <Text className="text-[14px] font-barlow-medium text-destructive">
-                      Delete
-                    </Text>
+                    <Text className="text-[14px] font-barlow-medium text-destructive">Delete</Text>
                   </TouchableOpacity>
                 </View>
               </View>

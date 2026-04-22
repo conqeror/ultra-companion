@@ -11,9 +11,7 @@ const TAG_RULES: {
   {
     category: "water",
     check: (t) =>
-      t.amenity === "drinking_water" ||
-      t.natural === "spring" ||
-      t.man_made === "water_tap",
+      t.amenity === "drinking_water" || t.natural === "spring" || t.man_made === "water_tap",
   },
   {
     category: "toilet_shower",
@@ -29,9 +27,7 @@ const TAG_RULES: {
 ];
 
 /** Classify a single Overpass element into a POI category */
-export function classifyElement(
-  element: OverpassElement,
-): POICategory | null {
+export function classifyElement(element: OverpassElement): POICategory | null {
   const tags = element.tags;
   if (!tags) return null;
 
@@ -42,9 +38,7 @@ export function classifyElement(
 }
 
 /** Extract coordinates from an Overpass element (node has lat/lon, way has center) */
-function getCoords(
-  element: OverpassElement,
-): { lat: number; lon: number } | null {
+function getCoords(element: OverpassElement): { lat: number; lon: number } | null {
   if (element.lat != null && element.lon != null) {
     return { lat: element.lat, lon: element.lon };
   }
@@ -64,9 +58,7 @@ export interface ClassifiedPOI {
 }
 
 /** Classify and map a batch of Overpass elements, deduplicated by sourceId */
-export function mapOverpassToPOIs(
-  elements: OverpassElement[],
-): ClassifiedPOI[] {
+export function mapOverpassToPOIs(elements: OverpassElement[]): ClassifiedPOI[] {
   const seen = new Set<string>();
   const results: ClassifiedPOI[] = [];
 

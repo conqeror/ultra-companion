@@ -17,9 +17,7 @@ export function useMapStyle() {
   return useMemo(() => {
     const isDark = colorScheme === "dark";
     return {
-      props: isDark
-        ? { styleJSON: darkStyleString }
-        : { styleURL: MAP_STYLE_URL },
+      props: isDark ? { styleJSON: darkStyleString } : { styleURL: MAP_STYLE_URL },
       styleKey: isDark ? "dark" : "light",
     };
   }, [colorScheme]);

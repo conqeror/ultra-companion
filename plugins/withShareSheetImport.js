@@ -31,8 +31,8 @@ const HELPER_METHOD = `\
   }`;
 
 function withShareSheetImport(config) {
-  return withAppDelegate(config, (config) => {
-    let src = config.modResults.contents;
+  return withAppDelegate(config, (mod) => {
+    let src = mod.modResults.contents;
 
     // 1. didFinishLaunchingWithOptions — resolve URL from launchOptions before RN init
     src = src.replace(
@@ -66,13 +66,10 @@ function withShareSheetImport(config) {
     );
 
     // 3. Add helper method to AppDelegate class (before Universal Links section)
-    src = src.replace(
-      "  // Universal Links",
-      `${HELPER_METHOD}\n\n  // Universal Links`,
-    );
+    src = src.replace("  // Universal Links", `${HELPER_METHOD}\n\n  // Universal Links`);
 
-    config.modResults.contents = src;
-    return config;
+    mod.modResults.contents = src;
+    return mod;
   });
 }
 

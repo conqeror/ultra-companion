@@ -7,9 +7,7 @@ export async function stitchCollection(collectionId: string): Promise<StitchedCo
   selected.sort((a, b) => a.position - b.position);
 
   // Load all segment routes in parallel
-  const routeResults = await Promise.all(
-    selected.map((seg) => getRouteWithPoints(seg.routeId)),
-  );
+  const routeResults = await Promise.all(selected.map((seg) => getRouteWithPoints(seg.routeId)));
 
   const stitchedPoints: RoutePoint[] = [];
   const segmentInfos: StitchedSegmentInfo[] = [];

@@ -1,5 +1,11 @@
 import React, { useMemo, useState, useCallback } from "react";
-import { View, FlatList, ScrollView, TouchableOpacity, TextInput as RNTextInput } from "react-native";
+import {
+  View,
+  FlatList,
+  ScrollView,
+  TouchableOpacity,
+  TextInput as RNTextInput,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Text } from "@/components/ui/text";
 import { Star, MapPin, Clock, ChevronLeft, Phone, Search } from "lucide-react-native";
@@ -27,7 +33,6 @@ interface POITabContentProps {
 export default function POITabContent({ activeData }: POITabContentProps) {
   const colors = useThemeColors();
   const { bottom: safeBottom } = useSafeAreaInsets();
-  const units = useSettingsStore((s) => s.units);
   const snappedPosition = useRouteStore((s) => s.snappedPosition);
   const getStarredPOIs = usePoiStore((s) => s.getStarredPOIs);
   const starredPOIIds = usePoiStore((s) => s.starredPOIIds);
@@ -41,7 +46,7 @@ export default function POITabContent({ activeData }: POITabContentProps) {
 
   const [searchQuery, setSearchQuery] = useState("");
 
-  const routeIds = activeData?.routeIds ?? [];
+  const routeIds = useMemo(() => activeData?.routeIds ?? [], [activeData?.routeIds]);
   const routePoints = activeData?.points ?? null;
   const segments = activeData?.segments ?? null;
   const currentDist = snappedPosition?.distanceAlongRouteMeters ?? null;
@@ -56,10 +61,19 @@ export default function POITabContent({ activeData }: POITabContentProps) {
       for (const poi of pois) {
         const effDist = poi.distanceAlongRouteMeters + offset;
         let ridingTime: number | null = null;
-        if (currentIdx != null && cumulativeTime && routePoints && currentDist != null && effDist > currentDist) {
+        if (
+          currentIdx != null &&
+          cumulativeTime &&
+          routePoints &&
+          currentDist != null &&
+          effDist > currentDist
+        ) {
           let poiIdx = currentIdx;
           for (let i = currentIdx; i < routePoints.length; i++) {
-            if (routePoints[i].distanceFromStartMeters >= effDist) { poiIdx = i; break; }
+            if (routePoints[i].distanceFromStartMeters >= effDist) {
+              poiIdx = i;
+              break;
+            }
             poiIdx = i;
           }
           const seconds = cumulativeTime[poiIdx] - cumulativeTime[currentIdx];
@@ -71,7 +85,18 @@ export default function POITabContent({ activeData }: POITabContentProps) {
     allStarred.sort((a, b) => a.effectiveDist - b.effectiveDist);
     if (currentDist == null) return allStarred;
     return allStarred.filter((p) => p.effectiveDist >= currentDist - POI_BEHIND_THRESHOLD_M);
-  }, [routeIds, segments, getStarredPOIs, starredPOIIds, currentDist, currentIdx, cumulativeTime, routePoints]);
+    // starredPOIIds is a reactivity trigger: getStarredPOIs reads from store via get() and is not itself reactive
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    routeIds,
+    segments,
+    getStarredPOIs,
+    starredPOIIds,
+    currentDist,
+    currentIdx,
+    cumulativeTime,
+    routePoints,
+  ]);
 
   const totalPOICount = usePoiStore((s) => {
     let count = 0;
@@ -92,11 +117,15 @@ export default function POITabContent({ activeData }: POITabContentProps) {
       return stitchPOIs(segments, poisByRoute);
     }
     return routeIds.length > 0 ? getVisiblePOIs(routeIds[0]) : [];
+    // allPois/enabledCategories/starredPOIIds are reactivity triggers: getVisiblePOIs reads store via get() and is not itself reactive
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isExpanded, routeIds, segments, allPois, enabledCategories, starredPOIIds]);
 
   const sortedAllPOIs = useMemo(() => {
     if (currentDist == null) {
-      return [...visiblePOIs].sort((a, b) => a.distanceAlongRouteMeters - b.distanceAlongRouteMeters);
+      return [...visiblePOIs].sort(
+        (a, b) => a.distanceAlongRouteMeters - b.distanceAlongRouteMeters,
+      );
     }
     return visiblePOIs
       .filter((p) => p.distanceAlongRouteMeters >= currentDist - POI_BEHIND_THRESHOLD_M)
@@ -170,11 +199,7 @@ export default function POITabContent({ activeData }: POITabContentProps) {
           data={filteredPOIs}
           keyExtractor={(item) => item.id}
           renderItem={({ item }) => (
-            <POIListItem
-              poi={item}
-              currentDistAlongRoute={currentDist}
-              onPress={handlePOIPress}
-            />
+            <POIListItem poi={item} currentDistAlongRoute={currentDist} onPress={handlePOIPress} />
           )}
           contentContainerStyle={{ paddingBottom: 8 }}
           showsVerticalScrollIndicator={false}
@@ -203,7 +228,9 @@ export default function POITabContent({ activeData }: POITabContentProps) {
                 currentDist={currentDist}
                 ridingTimeSeconds={item.ridingTimeSeconds}
                 onPress={() => {
-                  const raw = usePoiStore.getState().pois[item.routeId]?.find((p) => p.id === item.id);
+                  const raw = usePoiStore
+                    .getState()
+                    .pois[item.routeId]?.find((p) => p.id === item.id);
                   setSelectedPOI(raw ?? item);
                 }}
               />
@@ -275,7 +302,8 @@ function CompactPOIRow({
           <View className="flex-row items-center mt-1">
             <View className="w-[5px] h-[5px] rounded-full" style={{ backgroundColor: ohColor }} />
             <Text className="ml-1 text-[11px] font-barlow-medium" style={{ color: ohColor }}>
-              {ohStatus.label}{ohStatus.detail ? ` · ${ohStatus.detail}` : ""}
+              {ohStatus.label}
+              {ohStatus.detail ? ` · ${ohStatus.detail}` : ""}
             </Text>
           </View>
         )}
@@ -284,7 +312,9 @@ function CompactPOIRow({
       <View className="items-end ml-2">
         {distAhead != null && (
           <Text className="text-[14px] font-barlow-sc-semibold text-foreground">
-            {distAhead >= 0 ? formatDistance(distAhead, units) : `-${formatDistance(Math.abs(distAhead), units)}`}
+            {distAhead >= 0
+              ? formatDistance(distAhead, units)
+              : `-${formatDistance(Math.abs(distAhead), units)}`}
           </Text>
         )}
         {ridingTimeSeconds != null && (
@@ -323,7 +353,7 @@ function InlinePOIDetail({ poi, onBack }: { poi: POI; onBack: () => void }) {
 
   const openingHoursRaw = poi.tags?.opening_hours;
   const ohStatus = useMemo(
-    () => openingHoursRaw ? getOpeningHoursStatus(openingHoursRaw) : null,
+    () => (openingHoursRaw ? getOpeningHoursStatus(openingHoursRaw) : null),
     [openingHoursRaw],
   );
   const ohColor = useMemo(() => {
@@ -337,7 +367,7 @@ function InlinePOIDetail({ poi, onBack }: { poi: POI; onBack: () => void }) {
   }, [ohStatus]);
 
   const daySchedules = useMemo(
-    () => openingHoursRaw ? getDaySchedules(openingHoursRaw) : null,
+    () => (openingHoursRaw ? getDaySchedules(openingHoursRaw) : null),
     [openingHoursRaw],
   );
 
@@ -379,7 +409,10 @@ function InlinePOIDetail({ poi, onBack }: { poi: POI; onBack: () => void }) {
           {catMeta && (
             <View className="flex-row items-center mt-1">
               {IconComp && <IconComp size={12} color={catMeta.color} />}
-              <Text className="ml-1 text-[11px] font-barlow-medium" style={{ color: catMeta.color }}>
+              <Text
+                className="ml-1 text-[11px] font-barlow-medium"
+                style={{ color: catMeta.color }}
+              >
                 {catMeta.label}
               </Text>
             </View>
@@ -391,7 +424,11 @@ function InlinePOIDetail({ poi, onBack }: { poi: POI; onBack: () => void }) {
           onPress={() => toggleStarred(poi.id)}
           accessibilityLabel={isStarred ? "Unstar POI" : "Star POI"}
         >
-          <Star size={18} color={isStarred ? colors.warning : colors.textTertiary} fill={isStarred ? colors.warning : "none"} />
+          <Star
+            size={18}
+            color={isStarred ? colors.warning : colors.textTertiary}
+            fill={isStarred ? colors.warning : "none"}
+          />
         </TouchableOpacity>
       </View>
 
@@ -445,8 +482,12 @@ function InlinePOIDetail({ poi, onBack }: { poi: POI; onBack: () => void }) {
         <View className="ml-5 mt-1">
           {daySchedules.map((ds) => (
             <View key={ds.label} className="flex-row items-center">
-              <Text className="text-[12px] text-muted-foreground font-barlow-medium w-[60px]">{ds.label}</Text>
-              <Text className="text-[12px] text-muted-foreground font-barlow-sc-medium">{ds.hours}</Text>
+              <Text className="text-[12px] text-muted-foreground font-barlow-medium w-[60px]">
+                {ds.label}
+              </Text>
+              <Text className="text-[12px] text-muted-foreground font-barlow-sc-medium">
+                {ds.hours}
+              </Text>
             </View>
           ))}
         </View>
@@ -467,7 +508,9 @@ function InlinePOIDetail({ poi, onBack }: { poi: POI; onBack: () => void }) {
       )}
 
       {poi.source === "google" && (
-        <Text className="text-[10px] text-muted-foreground font-barlow mt-3">Powered by Google</Text>
+        <Text className="text-[10px] text-muted-foreground font-barlow mt-3">
+          Powered by Google
+        </Text>
       )}
     </ScrollView>
   );

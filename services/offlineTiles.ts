@@ -118,7 +118,13 @@ export async function downloadRouteTiles(
     onComplete();
   } catch (e) {
     clearTimeout(stallTimer);
-    onError(stalled ? "Download stalled — please retry" : (e instanceof Error ? e.message : "Download failed"));
+    onError(
+      stalled
+        ? "Download stalled — please retry"
+        : e instanceof Error
+          ? e.message
+          : "Download failed",
+    );
   } finally {
     sub.remove();
   }
@@ -132,9 +138,7 @@ export async function deleteRoutePacks(routeId: string): Promise<void> {
 }
 
 /** Get all Ultra route regions with sizes */
-export async function getAllRoutePacks(): Promise<
-  Array<{ routeId: string; totalBytes: number }>
-> {
+export async function getAllRoutePacks(): Promise<Array<{ routeId: string; totalBytes: number }>> {
   try {
     const regions = await getAllTileRegions();
     const results: Array<{ routeId: string; totalBytes: number }> = [];

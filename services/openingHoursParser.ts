@@ -172,11 +172,9 @@ export function getOpeningHoursStatus(
 }
 
 export interface DaySchedule {
-  label: string;        // "Today", "Tomorrow", "Monday", etc.
-  hours: string;        // "06:00–22:00", "06:00–14:00, 16:00–22:00", "Closed", "24h"
+  label: string; // "Today", "Tomorrow", "Monday", etc.
+  hours: string; // "06:00–22:00", "06:00–14:00, 16:00–22:00", "Closed", "24h"
 }
-
-const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
 function pad2(n: number): string {
   return n.toString().padStart(2, "0");

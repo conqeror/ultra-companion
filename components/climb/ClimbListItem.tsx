@@ -1,7 +1,6 @@
 import React, { useMemo } from "react";
 import { View, TouchableOpacity } from "react-native";
 import { Text } from "@/components/ui/text";
-import { useThemeColors } from "@/theme";
 import { useSettingsStore } from "@/store/settingsStore";
 import { useEtaStore } from "@/store/etaStore";
 import { climbDifficultyColor } from "@/constants/climbHelpers";
@@ -21,16 +20,13 @@ export default function ClimbListItem({
   isPast,
   onPress,
 }: ClimbListItemProps) {
-  const colors = useThemeColors();
   const units = useSettingsStore((s) => s.units);
   const getETAToDistance = useEtaStore((s) => s.getETAToDistance);
 
   const diffColor = climbDifficultyColor(climb.difficultyScore);
 
   const distAhead =
-    currentDistAlongRoute != null
-      ? climb.startDistanceMeters - currentDistAlongRoute
-      : null;
+    currentDistAlongRoute != null ? climb.startDistanceMeters - currentDistAlongRoute : null;
 
   const etaResult = useMemo(
     () => getETAToDistance(climb.startDistanceMeters),
@@ -51,16 +47,14 @@ export default function ClimbListItem({
 
       <View className="flex-1">
         {climb.name && (
-          <Text
-            className="text-[15px] font-barlow-medium text-foreground mb-0.5"
-            numberOfLines={1}
-          >
+          <Text className="text-[15px] font-barlow-medium text-foreground mb-0.5" numberOfLines={1}>
             {climb.name}
           </Text>
         )}
         <Text className="text-[14px] font-barlow-sc-semibold text-foreground">
           {formatElevation(climb.totalAscentMeters, units)} ↑{"  ·  "}
-          {formatDistance(climb.lengthMeters, units)}{"  ·  "}
+          {formatDistance(climb.lengthMeters, units)}
+          {"  ·  "}
           {climb.averageGradientPercent}% avg
         </Text>
         <Text className="text-[12px] text-muted-foreground font-barlow mt-0.5">

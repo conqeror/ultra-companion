@@ -17,9 +17,8 @@ export const ELEVATION_CHART_MAX_POINTS = 500;
 // --- Phase 2b: Bottom panel ---
 
 /** Draggable sheet snap points as fraction of screen height */
-export const SHEET_COMPACT_RATIO = 0.30;
+export const SHEET_COMPACT_RATIO = 0.3;
 export const SHEET_EXPANDED_RATIO = 0.75;
-
 
 /** Fraction of chart width to show behind current position */
 export const LOOK_BACK_RATIO = 0.25;
@@ -85,7 +84,6 @@ export const DEFAULT_POWER_CONFIG: PowerModelConfig = {
   maxDescentSpeedKmh: 50,
   drivetrainEfficiency: 0.97,
 };
-
 
 // --- Phase 5: Weather ---
 

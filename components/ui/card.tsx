@@ -3,26 +3,18 @@ import { View, type ViewProps } from "react-native";
 import { cn } from "@/lib/cn";
 import { Text } from "./text";
 
-const Card = React.forwardRef<View, ViewProps>(
-  ({ className, ...props }, ref) => (
-    <View
-      ref={ref}
-      className={cn("rounded-xl border border-border bg-card p-3", className)}
-      {...props}
-    />
-  ),
-);
+const Card = React.forwardRef<View, ViewProps>(({ className, ...props }, ref) => (
+  <View
+    ref={ref}
+    className={cn("rounded-xl border border-border bg-card p-3", className)}
+    {...props}
+  />
+));
 Card.displayName = "Card";
 
-const CardHeader = React.forwardRef<View, ViewProps>(
-  ({ className, ...props }, ref) => (
-    <View
-      ref={ref}
-      className={cn("flex-row items-center", className)}
-      {...props}
-    />
-  ),
-);
+const CardHeader = React.forwardRef<View, ViewProps>(({ className, ...props }, ref) => (
+  <View ref={ref} className={cn("flex-row items-center", className)} {...props} />
+));
 CardHeader.displayName = "CardHeader";
 
 const CardTitle = React.forwardRef<
@@ -37,11 +29,9 @@ const CardTitle = React.forwardRef<
 ));
 CardTitle.displayName = "CardTitle";
 
-const CardContent = React.forwardRef<View, ViewProps>(
-  ({ className, ...props }, ref) => (
-    <View ref={ref} className={className} {...props} />
-  ),
-);
+const CardContent = React.forwardRef<View, ViewProps>(({ className, ...props }, ref) => (
+  <View ref={ref} className={className} {...props} />
+));
 CardContent.displayName = "CardContent";
 
 export { Card, CardHeader, CardTitle, CardContent };

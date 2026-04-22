@@ -1,10 +1,8 @@
-import type { POICategoryMeta, POICategory } from "@/types";
+import type { POICategoryMeta } from "@/types";
 import type { OpeningHoursStatus } from "@/types";
 import { POI_CATEGORIES } from "./index";
 
-const categoryMap = new Map<string, POICategoryMeta>(
-  POI_CATEGORIES.map((c) => [c.key, c]),
-);
+const categoryMap = new Map<string, POICategoryMeta>(POI_CATEGORIES.map((c) => [c.key, c]));
 
 export function getCategoryMeta(key: string): POICategoryMeta | undefined {
   return categoryMap.get(key);

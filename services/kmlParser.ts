@@ -5,8 +5,7 @@ import type { ParsedRoute } from "@/types";
 const parser = new XMLParser({
   ignoreAttributes: false,
   attributeNamePrefix: "@_",
-  isArray: (name) =>
-    ["Placemark", "coordinates", "LineString", "Point"].includes(name),
+  isArray: (name) => ["Placemark", "coordinates", "LineString", "Point"].includes(name),
 });
 
 interface RawCoord {
@@ -65,17 +64,19 @@ export function parseKML(xml: string, fileName: string): ParsedRoute {
   for (const pm of placemarks) {
     // LineString (route/track data)
     const lineStrings = pm.LineString
-      ? Array.isArray(pm.LineString) ? pm.LineString : [pm.LineString]
+      ? Array.isArray(pm.LineString)
+        ? pm.LineString
+        : [pm.LineString]
       : [];
 
     for (const ls of lineStrings) {
       if (ls.coordinates) {
         const coordStr = Array.isArray(ls.coordinates) ? ls.coordinates[0] : ls.coordinates;
-        const parsed = parseCoordinateString(String(coordStr));
-        if (parsed.length > 0 && coords.length === 0) {
+        const parsedCoords = parseCoordinateString(String(coordStr));
+        if (parsedCoords.length > 0 && coords.length === 0) {
           name = pm.name || name;
         }
-        coords.push(...parsed);
+        coords.push(...parsedCoords);
       }
     }
 
@@ -83,16 +84,18 @@ export function parseKML(xml: string, fileName: string): ParsedRoute {
     if (pm.MultiGeometry) {
       const mg = pm.MultiGeometry;
       const mgLines = mg.LineString
-        ? Array.isArray(mg.LineString) ? mg.LineString : [mg.LineString]
+        ? Array.isArray(mg.LineString)
+          ? mg.LineString
+          : [mg.LineString]
         : [];
       for (const ls of mgLines) {
         if (ls.coordinates) {
           const coordStr = Array.isArray(ls.coordinates) ? ls.coordinates[0] : ls.coordinates;
-          const parsed = parseCoordinateString(String(coordStr));
-          if (parsed.length > 0 && coords.length === 0) {
+          const parsedCoords = parseCoordinateString(String(coordStr));
+          if (parsedCoords.length > 0 && coords.length === 0) {
             name = pm.name || name;
           }
-          coords.push(...parsed);
+          coords.push(...parsedCoords);
         }
       }
     }

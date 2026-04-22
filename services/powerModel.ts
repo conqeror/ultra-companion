@@ -20,10 +20,7 @@ const NEWTON_TOLERANCE = 1e-6;
  * - CdA increases 1.5× (upright position, bags catch wind)
  * - Steep descents (< -9%) apply a braking factor for switchbacks
  */
-export function solveVelocity(
-  gradientFraction: number,
-  config: PowerModelConfig,
-): number {
+export function solveVelocity(gradientFraction: number, config: PowerModelConfig): number {
   const theta = Math.atan(gradientFraction);
   const cosTheta = Math.cos(theta);
   const sinTheta = Math.sin(theta);
@@ -38,8 +35,7 @@ export function solveVelocity(
   const pEff = effectivePower * config.drivetrainEfficiency;
   const a = 0.5 * config.airDensity * effectiveCda; // coefficient of v³
   const fResist =
-    config.crr * config.totalMassKg * G * cosTheta +
-    config.totalMassKg * G * sinTheta;
+    config.crr * config.totalMassKg * G * cosTheta + config.totalMassKg * G * sinTheta;
 
   const maxDescentMs = config.maxDescentSpeedKmh / 3.6;
 

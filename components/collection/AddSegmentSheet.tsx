@@ -1,10 +1,6 @@
 import React, { useMemo, useCallback } from "react";
 import { View, FlatList, TouchableOpacity } from "react-native";
-import Animated, {
-  useAnimatedStyle,
-  withTiming,
-  Easing,
-} from "react-native-reanimated";
+import Animated, { useAnimatedStyle, withTiming, Easing } from "react-native-reanimated";
 import { Text } from "@/components/ui/text";
 import { X, Check } from "lucide-react-native";
 import { cn } from "@/lib/cn";
@@ -69,8 +65,7 @@ export default function AddSegmentSheet({
             </Text>
             <Text className="text-[12px] text-muted-foreground font-barlow-sc-medium mt-0.5">
               {formatDistance(route.totalDistanceMeters, units)}
-              {"  ·  "}
-              ↑ {formatElevation(route.totalAscentMeters, units)}
+              {"  ·  "}↑ {formatElevation(route.totalAscentMeters, units)}
             </Text>
           </View>
           {isInCollection && <Check size={18} color={colors.positive} />}
@@ -88,9 +83,7 @@ export default function AddSegmentSheet({
       style={[{ top: 48, backgroundColor: colors.background }, animatedStyle]}
     >
       <View className="flex-row items-center px-4 py-3 border-b border-border">
-        <Text className="flex-1 text-[20px] font-barlow-semibold text-foreground">
-          Add Segment
-        </Text>
+        <Text className="flex-1 text-[20px] font-barlow-semibold text-foreground">Add Segment</Text>
         <TouchableOpacity
           className="w-[48px] h-[48px] items-center justify-center -mr-2"
           onPress={onClose}
@@ -102,9 +95,7 @@ export default function AddSegmentSheet({
 
       {sortedRoutes.length === 0 ? (
         <View className="flex-1 items-center justify-center">
-          <Text className="text-[15px] text-muted-foreground">
-            Import routes first
-          </Text>
+          <Text className="text-[15px] text-muted-foreground">Import routes first</Text>
         </View>
       ) : (
         <FlatList

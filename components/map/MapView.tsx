@@ -1,10 +1,6 @@
 import React, { useRef, useCallback, useEffect, useState, useMemo } from "react";
 import { View, AppState, useWindowDimensions } from "react-native";
-import Mapbox, {
-  Camera,
-  MapView as MapboxMapView,
-  LocationPuck,
-} from "@rnmapbox/maps";
+import Mapbox, { Camera, MapView as MapboxMapView, LocationPuck } from "@rnmapbox/maps";
 import Constants from "expo-constants";
 import { useMapStore } from "@/store/mapStore";
 import { useRouteStore } from "@/store/routeStore";
@@ -47,7 +43,7 @@ export default function MapScreen() {
   const [hasGpsFix, setHasGpsFix] = useState(false);
   const { height: screenHeight } = useWindowDimensions();
 
-  const { followUser, userPosition, setFollowUser } = useMapStore();
+  const { followUser, setFollowUser } = useMapStore();
   const refreshPosition = useMapStore((s) => s.refreshPosition);
   const persistCamera = useMapStore((s) => s.persistCamera);
   const initialCamera = useRef({
@@ -74,7 +70,7 @@ export default function MapScreen() {
   // Unified active context — works for both standalone routes and collections
   const activeData = useActiveRouteData();
   const activeRoutePoints = activeData?.points ?? null;
-  const activeRouteIds = activeData?.routeIds ?? [];
+  const activeRouteIds = useMemo(() => activeData?.routeIds ?? [], [activeData?.routeIds]);
 
   // Set of routeIds that are part of the active collection (for RouteLayer styling)
   const activeCollectionRouteIds = useMemo(() => {
@@ -111,19 +107,31 @@ export default function MapScreen() {
         loadClimbs(routeId);
       }
     }
+    // Intentional: fire only when active context id changes, not when the activeData reference or its routeIds array updates
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeData?.id, loadPOIs, loadClimbs]);
 
   useEffect(() => {
     if (activeData && activeRoutePoints?.length) {
       computeETAForRoute(activeData.id, activeRoutePoints);
     }
+    // Intentional: fire only when id/points change; full activeData reference not needed
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeData?.id, activeRoutePoints, computeETAForRoute]);
 
   // Fetch weather when active context + snapped position + ETA are available (and online)
   useEffect(() => {
-    if (activeData && activeRoutePoints?.length && snappedPosition && cumulativeTime && isConnected) {
+    if (
+      activeData &&
+      activeRoutePoints?.length &&
+      snappedPosition &&
+      cumulativeTime &&
+      isConnected
+    ) {
       fetchWeather(activeData.id, activeRoutePoints, snappedPosition.pointIndex, cumulativeTime);
     }
+    // Intentional: fire on id/pointIndex changes, not full object identities
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeData?.id, snappedPosition?.pointIndex, isConnected, cumulativeTime, fetchWeather]);
 
   // Snap eagerly when routes load (don't wait for next GPS refresh)
@@ -133,13 +141,15 @@ export default function MapScreen() {
     if (!pos) return;
     const snapped = snapToRoute(pos.latitude, pos.longitude, activeData.id, activeRoutePoints);
     setSnappedPosition(snapped);
-  }, [activeData, activeRoutePoints, setSnappedPosition]);
+    // Intentional: fire only when active id or points change; the full activeData reference isn't meaningful
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeData?.id, activeRoutePoints, setSnappedPosition]);
 
   // Snap to route after each position refresh
   const snapAfterRefresh = useCallback(
     (position: { latitude: number; longitude: number }) => {
       const data = getActiveRouteDataImperative();
-      if (data && data.points.length) {
+      if (data && data.points.length > 0) {
         const snapped = snapToRoute(position.latitude, position.longitude, data.id, data.points);
         setSnappedPosition(snapped);
       }
@@ -183,6 +193,8 @@ export default function MapScreen() {
         activeData.segments,
       );
     }
+    // Intentional: fire on primitive id/distance changes, not on full object/array identities
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [snappedPosition?.distanceAlongRouteMeters, activeData?.id, updateCurrentClimb]);
 
   // Fly to selected POI
@@ -196,7 +208,7 @@ export default function MapScreen() {
         animationDuration: 500,
       });
     }
-  }, [selectedPOI]);
+  }, [selectedPOI, setFollowUser]);
 
   const handleLocate = useCallback(async () => {
     setFollowUser(true);
@@ -221,10 +233,13 @@ export default function MapScreen() {
     }
   }, [setFollowUser, refreshPosition, snapAfterRefresh, hasGpsFix]);
 
-  const handleCameraChanged = useCallback((state: { properties: { center: number[]; zoom: number } }) => {
-    const c = state.properties.center;
-    lastCamera.current = { center: [c[0], c[1]], zoom: state.properties.zoom };
-  }, []);
+  const handleCameraChanged = useCallback(
+    (state: { properties: { center: number[]; zoom: number } }) => {
+      const c = state.properties.center;
+      lastCamera.current = { center: [c[0], c[1]], zoom: state.properties.zoom };
+    },
+    [],
+  );
 
   // Persist camera to MMKV when app goes to background
   useEffect(() => {
@@ -242,12 +257,15 @@ export default function MapScreen() {
     }
   }, [followUser, setFollowUser]);
 
-  const cameraPadding = useMemo(() => ({
-    paddingTop: 0,
-    paddingLeft: 0,
-    paddingRight: 0,
-    paddingBottom: panelHeight,
-  }), [panelHeight]);
+  const cameraPadding = useMemo(
+    () => ({
+      paddingTop: 0,
+      paddingLeft: 0,
+      paddingRight: 0,
+      paddingBottom: panelHeight,
+    }),
+    [panelHeight],
+  );
 
   const pulsingConfig = useMemo(
     () => ({ isEnabled: true, color: themeColors.accent, radius: 40 }),
@@ -256,21 +274,45 @@ export default function MapScreen() {
 
   // Routes that should be rendered on the map (active or part of active collection, with loaded points)
   const renderedRoutes = useMemo(
-    () => routes.filter((r) => r.isVisible && visibleRoutePoints[r.id] && (r.isActive || (activeCollectionRouteIds?.has(r.id) ?? false))),
+    () =>
+      routes.filter(
+        (r) =>
+          r.isVisible &&
+          visibleRoutePoints[r.id] &&
+          (r.isActive || (activeCollectionRouteIds?.has(r.id) ?? false)),
+      ),
     [routes, visibleRoutePoints, activeCollectionRouteIds],
   );
 
   // Forces LocationPuck to remount so its layer is recreated on top of route/POI layers.
   const renderedRouteKey = useMemo(() => {
-    return renderedRoutes.map((r) => r.id).sort().join(",") + `-${mapStyle.styleKey}`;
+    return (
+      renderedRoutes
+        .map((r) => r.id)
+        .sort()
+        .join(",") + `-${mapStyle.styleKey}`
+    );
   }, [renderedRoutes, mapStyle.styleKey]);
 
   // Climb to highlight on the map — active when Climbs tab is selected
   const highlightedClimb = useMemo(() => {
     if (panelTab !== "climbs") return null;
     const displayed = getClimbsForDisplay(activeRouteIds, activeData?.segments ?? null);
-    return resolveActiveClimb(displayed, snappedPosition?.distanceAlongRouteMeters ?? null, selectedClimb);
-  }, [panelTab, selectedClimb, activeRouteIds, activeData?.segments, snappedPosition?.distanceAlongRouteMeters, allClimbData]);
+    return resolveActiveClimb(
+      displayed,
+      snappedPosition?.distanceAlongRouteMeters ?? null,
+      selectedClimb,
+    );
+    // allClimbData is a reactivity trigger: getClimbsForDisplay reads store via get() and is not itself reactive
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    panelTab,
+    selectedClimb,
+    activeRouteIds,
+    activeData?.segments,
+    snappedPosition?.distanceAlongRouteMeters,
+    allClimbData,
+  ]);
 
   // Fly to highlighted climb bounds
   useEffect(() => {
@@ -278,7 +320,10 @@ export default function MapScreen() {
     const climbStart = highlightedClimb.startDistanceMeters;
     const climbEnd = highlightedClimb.endDistanceMeters;
 
-    let minLat = 90, maxLat = -90, minLon = 180, maxLon = -180;
+    let minLat = 90,
+      maxLat = -90,
+      minLon = 180,
+      maxLon = -180;
     let found = false;
     for (const p of activeRoutePoints) {
       if (p.distanceFromStartMeters < climbStart) continue;
@@ -294,12 +339,9 @@ export default function MapScreen() {
     setFollowUser(false);
     // Camera padding already accounts for the panel, so fitBounds
     // only needs breathing room around the climb bounds.
-    cameraRef.current?.fitBounds(
-      [maxLon, maxLat],
-      [minLon, minLat],
-      [60, 40, 40, 40],
-      500,
-    );
+    cameraRef.current?.fitBounds([maxLon, maxLat], [minLon, minLat], [60, 40, 40, 40], 500);
+    // Intentional: fire only when the highlighted climb identity changes, not on every route point update
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [highlightedClimb?.id]);
 
   return (
@@ -324,24 +366,21 @@ export default function MapScreen() {
           padding={cameraPadding}
         />
         {renderedRoutes.map((route) => {
-            const styledRoute = route.isActive ? route : { ...route, isActive: true };
-            return (
-              <RouteLayer
-                key={`${route.id}-${mapStyle.styleKey}`}
-                route={styledRoute}
-                points={visibleRoutePoints[route.id]}
-                dimmed={highlightedClimb != null}
-              />
-            );
-          })}
+          const styledRoute = route.isActive ? route : { ...route, isActive: true };
+          return (
+            <RouteLayer
+              key={`${route.id}-${mapStyle.styleKey}`}
+              route={styledRoute}
+              points={visibleRoutePoints[route.id]}
+              dimmed={highlightedClimb != null}
+            />
+          );
+        })}
         {activeRouteIds.length > 0 && (
           <POILayer key={mapStyle.styleKey} routeIds={activeRouteIds} />
         )}
         {highlightedClimb && activeRoutePoints && (
-          <ClimbHighlightLayer
-            climb={highlightedClimb}
-            points={activeRoutePoints}
-          />
+          <ClimbHighlightLayer climb={highlightedClimb} points={activeRoutePoints} />
         )}
         <LocationPuck
           key={`puck-${renderedRouteKey}`}

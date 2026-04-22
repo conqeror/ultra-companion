@@ -2,9 +2,10 @@
 
 ## 1. Design Philosophy
 
-**Utilitarian instrument, not a lifestyle app.** Ultra Companion is a purpose-built tool for riders operating under extreme fatigue, in all lighting conditions, with gloved hands on aerobars. Every design decision serves one question: *does this help the rider make better decisions faster?*
+**Utilitarian instrument, not a lifestyle app.** Ultra Companion is a purpose-built tool for riders operating under extreme fatigue, in all lighting conditions, with gloved hands on aerobars. Every design decision serves one question: _does this help the rider make better decisions faster?_
 
 Principles (in priority order):
+
 1. **Glanceability** — key data readable in 1–2 seconds without interaction
 2. **Clarity under fatigue** — high contrast, large type for data, obvious hierarchy
 3. **Density with purpose** — show relevant data in context, hide everything else. No clutter, but no unnecessary taps either
@@ -21,48 +22,48 @@ The palette is warm (not sterile) to feel grounded alongside outdoor/terrain map
 
 ### Light Mode
 
-| Token | Value | Usage |
-|-------|-------|-------|
-| `background` | `#F7F6F2` | App canvas (warm off-white) |
-| `surface` | `#FFFFFF` | Cards, panels, bottom sheets |
+| Token           | Value     | Usage                           |
+| --------------- | --------- | ------------------------------- |
+| `background`    | `#F7F6F2` | App canvas (warm off-white)     |
+| `surface`       | `#FFFFFF` | Cards, panels, bottom sheets    |
 | `surfaceRaised` | `#FFFFFF` | Floating controls (map buttons) |
-| `textPrimary` | `#1C1A18` | Headings, primary data values |
-| `textSecondary` | `#6B6560` | Labels, secondary info |
-| `textTertiary` | `#9C958E` | Placeholders, disabled text |
-| `border` | `#E8E5E0` | Card borders, dividers |
-| `borderSubtle` | `#F0EDE8` | Light separators |
+| `textPrimary`   | `#1C1A18` | Headings, primary data values   |
+| `textSecondary` | `#6B6560` | Labels, secondary info          |
+| `textTertiary`  | `#9C958E` | Placeholders, disabled text     |
+| `border`        | `#E8E5E0` | Card borders, dividers          |
+| `borderSubtle`  | `#F0EDE8` | Light separators                |
 
 ### Dark Mode
 
 iPhone 15 Pro has OLED — use near-black base for battery efficiency, with very subtle warmth to match the light theme's character. Not pure `#000000` (too harsh for prolonged night use) but close enough for OLED benefit.
 
-| Token | Value | Usage |
-|-------|-------|-------|
-| `background` | `#0E0E0C` | App canvas |
-| `surface` | `#1C1B18` | Cards, panels |
-| `surfaceRaised` | `#2A2924` | Floating controls |
-| `textPrimary` | `#F0EDE8` | Headings, primary data values |
-| `textSecondary` | `#9C958E` | Labels, secondary info |
-| `textTertiary` | `#6B6560` | Placeholders, disabled |
-| `border` | `#2A2924` | Card borders, dividers |
-| `borderSubtle` | `#1C1B18` | Light separators |
+| Token           | Value     | Usage                         |
+| --------------- | --------- | ----------------------------- |
+| `background`    | `#0E0E0C` | App canvas                    |
+| `surface`       | `#1C1B18` | Cards, panels                 |
+| `surfaceRaised` | `#2A2924` | Floating controls             |
+| `textPrimary`   | `#F0EDE8` | Headings, primary data values |
+| `textSecondary` | `#9C958E` | Labels, secondary info        |
+| `textTertiary`  | `#6B6560` | Placeholders, disabled        |
+| `border`        | `#2A2924` | Card borders, dividers        |
+| `borderSubtle`  | `#1C1B18` | Light separators              |
 
 ### Accent Colors (shared across modes)
 
-| Token | Value | Usage |
-|-------|-------|-------|
-| `accent` | `#0D9488` | Primary actions, selected tab, active states |
-| `accentLight` | `#14B8A6` | Dark-mode accent variant (brighter for contrast) |
-| `accentSubtle` | `#0D94881A` | Accent backgrounds (10% opacity tint) |
+| Token          | Value       | Usage                                            |
+| -------------- | ----------- | ------------------------------------------------ |
+| `accent`       | `#0D9488`   | Primary actions, selected tab, active states     |
+| `accentLight`  | `#14B8A6`   | Dark-mode accent variant (brighter for contrast) |
+| `accentSubtle` | `#0D94881A` | Accent backgrounds (10% opacity tint)            |
 
 ### Semantic Colors
 
-| Token | Light | Dark | Usage |
-|-------|-------|------|-------|
-| `positive` | `#16A34A` | `#22C55E` | Completed, on-track |
-| `warning` | `#D97706` | `#FBBF24` | Caution, approaching limit |
-| `destructive` | `#DC2626` | `#EF4444` | Delete, off-route |
-| `info` | `#0284C7` | `#38BDF8` | Informational, neutral highlights |
+| Token         | Light     | Dark      | Usage                             |
+| ------------- | --------- | --------- | --------------------------------- |
+| `positive`    | `#16A34A` | `#22C55E` | Completed, on-track               |
+| `warning`     | `#D97706` | `#FBBF24` | Caution, approaching limit        |
+| `destructive` | `#DC2626` | `#EF4444` | Delete, off-route                 |
+| `info`        | `#0284C7` | `#38BDF8` | Informational, neutral highlights |
 
 ### Route Colors
 
@@ -83,16 +84,16 @@ Keep the existing set — they are distinct, high-contrast, and colorblind-acces
 
 Green → yellow → orange → red for gradient severity. These are functional, not decorative:
 
-| Grade | Color | Meaning |
-|-------|-------|---------|
-| 0–2% | `#22C55E` green | Flat |
-| 2–4% | `#EAB308` yellow | Easy |
-| 4–6% | `#F59E0B` amber | Moderate |
-| 6–8% | `#F97316` orange | Firm |
-| 8–10% | `#EF4444` light red | Steep |
-| 10–13% | `#DC2626` red | Very steep |
-| 13–17% | `#991B1B` dark red | Severe |
-| 17%+ | `#7F1D1D` maroon | Extreme |
+| Grade  | Color               | Meaning    |
+| ------ | ------------------- | ---------- |
+| 0–2%   | `#22C55E` green     | Flat       |
+| 2–4%   | `#EAB308` yellow    | Easy       |
+| 4–6%   | `#F59E0B` amber     | Moderate   |
+| 6–8%   | `#F97316` orange    | Firm       |
+| 8–10%  | `#EF4444` light red | Steep      |
+| 10–13% | `#DC2626` red       | Very steep |
+| 13–17% | `#991B1B` dark red  | Severe     |
+| 17%+   | `#7F1D1D` maroon    | Extreme    |
 
 Downhills are always green regardless of steepness.
 
@@ -104,18 +105,18 @@ Downhills are always green regardless of steepness.
 
 **Why Barlow?** Designed with transportation signage as inspiration — optimized for quick legibility at speed, which maps directly to glancing at a phone on aerobars. Supports tabular figures (`tnum`) so data values like "112.5 km" → "112.6 km" don't cause layout jumping. Ships **Barlow Semi Condensed** for fitting more data into tight spaces (bottom panel stats, elevation labels).
 
-| Style | Family | Weight | Size | Usage |
-|-------|--------|--------|------|-------|
-| `displayLarge` | Barlow | 600 (SemiBold) | 28 | Screen titles (Routes, Settings) |
-| `displayMedium` | Barlow | 600 (SemiBold) | 22 | Section headers (Elevation Profile, Progress) |
-| `dataLarge` | Barlow Semi Condensed | 600 (SemiBold) | 24 | Primary data values (124.6 km, 894 m) |
-| `dataMedium` | Barlow Semi Condensed | 500 (Medium) | 18 | Secondary data values |
-| `dataSmall` | Barlow Semi Condensed | 500 (Medium) | 14 | Tertiary data, chart labels |
-| `bodyLarge` | Barlow | 400 (Regular) | 17 | Route names, primary list text |
-| `bodyMedium` | Barlow | 400 (Regular) | 15 | Descriptions, secondary text |
-| `bodySmall` | Barlow | 400 (Regular) | 13 | Captions, timestamps |
-| `label` | Barlow | 500 (Medium) | 13 | Button text, tab labels, badges |
-| `labelSmall` | Barlow Semi Condensed | 500 (Medium) | 11 | Unit labels (km, m), axis labels |
+| Style           | Family                | Weight         | Size | Usage                                         |
+| --------------- | --------------------- | -------------- | ---- | --------------------------------------------- |
+| `displayLarge`  | Barlow                | 600 (SemiBold) | 28   | Screen titles (Routes, Settings)              |
+| `displayMedium` | Barlow                | 600 (SemiBold) | 22   | Section headers (Elevation Profile, Progress) |
+| `dataLarge`     | Barlow Semi Condensed | 600 (SemiBold) | 24   | Primary data values (124.6 km, 894 m)         |
+| `dataMedium`    | Barlow Semi Condensed | 500 (Medium)   | 18   | Secondary data values                         |
+| `dataSmall`     | Barlow Semi Condensed | 500 (Medium)   | 14   | Tertiary data, chart labels                   |
+| `bodyLarge`     | Barlow                | 400 (Regular)  | 17   | Route names, primary list text                |
+| `bodyMedium`    | Barlow                | 400 (Regular)  | 15   | Descriptions, secondary text                  |
+| `bodySmall`     | Barlow                | 400 (Regular)  | 13   | Captions, timestamps                          |
+| `label`         | Barlow                | 500 (Medium)   | 13   | Button text, tab labels, badges               |
+| `labelSmall`    | Barlow Semi Condensed | 500 (Medium)   | 11   | Unit labels (km, m), axis labels              |
 
 All `data*` styles use tabular figures (`fontVariant: ['tabular-nums']` in RN).
 
@@ -134,16 +135,16 @@ All `data*` styles use tabular figures (`fontVariant: ['tabular-nums']` in RN).
 
 ### 8px Base Grid
 
-| Token | Value | Usage |
-|-------|-------|-------|
-| `xs` | 4px | Tight internal padding (within badges, between icon and label) |
-| `sm` | 8px | Small gaps, compact list items |
-| `md` | 12px | Default internal card padding |
-| `base` | 16px | Standard margin/padding, screen horizontal inset |
-| `lg` | 20px | Space between card groups |
-| `xl` | 24px | Section spacing |
-| `2xl` | 32px | Major section breaks |
-| `3xl` | 48px | Screen-level vertical padding |
+| Token  | Value | Usage                                                          |
+| ------ | ----- | -------------------------------------------------------------- |
+| `xs`   | 4px   | Tight internal padding (within badges, between icon and label) |
+| `sm`   | 8px   | Small gaps, compact list items                                 |
+| `md`   | 12px  | Default internal card padding                                  |
+| `base` | 16px  | Standard margin/padding, screen horizontal inset               |
+| `lg`   | 20px  | Space between card groups                                      |
+| `xl`   | 24px  | Section spacing                                                |
+| `2xl`  | 32px  | Major section breaks                                           |
+| `3xl`  | 48px  | Screen-level vertical padding                                  |
 
 ### Screen Layout
 
@@ -167,16 +168,19 @@ All `data*` styles use tabular figures (`fontVariant: ['tabular-nums']` in RN).
 ### React Native Reusables (RNR) + NativeWind
 
 **Why this stack?**
+
 - RNR: shadcn/ui ported to React Native — copy-paste accessible components, full ownership of code
 - NativeWind: Tailwind CSS for RN — `dark:` prefix theming, design tokens in `tailwind.config.ts`
 - Familiar Tailwind workflow, large ecosystem (theme generators, patterns)
 
 **Theming architecture (three layers):**
+
 1. **`global.css`** — CSS variables define light/dark HSL color values
 2. **`tailwind.config.ts`** — maps variables to Tailwind classes (`bg-surface`, `text-primary`)
 3. **`theme.ts`** — exports the same values as a TypeScript object for programmatic use
 
 **Two styling contexts:**
+
 - **UI components** (cards, buttons, badges, lists): use `className` with Tailwind classes
 - **Map components** (Mapbox layers, SVG, Reanimated): import from `theme.ts` + `useColorScheme()`
 
@@ -184,7 +188,7 @@ All `data*` styles use tabular figures (`fontVariant: ['tabular-nums']` in RN).
 // UI component (route card, settings row, etc.)
 <Card className="bg-surface dark:bg-surface-dark border-border">
   <Text className="text-primary font-semibold">Route name</Text>
-</Card>
+</Card>;
 
 // Map component (Mapbox layer, elevation SVG, etc.)
 import { useColorScheme } from "nativewind";
@@ -192,13 +196,15 @@ import { THEME } from "@/theme";
 
 const { colorScheme } = useColorScheme();
 const t = THEME[colorScheme ?? "light"];
-<Mapbox.LineLayer style={{ lineColor: t.accent }} />
+<Mapbox.LineLayer style={{ lineColor: t.accent }} />;
 ```
 
 **RNR components used in this project:**
+
 - Button, Card, Badge, Dialog, Select, Switch, Toggle, Progress, Separator, Tabs, Text
 
 **Key dependencies added:**
+
 - `nativewind`, `tailwindcss` v3
 - `class-variance-authority`, `clsx`, `tailwind-merge`
 - `lucide-react-native` (icons)
@@ -271,16 +277,19 @@ no border/background — grouped visually by proximity
 Based on RNR `Button` component with custom variants:
 
 **Primary** (Import Route, main CTAs):
+
 ```
 bg-accent text-white rounded-xl h-[52px] font-label
 ```
 
 **Secondary** (Set Active, alternative actions):
+
 ```
 bg-transparent text-accent border border-accent rounded-xl h-[44px]
 ```
 
 **Destructive** (Delete):
+
 ```
 bg-transparent text-destructive — text-only to de-emphasize
 ```
@@ -297,11 +306,13 @@ label: labelSmall, text-tertiary (inactive) / text-accent (active)
 ### Badges
 
 Route color indicator (dot in route list):
+
 ```
 w-3 h-3 rounded-full, filled with route color
 ```
 
 Active route badge (RNR `Badge` component):
+
 ```
 bg-accent/10 text-accent rounded-full px-2 py-0.5 font-labelSmall
 ```

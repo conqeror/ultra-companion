@@ -19,11 +19,7 @@ interface POIListItemProps {
   onPress: (poi: POI) => void;
 }
 
-export default function POIListItem({
-  poi,
-  currentDistAlongRoute,
-  onPress,
-}: POIListItemProps) {
+export default function POIListItem({ poi, currentDistAlongRoute, onPress }: POIListItemProps) {
   const colors = useThemeColors();
   const units = useSettingsStore((s) => s.units);
 
@@ -34,9 +30,7 @@ export default function POIListItem({
   const getETAToPOI = useEtaStore((s) => s.getETAToPOI);
 
   const distAhead =
-    currentDistAlongRoute != null
-      ? poi.distanceAlongRouteMeters - currentDistAlongRoute
-      : null;
+    currentDistAlongRoute != null ? poi.distanceAlongRouteMeters - currentDistAlongRoute : null;
 
   const etaResult = useMemo(() => getETAToPOI(poi), [poi, getETAToPOI]);
 
@@ -60,15 +54,18 @@ export default function POIListItem({
         className="w-[32px] h-[32px] rounded-full items-center justify-center"
         style={{ backgroundColor: (catMeta?.color ?? colors.textTertiary) + "1A" }}
       >
-        {IconComp && (
-          <IconComp size={18} color={catMeta?.color ?? colors.textPrimary} />
-        )}
+        {IconComp && <IconComp size={18} color={catMeta?.color ?? colors.textPrimary} />}
       </View>
 
       <View className="flex-1 ml-3">
         <View className="flex-row items-center">
           {isStarred && (
-            <Star size={12} color={colors.warning} fill={colors.warning} style={{ marginRight: 4 }} />
+            <Star
+              size={12}
+              color={colors.warning}
+              fill={colors.warning}
+              style={{ marginRight: 4 }}
+            />
           )}
           <Text
             className="text-[15px] font-barlow-medium text-foreground flex-shrink"
@@ -80,14 +77,8 @@ export default function POIListItem({
         <View className="flex-row items-center mt-1">
           {ohStatus && (
             <View className="flex-row items-center">
-              <View
-                className="w-[6px] h-[6px] rounded-full"
-                style={{ backgroundColor: ohColor }}
-              />
-              <Text
-                className="ml-1 text-[12px] font-barlow-medium"
-                style={{ color: ohColor }}
-              >
+              <View className="w-[6px] h-[6px] rounded-full" style={{ backgroundColor: ohColor }} />
+              <Text className="ml-1 text-[12px] font-barlow-medium" style={{ color: ohColor }}>
                 {ohStatus.label}
                 {ohStatus.detail ? ` · ${ohStatus.detail}` : ""}
               </Text>
@@ -108,9 +99,7 @@ export default function POIListItem({
 
       <View className="items-end ml-2">
         {distAhead != null && (
-          <Text
-            className="text-[15px] font-barlow-sc-semibold text-foreground"
-          >
+          <Text className="text-[15px] font-barlow-sc-semibold text-foreground">
             {distAhead >= 0
               ? formatDistance(distAhead, units)
               : `-${formatDistance(Math.abs(distAhead), units)}`}

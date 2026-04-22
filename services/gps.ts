@@ -13,9 +13,7 @@ export async function getCurrentPosition(): Promise<UserPosition | null> {
   return locationToPosition(location);
 }
 
-function locationToPosition(
-  location: Location.LocationObject,
-): UserPosition | null {
+function locationToPosition(location: Location.LocationObject): UserPosition | null {
   return {
     latitude: location.coords.latitude,
     longitude: location.coords.longitude,

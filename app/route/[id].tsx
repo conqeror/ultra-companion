@@ -1,10 +1,5 @@
 import React, { useEffect, useState, useMemo, useRef } from "react";
-import {
-  View,
-  ScrollView,
-  useWindowDimensions,
-  ActivityIndicator,
-} from "react-native";
+import { View, ScrollView, useWindowDimensions, ActivityIndicator } from "react-native";
 import { useLocalSearchParams, Stack } from "expo-router";
 import { Camera, MapView as MapboxMapView } from "@rnmapbox/maps";
 import { Text } from "@/components/ui/text";
@@ -52,7 +47,7 @@ export default function RouteDetailScreen() {
   }, [id, getRouteDetail]);
 
   const loadClimbs = useClimbStore((s) => s.loadClimbs);
-  const routeClimbs = useClimbStore((s) => id ? s.climbs[id] ?? EMPTY_CLIMBS : EMPTY_CLIMBS);
+  const routeClimbs = useClimbStore((s) => (id ? (s.climbs[id] ?? EMPTY_CLIMBS) : EMPTY_CLIMBS));
 
   useEffect(() => {
     if (id) {
@@ -76,6 +71,8 @@ export default function RouteDetailScreen() {
   const chartPOIs = useMemo(() => {
     if (!id) return [];
     return getStarredPOIs(id);
+    // starredPOIIds is a reactivity trigger: getStarredPOIs reads store via get() and is not itself reactive
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, getStarredPOIs, starredPOIIds]);
 
   const bounds = useMemo(() => {
@@ -105,10 +102,7 @@ export default function RouteDetailScreen() {
   return (
     <>
       <Stack.Screen options={screenOptions} />
-      <ScrollView
-        className="flex-1 bg-background"
-        contentContainerStyle={{ paddingBottom: 40 }}
-      >
+      <ScrollView className="flex-1 bg-background" contentContainerStyle={{ paddingBottom: 40 }}>
         {/* Mini map */}
         <View className="h-[250px] mx-4 mt-4 rounded-xl overflow-hidden">
           <MapboxMapView
@@ -137,20 +131,18 @@ export default function RouteDetailScreen() {
                   : undefined
               }
             />
-            <RouteLayer key={mapStyle.styleKey} route={{ ...route, isActive: true }} points={route.points} />
+            <RouteLayer
+              key={mapStyle.styleKey}
+              route={{ ...route, isActive: true }}
+              points={route.points}
+            />
           </MapboxMapView>
         </View>
 
         {/* Stats */}
         <View className="flex-row px-4 mt-3 mb-3 gap-3">
-          <StatBox
-            label="Distance"
-            value={formatDistance(route.totalDistanceMeters, units)}
-          />
-          <StatBox
-            label="Ascent"
-            value={"↑ " + formatElevation(route.totalAscentMeters, units)}
-          />
+          <StatBox label="Distance" value={formatDistance(route.totalDistanceMeters, units)} />
+          <StatBox label="Ascent" value={"↑ " + formatElevation(route.totalAscentMeters, units)} />
           <StatBox
             label="Descent"
             value={"↓ " + formatElevation(route.totalDescentMeters, units)}

@@ -28,7 +28,9 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   units: (readString("units") as UnitSystem) ?? "metric",
 
   setUnits: (units) => {
-    try { getStorage().set("units", units); } catch {}
+    try {
+      getStorage().set("units", units);
+    } catch {}
     set({ units });
   },
 }));

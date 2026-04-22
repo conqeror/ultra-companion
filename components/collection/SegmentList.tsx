@@ -131,14 +131,17 @@ function SegmentRow({
           )}
           numberOfLines={1}
         >
-          {!hasVariants && `${posIdx + 1}. `}{sw.route.name}
+          {!hasVariants && `${posIdx + 1}. `}
+          {sw.route.name}
         </Text>
         <Text className="text-[12px] text-muted-foreground font-barlow-sc-medium mt-0.5">
           {formatDistance(sw.route.totalDistanceMeters, units)}
-          {"  ·  "}
-          ↑ {formatElevation(sw.route.totalAscentMeters, units)}
+          {"  ·  "}↑ {formatElevation(sw.route.totalAscentMeters, units)}
           {ridingTime != null && (
-            <>{"  ·  "}{formatDuration(ridingTime)}</>
+            <>
+              {"  ·  "}
+              {formatDuration(ridingTime)}
+            </>
           )}
         </Text>
       </TouchableOpacity>
@@ -211,7 +214,11 @@ export default function SegmentList({
         <ScaleDecorator>
           <View
             className="mb-2"
-            style={isDragging ? { backgroundColor: colors.surfaceRaised, borderRadius: 12, opacity: 0.9 } : undefined}
+            style={
+              isDragging
+                ? { backgroundColor: colors.surfaceRaised, borderRadius: 12, opacity: 0.9 }
+                : undefined
+            }
           >
             {hasVariants && (
               <Text className="text-[11px] text-muted-foreground font-barlow-semibold uppercase tracking-wide ml-1 mb-1">
@@ -220,15 +227,16 @@ export default function SegmentList({
             )}
 
             {hasVariants ? (
-              <View
-                className="rounded-xl overflow-hidden border border-border"
-              >
+              <View className="rounded-xl overflow-hidden border border-border">
                 {group.variants.map((sw, vIdx) => {
                   const isSelected = sw.segment.isSelected;
                   return (
                     <View key={sw.route.id}>
                       {vIdx > 0 && (
-                        <View className="mx-3" style={{ height: 1, backgroundColor: colors.border }} />
+                        <View
+                          className="mx-3"
+                          style={{ height: 1, backgroundColor: colors.border }}
+                        />
                       )}
                       <SegmentRow
                         sw={sw}
@@ -268,9 +276,7 @@ export default function SegmentList({
   if (localGroups.length === 0) {
     return (
       <View className="items-center py-6">
-        <Text className="text-[15px] text-muted-foreground">
-          No segments added yet
-        </Text>
+        <Text className="text-[15px] text-muted-foreground">No segments added yet</Text>
       </View>
     );
   }

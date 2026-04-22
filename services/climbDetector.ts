@@ -45,7 +45,7 @@ export function detectClimbs(points: RoutePoint[]): DetectedClimb[] {
 
 function smoothElevation(points: RoutePoint[]): number[] {
   const halfWindow = SMOOTHING_WINDOW_M / 2;
-  const result: number[] = new Array(points.length);
+  const result: number[] = Array.from({ length: points.length });
 
   // Use two-pointer approach for the sliding window
   let windowStart = 0;
@@ -324,12 +324,13 @@ export async function redetectClimbsIfNeeded(): Promise<void> {
     }
 
     const detected = detectClimbs(points);
-    const newClimbs: Climb[] = detected.map((c) => ({
-      ...c,
-      id: generateId(),
-      routeId: route.id,
-      name: nameMap.get(Math.round(c.startDistanceMeters)) ?? null,
-    }));
+    const newClimbs: Climb[] = detected.map((c) => {
+      const out = Object.assign({}, c) as Climb;
+      out.id = generateId();
+      out.routeId = route.id;
+      out.name = nameMap.get(Math.round(c.startDistanceMeters)) ?? null;
+      return out;
+    });
 
     await deleteClimbsForRoute(route.id);
     await insertClimbs(newClimbs);
@@ -353,12 +354,13 @@ export async function detectAndStoreClimbs(
   const { insertClimbs } = await import("@/db/database");
   const { generateId } = await import("@/utils/generateId");
   const detected = detectClimbs(points);
-  const records: Climb[] = detected.map((c) => ({
-    ...c,
-    id: generateId(),
-    routeId,
-    name: null,
-  }));
+  const records: Climb[] = detected.map((c) => {
+    const out = Object.assign({}, c) as Climb;
+    out.id = generateId();
+    out.routeId = routeId;
+    out.name = null;
+    return out;
+  });
   await insertClimbs(records);
   return records;
 }

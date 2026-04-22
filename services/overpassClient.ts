@@ -1,9 +1,5 @@
 import type { RoutePoint } from "@/types";
-import {
-  OVERPASS_API_URLS,
-  OVERPASS_SEGMENT_LENGTH_M,
-  OVERPASS_RETRY_DELAYS,
-} from "@/constants";
+import { OVERPASS_API_URLS, OVERPASS_SEGMENT_LENGTH_M, OVERPASS_RETRY_DELAYS } from "@/constants";
 
 let _nextServerIndex = 0;
 
@@ -61,10 +57,7 @@ function downsampleByDistance(
 }
 
 /** Split route points into segments of approximately segmentLengthM */
-function segmentRoute(
-  points: RoutePoint[],
-  segmentLengthM: number,
-): RoutePoint[][] {
+function segmentRoute(points: RoutePoint[], segmentLengthM: number): RoutePoint[][] {
   if (points.length === 0) return [];
 
   const segments: RoutePoint[][] = [];
@@ -153,9 +146,7 @@ async function tryOverpassRequest(
 }
 
 /** Fetch a single Overpass query with server rotation and exponential backoff */
-async function fetchOverpassSegment(
-  query: string,
-): Promise<OverpassElement[]> {
+async function fetchOverpassSegment(query: string): Promise<OverpassElement[]> {
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt <= OVERPASS_RETRY_DELAYS.length; attempt++) {
@@ -168,7 +159,7 @@ async function fetchOverpassSegment(
       if ("error" in result) {
         lastError = result.error;
         // Don't retry bad queries on other servers
-        if (lastError.message.includes("400")) throw lastError;
+        if (result.error.message.includes("400")) throw result.error;
       }
       // rateLimited — try next server immediately
     }
@@ -183,7 +174,9 @@ async function fetchOverpassSegment(
 }
 
 function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 // --- Main orchestrator ---

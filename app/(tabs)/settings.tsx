@@ -96,9 +96,7 @@ function NumericInput({
           returnKeyType="done"
           selectTextOnFocus
         />
-        <Text className="text-[13px] text-muted-foreground font-barlow ml-1 w-[30px]">
-          {unit}
-        </Text>
+        <Text className="text-[13px] text-muted-foreground font-barlow ml-1 w-[30px]">{unit}</Text>
       </View>
     </View>
   );
@@ -120,9 +118,7 @@ export default function SettingsScreen() {
 
   return (
     <ScrollView className="flex-1 bg-background px-4">
-      <Text className="text-[22px] font-barlow-semibold text-foreground mt-6 mb-3">
-        Units
-      </Text>
+      <Text className="text-[22px] font-barlow-semibold text-foreground mt-6 mb-3">Units</Text>
       <OptionGroup options={UNIT_OPTIONS} value={units} onChange={setUnits} />
 
       <Text className="text-[22px] font-barlow-semibold text-foreground mt-6 mb-3">
@@ -162,9 +158,7 @@ export default function SettingsScreen() {
         className="flex-row items-center mt-4 py-2"
         onPress={() => setShowAdvanced(!showAdvanced)}
       >
-        <Text className="text-[14px] font-barlow-medium text-muted-foreground">
-          Advanced
-        </Text>
+        <Text className="text-[14px] font-barlow-medium text-muted-foreground">Advanced</Text>
         {showAdvanced ? (
           <ChevronUp size={16} color={colors.textSecondary} />
         ) : (

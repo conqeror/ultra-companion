@@ -46,7 +46,14 @@ export default function CollectionOfflineSection({ stitched }: CollectionOffline
     // Estimate from stitched points (rough)
     estimatedBytes = estimateDownloadSize(stitched.points);
 
-    return { readyCount, total: segments.length, downloadedBytes, estimatedBytes, totalPOIs, anyDownloading };
+    return {
+      readyCount,
+      total: segments.length,
+      downloadedBytes,
+      estimatedBytes,
+      totalPOIs,
+      anyDownloading,
+    };
   }, [segments, routeInfo, allPois, stitched.points]);
 
   const allReady = stats.readyCount === stats.total && stats.total > 0;
@@ -55,8 +62,10 @@ export default function CollectionOfflineSection({ stitched }: CollectionOffline
     const out: { routeName: string; source: POISource; error: string }[] = [];
     for (const seg of segments) {
       const src = allSourceInfo[seg.routeId];
-      if (src?.osm?.error) out.push({ routeName: seg.routeName, source: "osm", error: src.osm.error });
-      if (src?.google?.error) out.push({ routeName: seg.routeName, source: "google", error: src.google.error });
+      if (src?.osm?.error)
+        out.push({ routeName: seg.routeName, source: "osm", error: src.osm.error });
+      if (src?.google?.error)
+        out.push({ routeName: seg.routeName, source: "google", error: src.google.error });
     }
     return out;
   }, [segments, allSourceInfo]);
@@ -88,8 +97,8 @@ export default function CollectionOfflineSection({ stitched }: CollectionOffline
         continue;
       }
       try {
-        const points = stitched.pointsByRouteId?.[seg.routeId]
-          ?? await getRoutePoints(seg.routeId);
+        const points =
+          stitched.pointsByRouteId?.[seg.routeId] ?? (await getRoutePoints(seg.routeId));
         await startDownload(seg.routeId, points);
       } catch (e: any) {
         console.warn(`Failed to download segment ${seg.routeName}:`, e);
@@ -123,22 +132,18 @@ export default function CollectionOfflineSection({ stitched }: CollectionOffline
   }, [segments, deleteOfflineData, clearPOIs]);
 
   const handleDeleteAllPOIs = useCallback(() => {
-    Alert.alert(
-      "Delete All POIs",
-      "Remove all POI data for all segments in this collection?",
-      [
-        { text: "Keep", style: "cancel" },
-        {
-          text: "Delete All POIs",
-          style: "destructive",
-          onPress: async () => {
-            for (const seg of segments) {
-              await clearPOIs(seg.routeId);
-            }
-          },
+    Alert.alert("Delete All POIs", "Remove all POI data for all segments in this collection?", [
+      { text: "Keep", style: "cancel" },
+      {
+        text: "Delete All POIs",
+        style: "destructive",
+        onPress: async () => {
+          for (const seg of segments) {
+            await clearPOIs(seg.routeId);
+          }
         },
-      ],
-    );
+      },
+    ]);
   }, [segments, clearPOIs]);
 
   return (
@@ -176,7 +181,9 @@ export default function CollectionOfflineSection({ stitched }: CollectionOffline
           <View className="h-2 bg-border rounded-full overflow-hidden">
             <View
               className="h-full bg-primary rounded-full"
-              style={{ width: `${Math.min(100, (progress.done / Math.max(1, progress.total)) * 100)}%` }}
+              style={{
+                width: `${Math.min(100, (progress.done / Math.max(1, progress.total)) * 100)}%`,
+              }}
             />
           </View>
           <Text className="text-[13px] text-muted-foreground font-barlow mt-1">
@@ -189,9 +196,9 @@ export default function CollectionOfflineSection({ stitched }: CollectionOffline
 
       {poiErrors.length > 0 && (
         <View className="mx-4 mb-2">
-          {poiErrors.map((e, i) => (
+          {poiErrors.map((e) => (
             <Text
-              key={`${e.routeName}-${e.source}-${i}`}
+              key={`${e.routeName}-${e.source}`}
               className="text-[13px] text-destructive font-barlow"
             >
               {e.routeName} ({e.source.toUpperCase()}): {e.error}
@@ -202,11 +209,7 @@ export default function CollectionOfflineSection({ stitched }: CollectionOffline
 
       <View className="px-4 mb-2">
         {!isConnected ? (
-          <Button
-            variant="secondary"
-            disabled
-            label="Connect to internet to download"
-          />
+          <Button variant="secondary" disabled label="Connect to internet to download" />
         ) : (
           <Button
             onPress={handleDownloadAll}
@@ -228,9 +231,7 @@ export default function CollectionOfflineSection({ stitched }: CollectionOffline
           className="px-4 py-2 min-h-[48px] justify-center"
           onPress={handleDeleteAllPOIs}
         >
-          <Text className="text-[15px] font-barlow-medium text-destructive">
-            Delete all POIs
-          </Text>
+          <Text className="text-[15px] font-barlow-medium text-destructive">Delete all POIs</Text>
         </TouchableOpacity>
       )}
 

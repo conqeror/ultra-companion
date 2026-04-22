@@ -35,18 +35,10 @@ interface BadgeProps extends ViewProps, VariantProps<typeof badgeVariants> {
   textClassName?: string;
 }
 
-function Badge({
-  className,
-  textClassName,
-  variant,
-  label,
-  ...props
-}: BadgeProps) {
+function Badge({ className, textClassName, variant, label, ...props }: BadgeProps) {
   return (
     <View className={cn(badgeVariants({ variant }), className)} {...props}>
-      <Text className={cn(badgeTextVariants({ variant }), textClassName)}>
-        {label}
-      </Text>
+      <Text className={cn(badgeTextVariants({ variant }), textClassName)}>{label}</Text>
     </View>
   );
 }

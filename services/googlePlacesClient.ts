@@ -141,18 +141,15 @@ async function searchAlongRoute(
     };
     if (pageToken) body.pageToken = pageToken;
 
-    const response = await fetch(
-      "https://places.googleapis.com/v1/places:searchText",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Goog-Api-Key": apiKey,
-          "X-Goog-FieldMask": FIELD_MASK,
-        },
-        body: JSON.stringify(body),
+    const response = await fetch("https://places.googleapis.com/v1/places:searchText", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": apiKey,
+        "X-Goog-FieldMask": FIELD_MASK,
       },
-    );
+      body: JSON.stringify(body),
+    });
 
     if (!response.ok) {
       const text = await response.text().catch(() => "");
@@ -164,7 +161,11 @@ async function searchAlongRoute(
     pageToken = data.nextPageToken;
 
     // Small delay before fetching next page
-    if (pageToken) await new Promise((r) => setTimeout(r, 200));
+    if (pageToken) {
+      await new Promise((r) => {
+        setTimeout(r, 200);
+      });
+    }
   } while (pageToken);
 
   return allPlaces;
@@ -178,7 +179,8 @@ const MAX_SEGMENT_M = 50_000;
 function splitRoute(points: RoutePoint[]): RoutePoint[][] {
   if (points.length < 2) return [points];
 
-  const totalDist = points[points.length - 1].distanceFromStartMeters - points[0].distanceFromStartMeters;
+  const totalDist =
+    points[points.length - 1].distanceFromStartMeters - points[0].distanceFromStartMeters;
   if (totalDist <= MAX_SEGMENT_M) return [points];
 
   const numSegments = Math.ceil(totalDist / MAX_SEGMENT_M);
@@ -226,8 +228,9 @@ export async function fetchGooglePlacesPOIs(
     // Run all search types in parallel within each segment
     const searchResults = await Promise.all(
       SEARCHES.map((search) =>
-        searchAlongRoute(search.textQuery, search.includedType, encodedPolyline, apiKey)
-          .then((places) => ({ places, category: search.category })),
+        searchAlongRoute(search.textQuery, search.includedType, encodedPolyline, apiKey).then(
+          (places) => ({ places, category: search.category }),
+        ),
       ),
     );
 

@@ -11,7 +11,9 @@ import { join } from "path";
 const drizzleDir = join(import.meta.dirname, "..", "drizzle");
 const journal = JSON.parse(readFileSync(join(drizzleDir, "meta", "_journal.json"), "utf-8"));
 
-const sqlFiles = readdirSync(drizzleDir).filter((f) => f.endsWith(".sql")).sort();
+const sqlFiles = readdirSync(drizzleDir)
+  .filter((f) => f.endsWith(".sql"))
+  .sort();
 
 const migrationEntries = sqlFiles.map((file, i) => {
   const sql = readFileSync(join(drizzleDir, file), "utf-8");
@@ -23,7 +25,7 @@ const migrationEntries = sqlFiles.map((file, i) => {
 });
 
 const journalEntries = journal.entries.map(
-  (e) => `      { idx: ${e.idx}, when: ${e.when}, tag: "${e.tag}", breakpoints: ${e.breakpoints} }`
+  (e) => `      { idx: ${e.idx}, when: ${e.when}, tag: "${e.tag}", breakpoints: ${e.breakpoints} }`,
 );
 
 const output = `// Generated from db/schema.ts — regenerate with: npm run db:migrate

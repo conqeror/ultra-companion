@@ -1,6 +1,6 @@
 import { ExpoConfig, ConfigContext } from "expo/config";
 
-export default ({ config }: ConfigContext): ExpoConfig => ({
+export default (_: ConfigContext): ExpoConfig => ({
   name: "Ultra Companion",
   slug: "ultra-companion",
   version: "1.0.0",

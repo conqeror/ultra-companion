@@ -37,7 +37,7 @@ Logistics companion app for ultra-distance cycling races. iOS only, personal use
 - Stores, services, utils: named exports, camelCase filenames
 - Types centralized in `types/index.ts`; use `import type` where possible
 - Zustand stores: explicit state interface, `create<Interface>((set, get) => ({...}))`
-- No ESLint/Prettier — TypeScript strict mode is the guardrail
+- Lint with `oxlint`, format with `oxfmt` (both from the oxc toolchain); TypeScript strict mode is the primary guardrail
 
 ### Styling (two contexts)
 
@@ -53,6 +53,8 @@ Logistics companion app for ultra-distance cycling races. iOS only, personal use
 - `npm start` — start Expo dev server
 - `npx expo run:ios` — build and run on iOS simulator
 - `npx tsc --noEmit` — type-check without emitting
+- `npm run lint` — run oxlint
+- `npm run format` — format with oxfmt (or `npm run format:check` to check only)
 
 ## UI Testing (AXe)
 

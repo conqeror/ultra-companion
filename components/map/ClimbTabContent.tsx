@@ -1,5 +1,11 @@
 import React, { useMemo, useState, useCallback, useEffect } from "react";
-import { View, TouchableOpacity, TextInput as RNTextInput, useWindowDimensions, FlatList } from "react-native";
+import {
+  View,
+  TouchableOpacity,
+  TextInput as RNTextInput,
+  useWindowDimensions,
+  FlatList,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Text } from "@/components/ui/text";
 import { Mountain, Pencil, Check } from "lucide-react-native";
@@ -8,8 +14,11 @@ import { useSettingsStore } from "@/store/settingsStore";
 import { useRouteStore } from "@/store/routeStore";
 import { useClimbStore } from "@/store/climbStore";
 import { usePanelStore } from "@/store/panelStore";
-import { useEtaStore } from "@/store/etaStore";
-import { climbDifficultyColor, getClimbDifficulty, CLIMB_DIFFICULTY_LABELS } from "@/constants/climbHelpers";
+import {
+  climbDifficultyColor,
+  getClimbDifficulty,
+  CLIMB_DIFFICULTY_LABELS,
+} from "@/constants/climbHelpers";
 import { extractRouteSlice } from "@/utils/geo";
 import { formatDistance, formatElevation } from "@/utils/formatters";
 import ElevationProfile from "@/components/elevation/ElevationProfile";
@@ -43,12 +52,14 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
   const [editingClimb, setEditingClimb] = useState<Climb | null>(null);
   const [graphHeight, setGraphHeight] = useState(0);
 
-  const routeIds = activeData?.routeIds ?? [];
+  const routeIds = useMemo(() => activeData?.routeIds ?? [], [activeData?.routeIds]);
   const segments = activeData?.segments ?? null;
   const currentDist = snappedPosition?.distanceAlongRouteMeters ?? null;
 
   const displayedClimbs = useMemo(
     () => getClimbsForDisplay(routeIds, segments),
+    // allClimbs is a reactivity trigger: getClimbsForDisplay reads store via get() and is not itself reactive
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [routeIds, segments, allClimbs, getClimbsForDisplay],
   );
 
@@ -84,7 +95,11 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
       const idx = snappedPosition.pointIndex - startIdx;
       if (idx >= 0 && idx < sliced.length) currentIdxInSlice = idx;
     }
-    return { points: sliced, offsetMeters: points[startIdx].distanceFromStartMeters, currentIdxInSlice };
+    return {
+      points: sliced,
+      offsetMeters: points[startIdx].distanceFromStartMeters,
+      currentIdxInSlice,
+    };
   }, [climb, activeData, snappedPosition]);
 
   const handleStartEdit = () => {
@@ -106,12 +121,17 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
 
   // Sorted climbs for the expanded list
   const sortedClimbs = useMemo(
-    () => isExpanded ? [...displayedClimbs].sort((a, b) => a.startDistanceMeters - b.startDistanceMeters) : [],
+    () =>
+      isExpanded
+        ? [...displayedClimbs].sort((a, b) => a.startDistanceMeters - b.startDistanceMeters)
+        : [],
     [isExpanded, displayedClimbs],
   );
 
   const handleClimbPress = useCallback(
-    (c: Climb) => { setSelectedClimb(c); },
+    (c: Climb) => {
+      setSelectedClimb(c);
+    },
     [setSelectedClimb],
   );
 
@@ -142,6 +162,7 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
                 onChangeText={setEditName}
                 placeholder="Climb name"
                 placeholderTextColor={colors.textTertiary}
+                // eslint-disable-next-line jsx-a11y/no-autofocus -- intentional: focus input when user taps edit
                 autoFocus
                 autoCorrect={false}
                 returnKeyType="done"
@@ -163,7 +184,10 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
               onPress={handleStartEdit}
               accessibilityLabel="Edit climb name"
             >
-              <Text className="text-[15px] font-barlow-semibold text-foreground flex-shrink" numberOfLines={1}>
+              <Text
+                className="text-[15px] font-barlow-semibold text-foreground flex-shrink"
+                numberOfLines={1}
+              >
                 {climb.name ?? "Unnamed climb"}
               </Text>
               <Pencil size={10} color={colors.textTertiary} style={{ marginLeft: 4 }} />
@@ -184,7 +208,8 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
 
       {/* Elevation profile */}
       {climbProfile && (
-        <View className="flex-1 mx-3 rounded-lg overflow-hidden"
+        <View
+          className="flex-1 mx-3 rounded-lg overflow-hidden"
           onLayout={(e) => setGraphHeight(Math.round(e.nativeEvent.layout.height))}
         >
           {graphHeight > 0 && (
@@ -202,7 +227,10 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
       )}
 
       {/* Stats row */}
-      <View className="flex-row items-center px-3 mt-1" style={!isExpanded ? { paddingBottom: safeBottom } : undefined}>
+      <View
+        className="flex-row items-center px-3 mt-1"
+        style={!isExpanded ? { paddingBottom: safeBottom } : undefined}
+      >
         <StatItem label="Gain" value={`${formatElevation(climb.totalAscentMeters, units)} ↑`} />
         <StatItem label="Length" value={formatDistance(climb.lengthMeters, units)} />
         <StatItem label="Avg" value={`${climb.averageGradientPercent}%`} />

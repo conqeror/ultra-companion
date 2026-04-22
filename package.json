@@ -1,7 +1,8 @@
 {
   "name": "ultra",
-  "main": "expo-router/entry",
   "version": "1.0.0",
+  "private": true,
+  "main": "expo-router/entry",
   "scripts": {
     "start": "expo start",
     "android": "expo run:android",
@@ -9,7 +10,10 @@
     "web": "expo start --web",
     "db:generate": "drizzle-kit generate",
     "db:bundle": "node scripts/bundle-migrations.mjs",
-    "db:migrate": "npm run db:generate && npm run db:bundle"
+    "db:migrate": "npm run db:generate && npm run db:bundle",
+    "lint": "oxlint",
+    "format": "oxfmt",
+    "format:check": "oxfmt --check"
   },
   "dependencies": {
     "@react-navigation/native": "^7.1.33",
@@ -53,7 +57,8 @@
   "devDependencies": {
     "@types/react": "~19.2.2",
     "drizzle-kit": "^0.31.10",
+    "oxfmt": "^0.46.0",
+    "oxlint": "^1.61.0",
     "typescript": "~5.9.2"
-  },
-  "private": true
+  }
 }

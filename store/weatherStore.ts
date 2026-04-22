@@ -47,14 +47,19 @@ interface WeatherState {
   fetchStatus: WeatherFetchStatus;
   error: string | null;
 
-  fetchWeather: (routeId: string, points: RoutePoint[], fromIndex: number, cumulativeTime: number[]) => Promise<void>;
+  fetchWeather: (
+    routeId: string,
+    points: RoutePoint[],
+    fromIndex: number,
+    cumulativeTime: number[],
+  ) => Promise<void>;
   clearWeather: () => void;
 }
 
 export const useWeatherStore = create<WeatherState>((set, get) => {
   const cached = loadCache();
   // Mark cached data as stale if older than threshold
-  const cacheIsFresh = cached?.fetchedAt && (Date.now() - cached.fetchedAt < WEATHER_STALE_MS);
+  const cacheIsFresh = cached?.fetchedAt && Date.now() - cached.fetchedAt < WEATHER_STALE_MS;
 
   return {
     timeline: cached?.timeline ?? [],

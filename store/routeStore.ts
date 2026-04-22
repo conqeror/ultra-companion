@@ -81,12 +81,12 @@ export const useRouteStore = create<RouteState>((set, get) => ({
       // while iOS security scope is still active (see AppDelegate.swift copyImportedFileToTmpIfNeeded)
       const fallback = new File(Paths.cache, `pending-import.${ext}`);
       content = await fallback.text();
-      try { fallback.delete(); } catch {}
+      try {
+        fallback.delete();
+      } catch {}
     }
 
-    const parsed = ext === "gpx"
-      ? parseGPX(content, fileName)
-      : parseKML(content, fileName);
+    const parsed = ext === "gpx" ? parseGPX(content, fileName) : parseKML(content, fileName);
 
     const route: Route = {
       id: generateId(),
@@ -219,7 +219,8 @@ export const useRouteStore = create<RouteState>((set, get) => ({
     if (
       prev?.pointIndex === snappedPosition?.pointIndex &&
       prev?.routeId === snappedPosition?.routeId
-    ) return;
+    )
+      return;
     set({ snappedPosition });
   },
 
