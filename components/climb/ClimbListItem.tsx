@@ -5,13 +5,13 @@ import { useSettingsStore } from "@/store/settingsStore";
 import { useEtaStore } from "@/store/etaStore";
 import { climbDifficultyColor } from "@/constants/climbHelpers";
 import { formatDistance, formatElevation, formatDuration, formatETA } from "@/utils/formatters";
-import type { Climb } from "@/types";
+import type { DisplayClimb } from "@/types";
 
 interface ClimbListItemProps {
-  climb: Climb;
+  climb: DisplayClimb;
   currentDistAlongRoute: number | null;
   isPast: boolean;
-  onPress: (climb: Climb) => void;
+  onPress: (climb: DisplayClimb) => void;
 }
 
 export default function ClimbListItem({
@@ -26,11 +26,11 @@ export default function ClimbListItem({
   const diffColor = climbDifficultyColor(climb.difficultyScore);
 
   const distAhead =
-    currentDistAlongRoute != null ? climb.startDistanceMeters - currentDistAlongRoute : null;
+    currentDistAlongRoute != null ? climb.effectiveDistanceMeters - currentDistAlongRoute : null;
 
   const etaResult = useMemo(
-    () => getETAToDistance(climb.startDistanceMeters),
-    [climb.startDistanceMeters, getETAToDistance],
+    () => getETAToDistance(climb.effectiveDistanceMeters),
+    [climb.effectiveDistanceMeters, getETAToDistance],
   );
 
   return (

@@ -12,6 +12,7 @@ import type { RouteWithPoints, Climb } from "@/types";
 import { useMapStyle } from "@/hooks/useMapStyle";
 import { formatDistance, formatElevation } from "@/utils/formatters";
 import { computeElevationProgress, computeBounds } from "@/utils/geo";
+import { toDisplayClimbs, toDisplayPOIs } from "@/services/displayDistance";
 import ElevationProfile from "@/components/elevation/ElevationProfile";
 import RouteLayer from "@/components/map/RouteLayer";
 import StatBox from "@/components/common/StatBox";
@@ -70,10 +71,12 @@ export default function RouteDetailScreen() {
 
   const chartPOIs = useMemo(() => {
     if (!id) return [];
-    return getStarredPOIs(id);
+    return toDisplayPOIs(getStarredPOIs(id));
     // starredPOIIds is a reactivity trigger: getStarredPOIs reads store via get() and is not itself reactive
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, getStarredPOIs, starredPOIIds]);
+
+  const chartClimbs = useMemo(() => toDisplayClimbs(routeClimbs), [routeClimbs]);
 
   const bounds = useMemo(() => {
     if (!route?.points.length) return null;
@@ -162,7 +165,7 @@ export default function RouteDetailScreen() {
             currentPointIndex={currentPointIndex}
             pois={chartPOIs}
             onPOIPress={setSelectedPOI}
-            climbs={routeClimbs}
+            climbs={chartClimbs}
           />
         </View>
 

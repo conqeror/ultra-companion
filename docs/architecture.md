@@ -110,19 +110,16 @@ OSM opening hours are often missing or wrong for gas stations and groceries — 
 
 Routes are stored individually. Collections reference routes via `collection_segments` table with position-based slots. At display time, selected segments are stitched (points concatenated with distance offsets). `RoutePoint[]` consumers (snapping, ETA cumulative time, weather, elevation rendering) receive the stitched array unchanged — their input is already in "stitched coords".
 
-**Two coordinate systems for POIs and climbs.** POIs and climbs are stored per-route with `distanceAlongRouteMeters` / `startDistanceMeters` relative to **their own route** ("raw coords"). When a collection is active, the snapped position and `cumulativeTime` array live in **stitched coords** (raw + `segment.distanceOffsetMeters`). Every consumer that compares a POI/climb distance against the snapped position or looks it up in `cumulativeTime` must first convert raw → stitched.
+**Two coordinate systems for POIs and climbs.** POIs and climbs are stored per-route with `distanceAlongRouteMeters` / `startDistanceMeters` relative to **their own route** ("raw coords"). When a collection is active, snapped position, `RoutePoint.distanceFromStartMeters`, and ETA `cumulativeTime` live in **stitched coords** (raw + `segment.distanceOffsetMeters`).
 
-Conversion currently happens in several places:
+Displayed POIs and climbs use explicit display types:
 
-- `services/stitchingService.ts:stitchPOIs` — rewrites `distanceAlongRouteMeters` for the expanded POI list
-- `store/climbStore.ts:getClimbsForDisplay` — rewrites `startDistanceMeters` / `endDistanceMeters` for climb display
-- `components/map/POITabContent.tsx:starredUpcoming` — inline offset math for the starred compact list
-- `components/map/POITabContent.tsx:InlinePOIDetail` — inline offset math for `distAhead`
-- `components/map/ClimbHighlightLayer.tsx` — uses `distanceOffset` to locate climb on stitched geometry
-- `components/elevation/ElevationProfile.tsx` — converts stitched climb back to local coords for rendering
-- `store/etaStore.ts:getETAToPOI` — applies `segment.distanceOffsetMeters` before resolving ETA
+- `DisplayPOI.effectiveDistanceMeters`
+- `DisplayClimb.effectiveDistanceMeters`
+- `DisplayClimb.effectiveStartDistanceMeters`
+- `DisplayClimb.effectiveEndDistanceMeters`
 
-Every new feature touching POIs/climbs has to make the same decision. Historically this has produced silent bugs when one site forgot the offset while its neighbors got it right — see `docs/known-issues.md` ("Two-coordinate-system fragility") and the refactor entry in `docs/ideas.md`.
+For standalone routes, effective distance equals raw distance. For collections, conversion is centralized at display-data boundaries: POIs through `services/stitchingService.ts:stitchPOIs` / `services/displayDistance.ts`, climbs through `store/climbStore.ts:getClimbsForDisplay` / `services/displayDistance.ts`. Components compare against snapped position and ETA using effective fields only; raw fields remain raw for persistence and route-local operations.
 
 ### Climb Detection
 

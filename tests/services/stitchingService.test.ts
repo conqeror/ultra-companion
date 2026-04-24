@@ -103,7 +103,7 @@ describe("stitchingService", () => {
     expect(stitched.pointsByRouteId).toEqual({});
   });
 
-  it("stitchPOIs offsets and sorts distances", () => {
+  it("stitchPOIs keeps raw distances and sorts by effective distances", () => {
     const segments = [
       {
         routeId: "r1",
@@ -136,6 +136,7 @@ describe("stitchingService", () => {
     });
 
     expect(combined.map((p) => p.id)).toEqual(["a", "b"]);
-    expect(combined.map((p) => p.distanceAlongRouteMeters)).toEqual([900, 1_010]);
+    expect(combined.map((p) => p.distanceAlongRouteMeters)).toEqual([900, 10]);
+    expect(combined.map((p) => p.effectiveDistanceMeters)).toEqual([900, 1_010]);
   });
 });

@@ -316,8 +316,8 @@ export default function MapScreen() {
   // Fly to highlighted climb bounds
   useEffect(() => {
     if (!highlightedClimb || !activeRoutePoints?.length) return;
-    const climbStart = highlightedClimb.startDistanceMeters;
-    const climbEnd = highlightedClimb.endDistanceMeters;
+    const climbStart = highlightedClimb.effectiveStartDistanceMeters;
+    const climbEnd = highlightedClimb.effectiveEndDistanceMeters;
 
     let minLat = 90,
       maxLat = -90,
@@ -376,7 +376,11 @@ export default function MapScreen() {
           );
         })}
         {activeRouteIds.length > 0 && (
-          <POILayer key={mapStyle.styleKey} routeIds={activeRouteIds} />
+          <POILayer
+            key={mapStyle.styleKey}
+            routeIds={activeRouteIds}
+            segments={activeData?.segments ?? null}
+          />
         )}
         {highlightedClimb && activeRoutePoints && (
           <ClimbHighlightLayer climb={highlightedClimb} points={activeRoutePoints} />

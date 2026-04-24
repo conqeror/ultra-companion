@@ -83,6 +83,10 @@ export interface POI {
   routeId: string;
 }
 
+export interface DisplayPOI extends POI {
+  effectiveDistanceMeters: number;
+}
+
 export interface POICategoryMeta {
   key: POICategory;
   label: string;
@@ -233,6 +237,12 @@ export interface Climb {
   averageGradientPercent: number;
   maxGradientPercent: number;
   difficultyScore: number;
+}
+
+export interface DisplayClimb extends Climb {
+  effectiveDistanceMeters: number;
+  effectiveStartDistanceMeters: number;
+  effectiveEndDistanceMeters: number;
 }
 
 export type ClimbDifficulty = "low" | "medium" | "hard";

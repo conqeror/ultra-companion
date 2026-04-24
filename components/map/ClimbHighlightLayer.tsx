@@ -2,27 +2,21 @@ import React, { useMemo } from "react";
 import { ShapeSource, LineLayer } from "@rnmapbox/maps";
 import { gradientColor } from "@/theme/elevation";
 import { useThemeColors } from "@/theme";
-import type { Climb, RoutePoint } from "@/types";
+import type { DisplayClimb, RoutePoint } from "@/types";
 
 interface ClimbHighlightLayerProps {
-  climb: Climb;
+  climb: DisplayClimb;
   points: RoutePoint[];
-  /** Offset to add to climb distances (for collections) */
-  distanceOffset?: number;
 }
 
 /**
  * Renders a climb segment on the map with a smooth gradient-colored line.
  * Uses Mapbox lineGradient on a single LineString for seamless color blending.
  */
-export default function ClimbHighlightLayer({
-  climb,
-  points,
-  distanceOffset = 0,
-}: ClimbHighlightLayerProps) {
+export default function ClimbHighlightLayer({ climb, points }: ClimbHighlightLayerProps) {
   const colors = useThemeColors();
-  const climbStart = climb.startDistanceMeters + distanceOffset;
-  const climbEnd = climb.endDistanceMeters + distanceOffset;
+  const climbStart = climb.effectiveStartDistanceMeters;
+  const climbEnd = climb.effectiveEndDistanceMeters;
 
   const { geoJSON, gradientExpr } = useMemo(() => {
     if (points.length < 2) return { geoJSON: null, gradientExpr: null };

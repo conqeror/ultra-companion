@@ -11,12 +11,12 @@ import { ohStatusColorKey } from "@/constants/poiHelpers";
 import { formatDistance, formatDuration, formatETA } from "@/utils/formatters";
 import { getOpeningHoursStatus } from "@/services/openingHoursParser";
 import { useEtaStore } from "@/store/etaStore";
-import type { POI } from "@/types";
+import type { DisplayPOI } from "@/types";
 
 interface POIListItemProps {
-  poi: POI;
+  poi: DisplayPOI;
   currentDistAlongRoute: number | null;
-  onPress: (poi: POI) => void;
+  onPress: (poi: DisplayPOI) => void;
 }
 
 export default function POIListItem({ poi, currentDistAlongRoute, onPress }: POIListItemProps) {
@@ -30,7 +30,7 @@ export default function POIListItem({ poi, currentDistAlongRoute, onPress }: POI
   const getETAToPOI = useEtaStore((s) => s.getETAToPOI);
 
   const distAhead =
-    currentDistAlongRoute != null ? poi.distanceAlongRouteMeters - currentDistAlongRoute : null;
+    currentDistAlongRoute != null ? poi.effectiveDistanceMeters - currentDistAlongRoute : null;
 
   const etaResult = useMemo(() => getETAToPOI(poi), [poi, getETAToPOI]);
 

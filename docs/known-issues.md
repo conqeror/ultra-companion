@@ -37,12 +37,6 @@ Small bugs and warnings to address later.
 - **Issue:** Nearly identical distance-based route splitting with 1-point overlap
 - **Fix:** Consolidate into a single parameterized function in `utils/geo.ts`
 
-### Two-coordinate-system fragility (POIs & climbs)
-
-- **Where:** Conversion between raw (per-route) and stitched (collection) distances is scattered across ~7 sites — see `docs/architecture.md` → Collections and Stitching for the full list.
-- **Issue:** Each consumer has to remember to apply `segment.distanceOffsetMeters`. Every missed conversion is a silent bug: `getETAToDistance` hits its `distanceMeters < 0` guard and returns `null`, or compares against the wrong point index. Multiple bugs traced to this pattern (POI detail ETA, starred compact list before it was inlined, ETA cache staleness on variant swap).
-- **Fix:** See `docs/ideas.md` → "Unify POI/climb coordinate space". Gated on unit tests landing first (`docs/tests.md`).
-
 ## Bugs
 
 None currently tracked.
