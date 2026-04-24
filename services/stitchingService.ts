@@ -1,5 +1,6 @@
 import { getRouteWithPoints, getCollectionSegments } from "@/db/database";
-import type { StitchedCollection, StitchedSegmentInfo, RoutePoint, POI } from "@/types";
+import { toDisplayPOI } from "@/services/displayDistance";
+import type { StitchedCollection, StitchedSegmentInfo, RoutePoint, POI, DisplayPOI } from "@/types";
 
 export async function stitchCollection(collectionId: string): Promise<StitchedCollection> {
   const allSegments = await getCollectionSegments(collectionId);
@@ -69,21 +70,18 @@ export async function stitchCollection(collectionId: string): Promise<StitchedCo
 export function stitchPOIs(
   segments: StitchedSegmentInfo[],
   poisByRoute: Record<string, POI[]>,
-): POI[] {
-  const combined: POI[] = [];
+): DisplayPOI[] {
+  const combined: DisplayPOI[] = [];
 
   for (const seg of segments) {
     const pois = poisByRoute[seg.routeId];
     if (!pois) continue;
 
     for (const poi of pois) {
-      combined.push({
-        ...poi,
-        distanceAlongRouteMeters: poi.distanceAlongRouteMeters + seg.distanceOffsetMeters,
-      });
+      combined.push(toDisplayPOI(poi, seg.distanceOffsetMeters));
     }
   }
 
-  combined.sort((a, b) => a.distanceAlongRouteMeters - b.distanceAlongRouteMeters);
+  combined.sort((a, b) => a.effectiveDistanceMeters - b.effectiveDistanceMeters);
   return combined;
 }

@@ -24,7 +24,7 @@ import { formatDistance, formatElevation } from "@/utils/formatters";
 import { getOpeningHoursStatus } from "@/services/openingHoursParser";
 import { categoryColor, categoryLetter, ohStatusColorKey } from "@/constants/poiHelpers";
 import { climbDifficultyColor } from "@/constants/climbHelpers";
-import type { RoutePoint, UnitSystem, POI, Climb } from "@/types";
+import type { RoutePoint, UnitSystem, DisplayPOI, DisplayClimb } from "@/types";
 
 interface SegmentBoundary {
   distanceMeters: number;
@@ -40,11 +40,11 @@ interface ElevationProfileProps {
   showLegend?: boolean;
   /** Offset added to X-axis labels so they show absolute route distance */
   distanceOffsetMeters?: number;
-  pois?: POI[];
-  onPOIPress?: (poi: POI) => void;
+  pois?: DisplayPOI[];
+  onPOIPress?: (poi: DisplayPOI) => void;
   /** Vertical boundary lines at segment junctions (for stitched collections) */
   segmentBoundaries?: SegmentBoundary[];
-  climbs?: Climb[];
+  climbs?: DisplayClimb[];
   /** Force fit-to-width — disables horizontal scrolling and the overview minimap */
   fitToWidth?: boolean;
 }
@@ -193,7 +193,7 @@ function buildLinePath(
 }
 
 interface POIMarkerPos {
-  poi: POI;
+  poi: DisplayPOI;
   x: number;
   y: number;
   color: string;
@@ -335,7 +335,7 @@ export default function ElevationProfile({
 
     const markers: POIMarkerPos[] = [];
     for (const poi of pois) {
-      const localDist = poi.distanceAlongRouteMeters - distanceOffsetMeters;
+      const localDist = poi.effectiveDistanceMeters - distanceOffsetMeters;
       if (localDist < 0 || localDist > totalMeters) continue;
 
       const x = xScale(localDist);
@@ -373,8 +373,8 @@ export default function ElevationProfile({
 
     const regions: { id: string; color: string; fillPath: string }[] = [];
     for (const climb of climbs) {
-      const localStart = climb.startDistanceMeters - distanceOffsetMeters;
-      const localEnd = climb.endDistanceMeters - distanceOffsetMeters;
+      const localStart = climb.effectiveStartDistanceMeters - distanceOffsetMeters;
+      const localEnd = climb.effectiveEndDistanceMeters - distanceOffsetMeters;
       const visStart = Math.max(0, localStart);
       const visEnd = Math.min(totalMeters, localEnd);
       if (visStart >= visEnd) continue;

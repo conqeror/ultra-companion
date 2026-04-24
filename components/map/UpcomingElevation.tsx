@@ -4,7 +4,7 @@ import { Text } from "@/components/ui/text";
 import ElevationProfile from "@/components/elevation/ElevationProfile";
 import { extractRouteSlice } from "@/utils/geo";
 import { LOOK_BACK_RATIO } from "@/constants";
-import type { RoutePoint, UnitSystem, POI, Climb } from "@/types";
+import type { RoutePoint, UnitSystem, DisplayPOI, DisplayClimb } from "@/types";
 
 interface UpcomingElevationProps {
   points: RoutePoint[];
@@ -15,11 +15,11 @@ interface UpcomingElevationProps {
   width: number;
   height: number;
   /** POIs to display on the elevation chart */
-  pois?: POI[];
+  pois?: DisplayPOI[];
   /** Called when a POI marker is tapped */
-  onPOIPress?: (poi: POI) => void;
+  onPOIPress?: (poi: DisplayPOI) => void;
   /** Climbs to render as shading */
-  climbs?: Climb[];
+  climbs?: DisplayClimb[];
   /** Force fit-to-width — disables horizontal scrolling and the overview minimap */
   fitToWidth?: boolean;
 }
@@ -86,8 +86,7 @@ export default function UpcomingElevation({
   const visiblePOIs = useMemo(() => {
     if (!pois) return undefined;
     return pois.filter(
-      (p) =>
-        p.distanceAlongRouteMeters >= offsetMeters && p.distanceAlongRouteMeters <= sliceEndDist,
+      (p) => p.effectiveDistanceMeters >= offsetMeters && p.effectiveDistanceMeters <= sliceEndDist,
     );
   }, [pois, offsetMeters, sliceEndDist]);
 
@@ -95,7 +94,9 @@ export default function UpcomingElevation({
   const visibleClimbs = useMemo(() => {
     if (!climbs) return undefined;
     return climbs.filter(
-      (c) => c.endDistanceMeters >= offsetMeters && c.startDistanceMeters <= sliceEndDist,
+      (c) =>
+        c.effectiveEndDistanceMeters >= offsetMeters &&
+        c.effectiveStartDistanceMeters <= sliceEndDist,
     );
   }, [climbs, offsetMeters, sliceEndDist]);
 

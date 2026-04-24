@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { createMMKV, type MMKV } from "react-native-mmkv";
-import type { POI, POICategory, POIFetchStatus, POISource, RoutePoint } from "@/types";
+import type { DisplayPOI, POI, POICategory, POIFetchStatus, POISource, RoutePoint } from "@/types";
 import { DEFAULT_CORRIDOR_WIDTH_M, POI_CATEGORIES } from "@/constants";
 import { getPOIsForRoute, deletePOIsBySource, deletePOIsForRoute } from "@/db/database";
 import { fetchOsmPOIs, fetchGooglePOIs } from "@/services/poiFetcher";
@@ -139,7 +139,7 @@ function buildRouteScrubPatch(
     pois: Record<string, POI[]>;
     sourceInfo: Record<string, Record<POISource, SourceInfo>>;
     starredPOIIds: Set<string>;
-    selectedPOI: POI | null;
+    selectedPOI: DisplayPOI | null;
   },
   routeId: string,
   mode: ScrubMode,
@@ -187,7 +187,7 @@ interface POIState {
   sourceInfo: Record<string, Record<POISource, SourceInfo>>; // routeId -> source -> info
 
   // UI state
-  selectedPOI: POI | null;
+  selectedPOI: DisplayPOI | null;
 
   // Actions
   loadPOIs: (routeId: string) => Promise<void>;
@@ -202,7 +202,7 @@ interface POIState {
   getStarredPOIs: (routeId: string) => POI[];
   clearPOIs: (routeId: string) => Promise<void>;
   cleanupRouteState: (routeId: string) => void;
-  setSelectedPOI: (poi: POI | null) => void;
+  setSelectedPOI: (poi: DisplayPOI | null) => void;
 
   // Computed helpers
   getVisiblePOIs: (routeId: string) => POI[];

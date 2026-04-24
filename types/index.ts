@@ -46,6 +46,11 @@ export interface SnappedPosition {
   distanceFromRouteMeters: number;
 }
 
+declare const DisplayDistanceMetersBrand: unique symbol;
+export type DisplayDistanceMeters = number & {
+  readonly [DisplayDistanceMetersBrand]: true;
+};
+
 // --- Phase 2b: Panel types ---
 
 export type PanelMode =
@@ -81,6 +86,10 @@ export interface POI {
   distanceFromRouteMeters: number;
   distanceAlongRouteMeters: number;
   routeId: string;
+}
+
+export interface DisplayPOI extends POI {
+  effectiveDistanceMeters: DisplayDistanceMeters;
 }
 
 export interface POICategoryMeta {
@@ -233,6 +242,12 @@ export interface Climb {
   averageGradientPercent: number;
   maxGradientPercent: number;
   difficultyScore: number;
+}
+
+export interface DisplayClimb extends Climb {
+  effectiveDistanceMeters: DisplayDistanceMeters;
+  effectiveStartDistanceMeters: DisplayDistanceMeters;
+  effectiveEndDistanceMeters: DisplayDistanceMeters;
 }
 
 export type ClimbDifficulty = "low" | "medium" | "hard";

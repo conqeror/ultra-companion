@@ -4,15 +4,18 @@ import { usePoiStore } from "@/store/poiStore";
 import { useThemeColors } from "@/theme";
 import { POI_CATEGORIES } from "@/constants";
 import { haversineDistance } from "@/utils/geo";
-import type { POI } from "@/types";
+import { toDisplayPOIs } from "@/services/displayDistance";
+import { stitchPOIs } from "@/services/stitchingService";
+import type { DisplayPOI, POI, StitchedSegmentInfo } from "@/types";
 
 const categoryColorMap = Object.fromEntries(POI_CATEGORIES.map((c) => [c.key, c.color]));
 
 interface POILayerProps {
   routeIds: string[];
+  segments: StitchedSegmentInfo[] | null;
 }
 
-export default function POILayer({ routeIds }: POILayerProps) {
+export default function POILayer({ routeIds, segments }: POILayerProps) {
   const getVisiblePOIs = usePoiStore((s) => s.getVisiblePOIs);
   const enabledCategories = usePoiStore((s) => s.enabledCategories);
   const starredPOIIds = usePoiStore((s) => s.starredPOIIds);
@@ -21,13 +24,21 @@ export default function POILayer({ routeIds }: POILayerProps) {
   const colors = useThemeColors();
 
   const visiblePOIs = useMemo(() => {
-    const combined: POI[] = [];
+    if (segments) {
+      const poisByRoute: Record<string, POI[]> = {};
+      for (const routeId of routeIds) {
+        poisByRoute[routeId] = getVisiblePOIs(routeId);
+      }
+      return stitchPOIs(segments, poisByRoute);
+    }
+
+    const combined: DisplayPOI[] = [];
     for (const routeId of routeIds) {
-      combined.push(...getVisiblePOIs(routeId));
+      combined.push(...toDisplayPOIs(getVisiblePOIs(routeId)));
     }
     return combined;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [routeIds, allPois, enabledCategories, starredPOIIds]);
+  }, [routeIds, segments, allPois, enabledCategories, starredPOIIds]);
 
   const geoJSON = useMemo(
     (): GeoJSON.FeatureCollection => ({
@@ -57,7 +68,7 @@ export default function POILayer({ routeIds }: POILayerProps) {
 
       // When multiple features overlap, pick the one closest to the tap point
       const tapCoord = event?.coordinates;
-      let bestPoi: POI | undefined;
+      let bestPoi: DisplayPOI | undefined;
 
       if (tapCoord && features.length > 1) {
         let bestDist = Infinity;

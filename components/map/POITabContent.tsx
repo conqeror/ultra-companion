@@ -15,16 +15,16 @@ import { useRouteStore } from "@/store/routeStore";
 import { usePoiStore } from "@/store/poiStore";
 import { usePanelStore } from "@/store/panelStore";
 import { useEtaStore } from "@/store/etaStore";
-import { useActiveRouteData } from "@/hooks/useActiveRouteData";
 import { POI_CATEGORIES, POI_BEHIND_THRESHOLD_M } from "@/constants";
 import { POI_ICON_MAP } from "@/constants/poiIcons";
 import { ohStatusColorKey } from "@/constants/poiHelpers";
 import { formatDistance, formatDuration, formatETA } from "@/utils/formatters";
 import { getOpeningHoursStatus, isOpenAt, getDaySchedules } from "@/services/openingHoursParser";
 import { stitchPOIs } from "@/services/stitchingService";
+import { toDisplayPOIForSegments, toDisplayPOIs } from "@/services/displayDistance";
 import POIFilterBar from "@/components/map/POIFilterBar";
 import POIListItem from "@/components/poi/POIListItem";
-import type { ActiveRouteData, POI } from "@/types";
+import type { ActiveRouteData, DisplayPOI, POI, StitchedSegmentInfo } from "@/types";
 
 interface POITabContentProps {
   activeData: ActiveRouteData | null;
@@ -54,37 +54,42 @@ export default function POITabContent({ activeData }: POITabContentProps) {
 
   const starredUpcoming = useMemo(() => {
     if (routeIds.length === 0) return [];
-    const allStarred: (POI & { effectiveDist: number; ridingTimeSeconds: number | null })[] = [];
+    const poisByRoute: Record<string, POI[]> = {};
     for (const routeId of routeIds) {
-      const pois = getStarredPOIs(routeId);
-      const offset = segments?.find((s) => s.routeId === routeId)?.distanceOffsetMeters ?? 0;
-      for (const poi of pois) {
-        const effDist = poi.distanceAlongRouteMeters + offset;
-        let ridingTime: number | null = null;
-        if (
-          currentIdx != null &&
-          cumulativeTime &&
-          routePoints &&
-          currentDist != null &&
-          effDist > currentDist
-        ) {
-          let poiIdx = currentIdx;
-          for (let i = currentIdx; i < routePoints.length; i++) {
-            if (routePoints[i].distanceFromStartMeters >= effDist) {
-              poiIdx = i;
-              break;
-            }
-            poiIdx = i;
-          }
-          const seconds = cumulativeTime[poiIdx] - cumulativeTime[currentIdx];
-          if (seconds > 0) ridingTime = seconds;
-        }
-        allStarred.push({ ...poi, effectiveDist: effDist, ridingTimeSeconds: ridingTime });
-      }
+      poisByRoute[routeId] = getStarredPOIs(routeId);
     }
-    allStarred.sort((a, b) => a.effectiveDist - b.effectiveDist);
+    const displayed = segments
+      ? stitchPOIs(segments, poisByRoute)
+      : routeIds.flatMap((routeId) => toDisplayPOIs(poisByRoute[routeId] ?? []));
+    const allStarred: (DisplayPOI & { ridingTimeSeconds: number | null })[] = [];
+    for (const poi of displayed) {
+      const effectiveDist = poi.effectiveDistanceMeters;
+      let ridingTime: number | null = null;
+      if (
+        currentIdx != null &&
+        cumulativeTime &&
+        routePoints &&
+        currentDist != null &&
+        effectiveDist > currentDist
+      ) {
+        let poiIdx = currentIdx;
+        for (let i = currentIdx; i < routePoints.length; i++) {
+          if (routePoints[i].distanceFromStartMeters >= effectiveDist) {
+            poiIdx = i;
+            break;
+          }
+          poiIdx = i;
+        }
+        const seconds = cumulativeTime[poiIdx] - cumulativeTime[currentIdx];
+        if (seconds > 0) ridingTime = seconds;
+      }
+      allStarred.push({ ...poi, ridingTimeSeconds: ridingTime });
+    }
+    allStarred.sort((a, b) => a.effectiveDistanceMeters - b.effectiveDistanceMeters);
     if (currentDist == null) return allStarred;
-    return allStarred.filter((p) => p.effectiveDist >= currentDist - POI_BEHIND_THRESHOLD_M);
+    return allStarred.filter(
+      (p) => p.effectiveDistanceMeters >= currentDist - POI_BEHIND_THRESHOLD_M,
+    );
     // starredPOIIds is a reactivity trigger: getStarredPOIs reads from store via get() and is not itself reactive
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
@@ -116,20 +121,18 @@ export default function POITabContent({ activeData }: POITabContentProps) {
       }
       return stitchPOIs(segments, poisByRoute);
     }
-    return routeIds.length > 0 ? getVisiblePOIs(routeIds[0]) : [];
+    return routeIds.length > 0 ? toDisplayPOIs(getVisiblePOIs(routeIds[0])) : [];
     // allPois/enabledCategories/starredPOIIds are reactivity triggers: getVisiblePOIs reads store via get() and is not itself reactive
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isExpanded, routeIds, segments, allPois, enabledCategories, starredPOIIds]);
 
   const sortedAllPOIs = useMemo(() => {
     if (currentDist == null) {
-      return [...visiblePOIs].sort(
-        (a, b) => a.distanceAlongRouteMeters - b.distanceAlongRouteMeters,
-      );
+      return [...visiblePOIs].sort((a, b) => a.effectiveDistanceMeters - b.effectiveDistanceMeters);
     }
     return visiblePOIs
-      .filter((p) => p.distanceAlongRouteMeters >= currentDist - POI_BEHIND_THRESHOLD_M)
-      .sort((a, b) => a.distanceAlongRouteMeters - b.distanceAlongRouteMeters);
+      .filter((p) => p.effectiveDistanceMeters >= currentDist - POI_BEHIND_THRESHOLD_M)
+      .sort((a, b) => a.effectiveDistanceMeters - b.effectiveDistanceMeters);
   }, [visiblePOIs, currentDist]);
 
   const filteredPOIs = useMemo(() => {
@@ -139,16 +142,17 @@ export default function POITabContent({ activeData }: POITabContentProps) {
   }, [sortedAllPOIs, searchQuery]);
 
   const handlePOIPress = useCallback(
-    (poi: POI) => {
-      const raw = usePoiStore.getState().pois[poi.routeId]?.find((p) => p.id === poi.id);
-      setSelectedPOI(raw ?? poi);
+    (poi: DisplayPOI) => {
+      setSelectedPOI(poi);
     },
     [setSelectedPOI],
   );
 
   // Show inline detail when a POI is selected
   if (selectedPOI) {
-    return <InlinePOIDetail poi={selectedPOI} onBack={() => setSelectedPOI(null)} />;
+    return (
+      <InlinePOIDetail poi={selectedPOI} segments={segments} onBack={() => setSelectedPOI(null)} />
+    );
   }
 
   // Empty state — no POI data at all
@@ -224,15 +228,9 @@ export default function POITabContent({ activeData }: POITabContentProps) {
             renderItem={({ item }) => (
               <CompactPOIRow
                 poi={item}
-                effectiveDist={item.effectiveDist}
                 currentDist={currentDist}
                 ridingTimeSeconds={item.ridingTimeSeconds}
-                onPress={() => {
-                  const raw = usePoiStore
-                    .getState()
-                    .pois[item.routeId]?.find((p) => p.id === item.id);
-                  setSelectedPOI(raw ?? item);
-                }}
+                onPress={() => setSelectedPOI(item)}
               />
             )}
             showsVerticalScrollIndicator={false}
@@ -253,13 +251,11 @@ export default function POITabContent({ activeData }: POITabContentProps) {
 
 function CompactPOIRow({
   poi,
-  effectiveDist,
   currentDist,
   ridingTimeSeconds,
   onPress,
 }: {
-  poi: POI;
-  effectiveDist: number;
+  poi: DisplayPOI;
   currentDist: number | null;
   ridingTimeSeconds: number | null;
   onPress: () => void;
@@ -269,7 +265,7 @@ function CompactPOIRow({
 
   const catMeta = POI_CATEGORIES.find((c) => c.key === poi.category);
   const IconComp = catMeta ? POI_ICON_MAP[catMeta.iconName] : null;
-  const distAhead = currentDist != null ? effectiveDist - currentDist : null;
+  const distAhead = currentDist != null ? poi.effectiveDistanceMeters - currentDist : null;
 
   const ohStatus = useMemo(() => {
     const tag = poi.tags?.opening_hours;
@@ -327,29 +323,35 @@ function CompactPOIRow({
   );
 }
 
-function InlinePOIDetail({ poi, onBack }: { poi: POI; onBack: () => void }) {
+function InlinePOIDetail({
+  poi,
+  segments,
+  onBack,
+}: {
+  poi: DisplayPOI;
+  segments: StitchedSegmentInfo[] | null;
+  onBack: () => void;
+}) {
   const colors = useThemeColors();
   const units = useSettingsStore((s) => s.units);
   const snappedPosition = useRouteStore((s) => s.snappedPosition);
   const toggleStarred = usePoiStore((s) => s.toggleStarred);
   const isStarred = usePoiStore((s) => s.starredPOIIds.has(poi.id));
   const getETAToPOI = useEtaStore((s) => s.getETAToPOI);
-  const activeData = useActiveRouteData();
 
   const catMeta = POI_CATEGORIES.find((c) => c.key === poi.category);
   const IconComp = catMeta ? POI_ICON_MAP[catMeta.iconName] : null;
+  const displayPOI = useMemo(() => toDisplayPOIForSegments(poi, segments), [poi, segments]);
 
   const distAhead = useMemo(() => {
-    if (!snappedPosition) return null;
-    let poiDist = poi.distanceAlongRouteMeters;
-    if (activeData?.segments) {
-      const seg = activeData.segments.find((s) => s.routeId === poi.routeId);
-      if (seg) poiDist += seg.distanceOffsetMeters;
-    }
-    return poiDist - snappedPosition.distanceAlongRouteMeters;
-  }, [poi, snappedPosition, activeData]);
+    if (!snappedPosition || !displayPOI) return null;
+    return displayPOI.effectiveDistanceMeters - snappedPosition.distanceAlongRouteMeters;
+  }, [displayPOI, snappedPosition]);
 
-  const etaResult = useMemo(() => getETAToPOI(poi), [poi, getETAToPOI]);
+  const etaResult = useMemo(
+    () => (displayPOI ? getETAToPOI(displayPOI) : null),
+    [displayPOI, getETAToPOI],
+  );
 
   const openingHoursRaw = poi.tags?.opening_hours;
   const ohStatus = useMemo(

@@ -1,26 +1,30 @@
 import { create } from "zustand";
-import type { Climb, StitchedSegmentInfo } from "@/types";
+import type { Climb, DisplayClimb, StitchedSegmentInfo } from "@/types";
 import { getClimbsForRoute, updateClimbName } from "@/db/database";
 import { MIN_GAIN_M } from "@/services/climbDetector";
+import { toDisplayClimb, toDisplayClimbs } from "@/services/displayDistance";
 
 interface ClimbState {
   // Climb data per route
   climbs: Record<string, Climb[]>;
 
   // UI state
-  selectedClimb: Climb | null;
+  selectedClimb: DisplayClimb | null;
   currentClimbId: string | null;
   isClimbZoomed: boolean;
 
   // Actions
   loadClimbs: (routeId: string) => Promise<void>;
   renameClimb: (climbId: string, routeId: string, name: string | null) => Promise<void>;
-  setSelectedClimb: (climb: Climb | null) => void;
+  setSelectedClimb: (climb: DisplayClimb | null) => void;
   setClimbZoomed: (zoomed: boolean) => void;
   clearClimbCache: () => void;
 
   // Computed
-  getClimbsForDisplay: (routeIds: string[], segments: StitchedSegmentInfo[] | null) => Climb[];
+  getClimbsForDisplay: (
+    routeIds: string[],
+    segments: StitchedSegmentInfo[] | null,
+  ) => DisplayClimb[];
   updateCurrentClimb: (
     distanceAlongRoute: number,
     routeIds: string[],
@@ -89,65 +93,43 @@ export const useClimbStore = create<ClimbState>((set, get) => ({
     const state = get();
 
     if (segments && segments.length > 0) {
-      // Collection mode — offset distances per segment
-      const combined: Climb[] = [];
+      const combined: DisplayClimb[] = [];
       for (const seg of segments) {
         const routeClimbs = state.climbs[seg.routeId];
         if (!routeClimbs) continue;
         for (const c of routeClimbs) {
-          combined.push({
-            ...c,
-            startDistanceMeters: c.startDistanceMeters + seg.distanceOffsetMeters,
-            endDistanceMeters: c.endDistanceMeters + seg.distanceOffsetMeters,
-          });
+          combined.push(toDisplayClimb(c, seg.distanceOffsetMeters));
         }
       }
-      combined.sort((a, b) => a.startDistanceMeters - b.startDistanceMeters);
+      combined.sort((a, b) => a.effectiveStartDistanceMeters - b.effectiveStartDistanceMeters);
       return mergeAdjacentClimbs(combined, segments);
     }
 
     // Single route mode
     if (routeIds.length === 1) {
-      return state.climbs[routeIds[0]] ?? [];
+      return toDisplayClimbs(state.climbs[routeIds[0]] ?? []);
     }
 
     // Multiple routes (shouldn't happen outside collections, but handle gracefully)
-    const all: Climb[] = [];
+    const all: DisplayClimb[] = [];
     for (const id of routeIds) {
       const routeClimbs = state.climbs[id];
-      if (routeClimbs) all.push(...routeClimbs);
+      if (routeClimbs) all.push(...toDisplayClimbs(routeClimbs));
     }
-    all.sort((a, b) => a.startDistanceMeters - b.startDistanceMeters);
+    all.sort((a, b) => a.effectiveStartDistanceMeters - b.effectiveStartDistanceMeters);
     return all;
   },
 
   updateCurrentClimb: (distanceAlongRoute, routeIds, segments) => {
     const state = get();
-
-    // Scan raw climb data without allocating intermediate arrays
-    let newId: string | null = null;
-    if (segments && segments.length > 0) {
-      for (const seg of segments) {
-        const routeClimbs = state.climbs[seg.routeId];
-        if (!routeClimbs) continue;
-        for (const c of routeClimbs) {
-          const adjStart = c.startDistanceMeters + seg.distanceOffsetMeters;
-          const adjEnd = c.endDistanceMeters + seg.distanceOffsetMeters;
-          if (distanceAlongRoute >= adjStart && distanceAlongRoute <= adjEnd) {
-            newId = c.id;
-            break;
-          }
-        }
-        if (newId) break;
-      }
-    } else if (routeIds.length > 0) {
-      const routeClimbs = state.climbs[routeIds[0]];
-      const found = routeClimbs?.find(
+    const found = state
+      .getClimbsForDisplay(routeIds, segments)
+      .find(
         (c) =>
-          distanceAlongRoute >= c.startDistanceMeters && distanceAlongRoute <= c.endDistanceMeters,
+          distanceAlongRoute >= c.effectiveStartDistanceMeters &&
+          distanceAlongRoute <= c.effectiveEndDistanceMeters,
       );
-      if (found) newId = found.id;
-    }
+    const newId = found?.id ?? null;
 
     if (newId !== state.currentClimbId) {
       set({
@@ -172,7 +154,10 @@ export const useClimbStore = create<ClimbState>((set, get) => ({
  * Merge climbs at collection segment boundaries using the absorption rule.
  * Only merges pairs that directly straddle a junction — no cascading.
  */
-function mergeAdjacentClimbs(sorted: Climb[], segments: StitchedSegmentInfo[]): Climb[] {
+function mergeAdjacentClimbs(
+  sorted: DisplayClimb[],
+  segments: StitchedSegmentInfo[],
+): DisplayClimb[] {
   if (sorted.length <= 1 || segments.length <= 1) return sorted;
 
   // Build the set of interior junction distances (where segments meet)
@@ -193,8 +178,8 @@ function mergeAdjacentClimbs(sorted: Climb[], segments: StitchedSegmentInfo[]): 
 
     // Check if there's a junction between the end of A and start of B
     // Only consider gaps < 5km — a real split climb wouldn't have a larger gap
-    const gapStart = a.endDistanceMeters;
-    const gapEnd = b.startDistanceMeters;
+    const gapStart = a.effectiveEndDistanceMeters;
+    const gapEnd = b.effectiveStartDistanceMeters;
     if (gapEnd - gapStart > 5000) continue;
 
     let hasJunction = false;
@@ -217,19 +202,20 @@ function mergeAdjacentClimbs(sorted: Climb[], segments: StitchedSegmentInfo[]): 
   }
 
   // Second pass: build result by merging marked pairs
-  const result: Climb[] = [];
+  const result: DisplayClimb[] = [];
   let i = 0;
   while (i < sorted.length) {
     if (mergeWithNext[i] && i + 1 < sorted.length) {
       const a = sorted[i];
       const b = sorted[i + 1];
-      const mergedLength = b.endDistanceMeters - a.startDistanceMeters;
+      const mergedLength = b.effectiveEndDistanceMeters - a.effectiveStartDistanceMeters;
       const mergedAscent = a.totalAscentMeters + b.totalAscentMeters;
       result.push({
         ...a,
         id: `${a.id}_${b.id}`,
         name: a.name ?? b.name,
         endDistanceMeters: b.endDistanceMeters,
+        effectiveEndDistanceMeters: b.effectiveEndDistanceMeters,
         endElevationMeters: b.endElevationMeters,
         lengthMeters: mergedLength,
         totalAscentMeters: mergedAscent,

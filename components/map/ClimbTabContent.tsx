@@ -24,7 +24,7 @@ import { formatDistance, formatElevation } from "@/utils/formatters";
 import ElevationProfile from "@/components/elevation/ElevationProfile";
 import ClimbListItem from "@/components/climb/ClimbListItem";
 import { resolveActiveClimb } from "@/utils/climbSelect";
-import type { Climb, ActiveRouteData } from "@/types";
+import type { ActiveRouteData, DisplayClimb } from "@/types";
 
 interface ClimbTabContentProps {
   activeData: ActiveRouteData | null;
@@ -49,7 +49,7 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
 
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState("");
-  const [editingClimb, setEditingClimb] = useState<Climb | null>(null);
+  const [editingClimb, setEditingClimb] = useState<DisplayClimb | null>(null);
   const [graphHeight, setGraphHeight] = useState(0);
 
   const routeIds = useMemo(() => activeData?.routeIds ?? [], [activeData?.routeIds]);
@@ -73,7 +73,7 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
 
   const distToStart = useMemo(() => {
     if (!climb || currentDist == null) return null;
-    return climb.startDistanceMeters - currentDist;
+    return climb.effectiveDistanceMeters - currentDist;
   }, [climb, currentDist]);
 
   const climbProfile = useMemo(() => {
@@ -81,12 +81,12 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
     const points = activeData.points;
     let startIdx = 0;
     for (let i = 0; i < points.length; i++) {
-      if (points[i].distanceFromStartMeters >= climb.startDistanceMeters) {
+      if (points[i].distanceFromStartMeters >= climb.effectiveStartDistanceMeters) {
         startIdx = Math.max(0, i - 1);
         break;
       }
     }
-    const sliceLength = climb.endDistanceMeters - points[startIdx].distanceFromStartMeters;
+    const sliceLength = climb.effectiveEndDistanceMeters - points[startIdx].distanceFromStartMeters;
     if (sliceLength <= 0) return null;
     const sliced = extractRouteSlice(points, startIdx, sliceLength);
     if (sliced.length < 2) return null;
@@ -123,13 +123,15 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
   const sortedClimbs = useMemo(
     () =>
       isExpanded
-        ? [...displayedClimbs].sort((a, b) => a.startDistanceMeters - b.startDistanceMeters)
+        ? [...displayedClimbs].sort(
+            (a, b) => a.effectiveStartDistanceMeters - b.effectiveStartDistanceMeters,
+          )
         : [],
     [isExpanded, displayedClimbs],
   );
 
   const handleClimbPress = useCallback(
-    (c: Climb) => {
+    (c: DisplayClimb) => {
       setSelectedClimb(c);
     },
     [setSelectedClimb],
@@ -259,7 +261,7 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
               <ClimbListItem
                 climb={item}
                 currentDistAlongRoute={currentDist}
-                isPast={currentDist != null && item.endDistanceMeters < currentDist}
+                isPast={currentDist != null && item.effectiveEndDistanceMeters < currentDist}
                 onPress={handleClimbPress}
               />
             )}

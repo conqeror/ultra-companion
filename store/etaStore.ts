@@ -1,11 +1,17 @@
 import { create } from "zustand";
 import { createMMKV, type MMKV } from "react-native-mmkv";
-import type { PowerModelConfig, ETAResult, RoutePoint, POI } from "@/types";
+import type {
+  PowerModelConfig,
+  ETAResult,
+  RoutePoint,
+  DisplayDistanceMeters,
+  DisplayPOI,
+} from "@/types";
 import { DEFAULT_POWER_CONFIG } from "@/constants";
 import { computeRouteETA, getETAToDistance } from "@/services/etaCalculator";
+import { toDisplayPOIForSegments } from "@/services/displayDistance";
 import { useRouteStore } from "./routeStore";
 import { useCollectionStore } from "./collectionStore";
-import { usePoiStore } from "./poiStore";
 
 let storage: MMKV | null = null;
 
@@ -34,9 +40,9 @@ interface ETAState {
   computeETAForRoute: (routeId: string, points: RoutePoint[]) => void;
   invalidateCache: () => void;
 
-  getETAToPOI: (poi: POI) => ETAResult | null;
-  getETAToDistance: (distAlongRouteM: number) => ETAResult | null;
-  _resolveETA: (targetDistM: number) => ETAResult | null;
+  getETAToPOI: (poi: DisplayPOI) => ETAResult | null;
+  getETAToDistance: (distAlongRouteM: DisplayDistanceMeters) => ETAResult | null;
+  _resolveETA: (targetDistM: DisplayDistanceMeters) => ETAResult | null;
 }
 
 export const useEtaStore = create<ETAState>((set, get) => ({
@@ -69,21 +75,12 @@ export const useEtaStore = create<ETAState>((set, get) => ({
   },
 
   getETAToPOI: (poi) => {
-    // Canonicalize the distance: look up the raw POI from the store so we
-    // don't double-apply the offset when a caller passes a POI that's
-    // already been rewritten by stitchPOIs.
-    const rawPoi = usePoiStore.getState().pois[poi.routeId]?.find((p) => p.id === poi.id);
-    let targetDist = (rawPoi ?? poi).distanceAlongRouteMeters;
-
-    // If the active context is a stitched collection, shift the POI into
-    // stitched coords so it aligns with cumulativeTime / snapped pointIndex.
     const stitched = useCollectionStore.getState().activeStitchedCollection;
-    if (stitched && stitched.collectionId === get().routeId) {
-      const seg = stitched.segments.find((s) => s.routeId === poi.routeId);
-      if (seg) targetDist += seg.distanceOffsetMeters;
-    }
+    const segments = stitched && stitched.collectionId === get().routeId ? stitched.segments : null;
+    const displayPOI = toDisplayPOIForSegments(poi, segments);
+    if (!displayPOI) return null;
 
-    return get()._resolveETA(targetDist);
+    return get()._resolveETA(displayPOI.effectiveDistanceMeters);
   },
 
   getETAToDistance: (distAlongRouteM) => {
