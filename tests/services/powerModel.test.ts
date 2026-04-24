@@ -17,10 +17,22 @@ describe("computeSegmentTime", () => {
 
   it("caps downhill speed at maxDescentSpeedKmh", () => {
     const distance = 1_000;
-    const time = computeSegmentTime(distance, -0.02, DEFAULT_POWER_CONFIG);
-    const speedKmh = (distance / time) * 3.6;
+    const steepDescent = -0.08;
 
-    expect(speedKmh).toBeLessThanOrEqual(DEFAULT_POWER_CONFIG.maxDescentSpeedKmh + 0.0001);
+    const unclampedTime = computeSegmentTime(distance, steepDescent, {
+      ...DEFAULT_POWER_CONFIG,
+      maxDescentSpeedKmh: 80,
+    });
+    const unclampedSpeedKmh = (distance / unclampedTime) * 3.6;
+
+    const clampedTime = computeSegmentTime(distance, steepDescent, {
+      ...DEFAULT_POWER_CONFIG,
+      maxDescentSpeedKmh: 30,
+    });
+    const clampedSpeedKmh = (distance / clampedTime) * 3.6;
+
+    expect(unclampedSpeedKmh).toBeGreaterThan(30);
+    expect(clampedSpeedKmh).toBeCloseTo(30, 6);
   });
 
   it("is slower with less drivetrain efficiency", () => {
