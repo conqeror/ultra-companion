@@ -1,5 +1,5 @@
 #!/bin/bash
-# Comprehensive UI smoke test: navigate all screens, take screenshots
+# Comprehensive UI smoke test: navigate map + menu screens, take screenshots
 # Usage: ./scripts/smoke-test.sh [UDID]
 #   UDID defaults to the first booted simulator
 #
@@ -36,8 +36,7 @@ xcrun simctl launch "$UDID" "$BUNDLE_ID" 2>/dev/null || true
 sleep 3
 
 echo ""
-echo "=== MAP TAB ==="
-axe tap --label 'Map, tab, 1 of 3' --udid "$UDID" --post-delay 1 2>&1 | head -1
+echo "=== MAP SCREEN ==="
 snap "map"
 
 echo "--- Weather ---"
@@ -59,7 +58,7 @@ run 05-cycle-elevation-and-close.steps
 snap "elevation-panel-2"
 
 echo ""
-echo "=== ROUTES TAB ==="
+echo "=== ROUTES (MENU) ==="
 run 06-close-elevation-go-routes.steps "--ax-cache perStep"
 snap "routes"
 
@@ -77,7 +76,7 @@ run 08-scroll-collection.steps
 snap "collection-offline"
 
 echo ""
-echo "=== SETTINGS TAB ==="
+echo "=== SETTINGS (MENU) ==="
 run 09-back-to-routes-go-settings.steps "--ax-cache perStep"
 snap "settings-top"
 

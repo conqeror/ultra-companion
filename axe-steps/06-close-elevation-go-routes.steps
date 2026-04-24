@@ -1,3 +1,4 @@
 tap --label 'Cycle bottom panel mode' --post-delay 0.3
 tap --label 'Cycle bottom panel mode' --post-delay 0.5
-tap --label 'Routes, tab, 2 of 3' --post-delay 1
+tap --label 'Open menu' --post-delay 0.5
+tap --label 'Routes' --post-delay 1
