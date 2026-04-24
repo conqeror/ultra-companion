@@ -21,10 +21,10 @@ import { ohStatusColorKey } from "@/constants/poiHelpers";
 import { formatDistance, formatDuration, formatETA } from "@/utils/formatters";
 import { getOpeningHoursStatus, isOpenAt, getDaySchedules } from "@/services/openingHoursParser";
 import { stitchPOIs } from "@/services/stitchingService";
-import { toDisplayPOIs } from "@/services/displayDistance";
+import { toDisplayPOIForSegments, toDisplayPOIs } from "@/services/displayDistance";
 import POIFilterBar from "@/components/map/POIFilterBar";
 import POIListItem from "@/components/poi/POIListItem";
-import type { ActiveRouteData, DisplayPOI, POI } from "@/types";
+import type { ActiveRouteData, DisplayPOI, POI, StitchedSegmentInfo } from "@/types";
 
 interface POITabContentProps {
   activeData: ActiveRouteData | null;
@@ -150,7 +150,9 @@ export default function POITabContent({ activeData }: POITabContentProps) {
 
   // Show inline detail when a POI is selected
   if (selectedPOI) {
-    return <InlinePOIDetail poi={selectedPOI} onBack={() => setSelectedPOI(null)} />;
+    return (
+      <InlinePOIDetail poi={selectedPOI} segments={segments} onBack={() => setSelectedPOI(null)} />
+    );
   }
 
   // Empty state — no POI data at all
@@ -321,7 +323,15 @@ function CompactPOIRow({
   );
 }
 
-function InlinePOIDetail({ poi, onBack }: { poi: DisplayPOI; onBack: () => void }) {
+function InlinePOIDetail({
+  poi,
+  segments,
+  onBack,
+}: {
+  poi: DisplayPOI;
+  segments: StitchedSegmentInfo[] | null;
+  onBack: () => void;
+}) {
   const colors = useThemeColors();
   const units = useSettingsStore((s) => s.units);
   const snappedPosition = useRouteStore((s) => s.snappedPosition);
@@ -331,13 +341,17 @@ function InlinePOIDetail({ poi, onBack }: { poi: DisplayPOI; onBack: () => void 
 
   const catMeta = POI_CATEGORIES.find((c) => c.key === poi.category);
   const IconComp = catMeta ? POI_ICON_MAP[catMeta.iconName] : null;
+  const displayPOI = useMemo(() => toDisplayPOIForSegments(poi, segments), [poi, segments]);
 
   const distAhead = useMemo(() => {
-    if (!snappedPosition) return null;
-    return poi.effectiveDistanceMeters - snappedPosition.distanceAlongRouteMeters;
-  }, [poi.effectiveDistanceMeters, snappedPosition]);
+    if (!snappedPosition || !displayPOI) return null;
+    return displayPOI.effectiveDistanceMeters - snappedPosition.distanceAlongRouteMeters;
+  }, [displayPOI, snappedPosition]);
 
-  const etaResult = useMemo(() => getETAToPOI(poi), [poi, getETAToPOI]);
+  const etaResult = useMemo(
+    () => (displayPOI ? getETAToPOI(displayPOI) : null),
+    [displayPOI, getETAToPOI],
+  );
 
   const openingHoursRaw = poi.tags?.opening_hours;
   const ohStatus = useMemo(

@@ -1,4 +1,11 @@
-import type { Climb, DisplayClimb, DisplayDistanceMeters, DisplayPOI, POI } from "@/types";
+import type {
+  Climb,
+  DisplayClimb,
+  DisplayDistanceMeters,
+  DisplayPOI,
+  POI,
+  StitchedSegmentInfo,
+} from "@/types";
 
 export function toDisplayDistanceMeters(distanceMeters: number): DisplayDistanceMeters {
   return distanceMeters as DisplayDistanceMeters;
@@ -15,6 +22,16 @@ export function toDisplayPOI(poi: POI, distanceOffsetMeters = 0): DisplayPOI {
 
 export function toDisplayPOIs(pois: POI[], distanceOffsetMeters = 0): DisplayPOI[] {
   return pois.map((poi) => toDisplayPOI(poi, distanceOffsetMeters));
+}
+
+export function toDisplayPOIForSegments(
+  poi: POI,
+  segments: StitchedSegmentInfo[] | null,
+): DisplayPOI | null {
+  if (!segments) return toDisplayPOI(poi);
+
+  const segment = segments.find((s) => s.routeId === poi.routeId);
+  return segment ? toDisplayPOI(poi, segment.distanceOffsetMeters) : null;
 }
 
 export function toDisplayClimb(climb: Climb, distanceOffsetMeters = 0): DisplayClimb {

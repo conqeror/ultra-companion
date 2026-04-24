@@ -9,7 +9,9 @@ import type {
 } from "@/types";
 import { DEFAULT_POWER_CONFIG } from "@/constants";
 import { computeRouteETA, getETAToDistance } from "@/services/etaCalculator";
+import { toDisplayPOIForSegments } from "@/services/displayDistance";
 import { useRouteStore } from "./routeStore";
+import { useCollectionStore } from "./collectionStore";
 
 let storage: MMKV | null = null;
 
@@ -73,7 +75,12 @@ export const useEtaStore = create<ETAState>((set, get) => ({
   },
 
   getETAToPOI: (poi) => {
-    return get()._resolveETA(poi.effectiveDistanceMeters);
+    const stitched = useCollectionStore.getState().activeStitchedCollection;
+    const segments = stitched && stitched.collectionId === get().routeId ? stitched.segments : null;
+    const displayPOI = toDisplayPOIForSegments(poi, segments);
+    if (!displayPOI) return null;
+
+    return get()._resolveETA(displayPOI.effectiveDistanceMeters);
   },
 
   getETAToDistance: (distAlongRouteM) => {
