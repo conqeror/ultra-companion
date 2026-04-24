@@ -62,7 +62,7 @@ Logistics companion app for ultra-distance cycling races. iOS only, personal use
 When working from a GitHub issue, use the issue body and comments as the source of truth for the task.
 
 - Create a branch named `codex/issue-<number>-<short-slug>` when making changes.
-- Open a draft PR against `main` when the implementation is ready for review.
+- Open a ready-for-review PR against `main` when the implementation is ready for review. Do not create draft PRs unless explicitly requested.
 - Include `Fixes #<number>` in the PR description so GitHub links the PR to the issue and closes the issue when the PR is merged.
 - If the issue is in a different repository from the PR, use `Fixes owner/repo#<number>` instead.
 - Include a short summary and verification notes in the PR description.
