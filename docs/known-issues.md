@@ -45,8 +45,4 @@ Small bugs and warnings to address later.
 
 ## Bugs
 
-### POIs don't load for newly selected race variant
-
-- **Where:** `components/map/MapView.tsx:102`
-- **Issue:** POI loading effect depends on `activeData?.id` (race ID), which doesn't change when switching variants. If variant B's POIs haven't been loaded, they won't load until leaving and returning.
-- **Fix:** Depend on `activeData?.routeIds` (serialized) instead of `activeData?.id`
+None currently tracked.

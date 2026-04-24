@@ -33,13 +33,15 @@ function parseStarredIds(raw: string | undefined): Set<string> {
   }
 }
 
+const allPoiCategories = (): POICategory[] => POI_CATEGORIES.map((c) => c.key);
+
 function parseCategories(raw: string | undefined): POICategory[] {
-  if (!raw) return [];
+  if (raw === undefined) return allPoiCategories();
   try {
     const valid = new Set<string>(POI_CATEGORIES.map((c) => c.key));
     return (JSON.parse(raw) as string[]).filter((c) => valid.has(c)) as POICategory[];
   } catch {
-    return [];
+    return allPoiCategories();
   }
 }
 

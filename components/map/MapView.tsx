@@ -71,6 +71,7 @@ export default function MapScreen() {
   const activeData = useActiveRouteData();
   const activeRoutePoints = activeData?.points ?? null;
   const activeRouteIds = useMemo(() => activeData?.routeIds ?? [], [activeData?.routeIds]);
+  const activeRouteIdsKey = useMemo(() => activeRouteIds.join(","), [activeRouteIds]);
 
   // Set of routeIds that are part of the active collection (for RouteLayer styling)
   const activeCollectionRouteIds = useMemo(() => {
@@ -91,25 +92,23 @@ export default function MapScreen() {
   const allClimbData = useClimbStore((s) => s.climbs);
 
   // Clear stale climb selection when active route/collection changes
-  const prevActiveId = useRef(activeData?.id);
+  const activeContextKey = activeData ? `${activeData.id}:${activeRouteIdsKey}` : null;
+  const prevActiveContextKey = useRef(activeContextKey);
   useEffect(() => {
-    if (activeData?.id !== prevActiveId.current) {
-      prevActiveId.current = activeData?.id;
+    if (activeContextKey !== prevActiveContextKey.current) {
+      prevActiveContextKey.current = activeContextKey;
       setSelectedClimb(null);
     }
-  }, [activeData?.id, setSelectedClimb]);
+  }, [activeContextKey, setSelectedClimb]);
 
   // Load POIs and climbs when active context changes
   useEffect(() => {
-    if (activeData) {
-      for (const routeId of activeData.routeIds) {
-        loadPOIs(routeId);
-        loadClimbs(routeId);
-      }
+    if (activeRouteIds.length === 0) return;
+    for (const routeId of activeRouteIds) {
+      loadPOIs(routeId);
+      loadClimbs(routeId);
     }
-    // Intentional: fire only when active context id changes, not when the activeData reference or its routeIds array updates
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeData?.id, loadPOIs, loadClimbs]);
+  }, [activeRouteIds, activeRouteIdsKey, loadPOIs, loadClimbs]);
 
   useEffect(() => {
     if (activeData && activeRoutePoints?.length) {
