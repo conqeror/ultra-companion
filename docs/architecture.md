@@ -1,6 +1,6 @@
 # Ultra Companion — Architecture
 
-Stack and conventions are in `CLAUDE.md`. This doc covers data models, offline strategy, and key technical decisions that aren't obvious from code.
+Stack and conventions are in `AGENTS.md`. This doc covers data models, offline strategy, and key technical decisions that aren't obvious from code.
 
 ## Data Models
 
@@ -26,7 +26,7 @@ interface RoutePoint {
   longitude: number;
   elevationMeters: number | null;
   distanceFromStartMeters: number;
-  index: number;
+  idx: number;
 }
 ```
 
@@ -35,7 +35,8 @@ interface RoutePoint {
 ```typescript
 interface POI {
   id: string;
-  osmId: string;
+  sourceId: string;
+  source: "osm" | "google";
   name: string | null;
   category: POICategory;
   latitude: number;
@@ -43,19 +44,10 @@ interface POI {
   tags: Record<string, string>;
   distanceFromRouteMeters: number;
   distanceAlongRouteMeters: number;
-  nearestRouteId: string;
+  routeId: string;
 }
 
-type POICategory =
-  | "water"
-  | "groceries"
-  | "gas_station"
-  | "cafe_restaurant"
-  | "accommodation"
-  | "bike_shop"
-  | "atm"
-  | "pharmacy"
-  | "toilet_shower";
+type POICategory = "water" | "groceries" | "gas_station" | "bakery" | "toilet_shower" | "shelter";
 ```
 
 ### Power Model
@@ -112,11 +104,11 @@ Spatial queries ("find POIs within X meters of route") need indexed range querie
 
 ### Two POI sources (Overpass + Google Places)
 
-OSM opening hours are often missing or wrong for gas stations and groceries — the two categories where open/closed matters most. Google Places has user-reported, verified hours. Other categories stay on Overpass (free, no API key, good coverage for water/bike shops/etc).
+OSM opening hours are often missing or wrong for gas stations and groceries — the two categories where open/closed matters most. Google Places has user-reported, verified hours. Other categories stay on Overpass (free, no API key, good coverage for water/bakery/toilet/shower/shelter).
 
 ### Collections and Stitching
 
-Routes are stored individually. Collections reference routes via `race_segments` table with position-based slots. At display time, selected segments are stitched (points concatenated with distance offsets). `RoutePoint[]` consumers (snapping, ETA cumulative time, weather, elevation rendering) receive the stitched array unchanged — their input is already in "stitched coords".
+Routes are stored individually. Collections reference routes via `collection_segments` table with position-based slots. At display time, selected segments are stitched (points concatenated with distance offsets). `RoutePoint[]` consumers (snapping, ETA cumulative time, weather, elevation rendering) receive the stitched array unchanged — their input is already in "stitched coords".
 
 **Two coordinate systems for POIs and climbs.** POIs and climbs are stored per-route with `distanceAlongRouteMeters` / `startDistanceMeters` relative to **their own route** ("raw coords"). When a collection is active, the snapped position and `cumulativeTime` array live in **stitched coords** (raw + `segment.distanceOffsetMeters`). Every consumer that compares a POI/climb distance against the snapped position or looks it up in `cumulativeTime` must first convert raw → stitched.
 

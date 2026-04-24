@@ -13,12 +13,6 @@ Future feature ideas and improvements.
 - Surface legend in elevation panel
 - Cache in SQLite alongside route data, fetch with "prepare for offline"
 
-### Open GPX with App
-
-- Register `.gpx` and `.kml` document types in app config
-- Handle incoming URLs via `expo-linking`
-- Auto-import and run existing pipeline, show confirmation
-
 ### Opening Hours on Map
 
 - Dim closed POIs, highlight open ones (needs UX thought)

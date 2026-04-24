@@ -61,13 +61,13 @@ Logistics companion app for ultra-distance cycling races. iOS only, personal use
 
 AXe CLI (`axe`) automates the iOS simulator via Accessibility APIs. Use it to self-check UI after making changes.
 
-- `./scripts/smoke-test.sh` — navigate all tabs, take screenshots to `.axe-screenshots/`
+- `./scripts/smoke-test.sh` — navigate map + menu screens, take screenshots to `.axe-screenshots/`
 - Screenshots: read with `Read` tool to visually verify UI after changes
 - Works on the main dev simulator (iOS 26.1) — no separate device needed
 - `axe tap --label "Label" --udid $UDID` — tap by accessibility label
 - `axe screenshot --udid $UDID --output file.png` — capture screen
 - `axe describe-ui --udid $UDID` — dump accessibility tree (find labels/IDs)
-- Tab labels: `"Map, tab, 1 of 3"`, `"Routes, tab, 2 of 3"`, `"Settings, tab, 3 of 3"`
+- Key labels: `"Open menu"`, `"Routes"`, `"Settings"`, `"Close menu"`
 
 ## What's Next
 

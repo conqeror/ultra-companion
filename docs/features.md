@@ -45,7 +45,7 @@ What's implemented. For the "why" behind these, see `usage-context.md`.
 ## POI Search
 
 - Along-route search with configurable corridor width
-- Categories: water, groceries, gas stations, cafes/restaurants, accommodation, bike shops, ATMs, pharmacies, toilets/showers
+- Categories: water, groceries, gas stations, bakery, toilets/showers, shelter
 - Two data sources: Overpass/OSM for most categories, Google Places for gas stations and groceries (better opening hours)
 - POI markers on map and elevation profile
 - POI list sortable by distance along route
