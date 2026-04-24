@@ -8,7 +8,10 @@ Every bug traced so far in the ETA / stitched-collection code was invisible to T
 
 ## Tooling
 
-Not decided yet. Candidates: Vitest (fast, ESM-native, no RN runtime needed for pure-logic modules), or Jest + `jest-expo` preset (matches the RN ecosystem). The functions below are all pure — no RN / React dependency — so Vitest is probably the lower-friction choice. Revisit when we add the first test.
+We use **Vitest** for pure-logic tests. It runs in a Node environment and avoids React Native runtime dependencies for service-level math and stitching logic.
+
+- Run once: `npm test`
+- Watch mode: `npm run test:watch`
 
 ## Priority 1 — ETA correctness (the bug class that actually bit us)
 
