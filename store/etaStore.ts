@@ -1,6 +1,12 @@
 import { create } from "zustand";
 import { createMMKV, type MMKV } from "react-native-mmkv";
-import type { PowerModelConfig, ETAResult, RoutePoint, DisplayPOI } from "@/types";
+import type {
+  PowerModelConfig,
+  ETAResult,
+  RoutePoint,
+  DisplayDistanceMeters,
+  DisplayPOI,
+} from "@/types";
 import { DEFAULT_POWER_CONFIG } from "@/constants";
 import { computeRouteETA, getETAToDistance } from "@/services/etaCalculator";
 import { useRouteStore } from "./routeStore";
@@ -33,8 +39,8 @@ interface ETAState {
   invalidateCache: () => void;
 
   getETAToPOI: (poi: DisplayPOI) => ETAResult | null;
-  getETAToDistance: (distAlongRouteM: number) => ETAResult | null;
-  _resolveETA: (targetDistM: number) => ETAResult | null;
+  getETAToDistance: (distAlongRouteM: DisplayDistanceMeters) => ETAResult | null;
+  _resolveETA: (targetDistM: DisplayDistanceMeters) => ETAResult | null;
 }
 
 export const useEtaStore = create<ETAState>((set, get) => ({

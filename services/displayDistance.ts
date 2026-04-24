@@ -1,9 +1,15 @@
-import type { Climb, DisplayClimb, DisplayPOI, POI } from "@/types";
+import type { Climb, DisplayClimb, DisplayDistanceMeters, DisplayPOI, POI } from "@/types";
+
+export function toDisplayDistanceMeters(distanceMeters: number): DisplayDistanceMeters {
+  return distanceMeters as DisplayDistanceMeters;
+}
 
 export function toDisplayPOI(poi: POI, distanceOffsetMeters = 0): DisplayPOI {
   return {
     ...poi,
-    effectiveDistanceMeters: poi.distanceAlongRouteMeters + distanceOffsetMeters,
+    effectiveDistanceMeters: toDisplayDistanceMeters(
+      poi.distanceAlongRouteMeters + distanceOffsetMeters,
+    ),
   };
 }
 
@@ -12,8 +18,12 @@ export function toDisplayPOIs(pois: POI[], distanceOffsetMeters = 0): DisplayPOI
 }
 
 export function toDisplayClimb(climb: Climb, distanceOffsetMeters = 0): DisplayClimb {
-  const effectiveStartDistanceMeters = climb.startDistanceMeters + distanceOffsetMeters;
-  const effectiveEndDistanceMeters = climb.endDistanceMeters + distanceOffsetMeters;
+  const effectiveStartDistanceMeters = toDisplayDistanceMeters(
+    climb.startDistanceMeters + distanceOffsetMeters,
+  );
+  const effectiveEndDistanceMeters = toDisplayDistanceMeters(
+    climb.endDistanceMeters + distanceOffsetMeters,
+  );
 
   return {
     ...climb,

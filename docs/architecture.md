@@ -119,6 +119,8 @@ Displayed POIs and climbs use explicit display types:
 - `DisplayClimb.effectiveStartDistanceMeters`
 - `DisplayClimb.effectiveEndDistanceMeters`
 
+Those fields use the branded `DisplayDistanceMeters` TypeScript type. This is compile-time only; it does not affect persisted data or runtime values. The intent is to make display/stitched distances explicit at call sites like ETA lookup, while raw route-local fields stay plain numbers because they come directly from persisted route data.
+
 For standalone routes, effective distance equals raw distance. For collections, conversion is centralized at display-data boundaries: POIs through `services/stitchingService.ts:stitchPOIs` / `services/displayDistance.ts`, climbs through `store/climbStore.ts:getClimbsForDisplay` / `services/displayDistance.ts`. Components compare against snapped position and ETA using effective fields only; raw fields remain raw for persistence and route-local operations.
 
 ### Climb Detection
