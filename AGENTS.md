@@ -57,6 +57,17 @@ Logistics companion app for ultra-distance cycling races. iOS only, personal use
 - `npm run lint` — run oxlint
 - `npm run format` — format with oxfmt (or `npm run format:check` to check only)
 
+## GitHub Issue Workflow
+
+When working from a GitHub issue, use the issue body and comments as the source of truth for the task.
+
+- Create a branch named `codex/issue-<number>-<short-slug>` when making changes.
+- Open a draft PR against `main` when the implementation is ready for review.
+- Include `Fixes #<number>` in the PR description so GitHub links the PR to the issue and closes the issue when the PR is merged.
+- If the issue is in a different repository from the PR, use `Fixes owner/repo#<number>` instead.
+- Include a short summary and verification notes in the PR description.
+- If the prompt explicitly says the issue should not close on merge, use a plain issue reference instead of a closing keyword.
+
 ## UI Testing (AXe)
 
 AXe CLI (`axe`) automates the iOS simulator via Accessibility APIs. Use it to self-check UI after making changes.
