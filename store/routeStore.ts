@@ -20,13 +20,15 @@ interface RouteState {
   routes: Route[];
   isLoading: boolean;
   error: string | null;
-  // Cached points for visible routes (for map rendering)
+  // Lazily cached point arrays for routes that currently need full geometry.
   visibleRoutePoints: Record<string, RoutePoint[]>;
   // Snapped position on active route
   snappedPosition: SnappedPosition | null;
 
   /** Fetch route metadata only. Cheap; safe to call on every tab mount. */
   loadRouteMetadata: () => Promise<void>;
+  /** Ensure point arrays are loaded for the given routes without touching unrelated metadata. */
+  loadRoutePoints: (routeIds: string[], options?: { prune?: boolean }) => Promise<void>;
   /**
    * Ensure `visibleRoutePoints` contains points for every currently-visible
    * route. Reuses already-cached entries and fetches missing ones in parallel.
@@ -64,6 +66,39 @@ export const useRouteStore = create<RouteState>((set, get) => ({
   loadRoutesAndPoints: async () => {
     await get().loadRouteMetadata();
     await get().loadVisibleRoutePoints();
+  },
+
+  loadRoutePoints: async (routeIds, options) => {
+    const ids = [...new Set(routeIds.filter(Boolean))];
+    const current = get().visibleRoutePoints;
+
+    if (ids.length === 0) {
+      if (options?.prune && Object.keys(current).length > 0) {
+        set({ visibleRoutePoints: {} });
+      }
+      return;
+    }
+
+    const keepIds = new Set(ids);
+    const toLoad = ids.filter((id) => !current[id]);
+    if (toLoad.length === 0 && !options?.prune) return;
+
+    const loaded = await Promise.all(
+      toLoad.map(async (id) => [id, await getRoutePoints(id)] as const),
+    );
+
+    const next: Record<string, RoutePoint[]> = {};
+    if (options?.prune) {
+      for (const id of ids) {
+        if (current[id]) next[id] = current[id];
+      }
+    } else {
+      Object.assign(next, current);
+    }
+    for (const [id, pts] of loaded) {
+      if (!options?.prune || keepIds.has(id)) next[id] = pts;
+    }
+    set({ visibleRoutePoints: next });
   },
 
   importFromUri: async (uri: string, fileName: string) => {
@@ -108,7 +143,7 @@ export const useRouteStore = create<RouteState>((set, get) => ({
     const { detectAndStoreClimbs } = await import("@/services/climbDetector");
     await detectAndStoreClimbs(route.id, parsed.points);
 
-    await get().loadRoutesAndPoints();
+    await get().loadRouteMetadata();
     return route;
   },
 
@@ -164,8 +199,14 @@ export const useRouteStore = create<RouteState>((set, get) => ({
   toggleVisibility: async (id) => {
     const route = get().routes.find((r) => r.id === id);
     if (!route) return;
-    await updateRouteVisibility(id, !route.isVisible);
-    await get().loadRoutesAndPoints();
+    const nextVisible = !route.isVisible;
+    await updateRouteVisibility(id, nextVisible);
+    if (!nextVisible && get().visibleRoutePoints[id]) {
+      const next = { ...get().visibleRoutePoints };
+      delete next[id];
+      set({ visibleRoutePoints: next });
+    }
+    await get().loadRouteMetadata();
   },
 
   setActiveRoute: async (id) => {
@@ -174,8 +215,9 @@ export const useRouteStore = create<RouteState>((set, get) => ({
     const { useCollectionStore } = await import("@/store/collectionStore");
     useCollectionStore.getState().clearActiveStitched();
     await useCollectionStore.getState().loadCollections();
-    // Active flag only; visibility didn't change, so no point fetch needed.
+    // Load only the active route's points for the riding view.
     await get().loadRouteMetadata();
+    await get().loadRoutePoints([id], { prune: true });
   },
 
   getRouteDetail: async (id) => {
@@ -184,34 +226,10 @@ export const useRouteStore = create<RouteState>((set, get) => ({
 
   loadVisibleRoutePoints: async () => {
     const routes = get().routes.filter((r) => r.isVisible);
-    const current = get().visibleRoutePoints;
-    const visibleIds = new Set(routes.map((r) => r.id));
-
-    const toLoad = routes.filter((r) => !current[r.id]);
-
-    // Fast path: nothing new to load. Still drop stale entries for routes
-    // that are no longer visible.
-    if (toLoad.length === 0) {
-      let changed = false;
-      const next: Record<string, RoutePoint[]> = {};
-      for (const [id, pts] of Object.entries(current)) {
-        if (visibleIds.has(id)) next[id] = pts;
-        else changed = true;
-      }
-      if (changed) set({ visibleRoutePoints: next });
-      return;
-    }
-
-    const loaded = await Promise.all(
-      toLoad.map(async (r) => [r.id, await getRoutePoints(r.id)] as const),
+    await get().loadRoutePoints(
+      routes.map((r) => r.id),
+      { prune: true },
     );
-
-    const next: Record<string, RoutePoint[]> = {};
-    for (const [id, pts] of Object.entries(current)) {
-      if (visibleIds.has(id)) next[id] = pts;
-    }
-    for (const [id, pts] of loaded) next[id] = pts;
-    set({ visibleRoutePoints: next });
   },
 
   setSnappedPosition: (snappedPosition) => {

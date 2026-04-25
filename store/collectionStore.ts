@@ -38,6 +38,7 @@ interface CollectionState {
   assignedRouteIds: Set<string>;
   isLoading: boolean;
 
+  loadCollectionMetadata: () => Promise<void>;
   loadCollections: () => Promise<void>;
   createCollection: (name: string) => Promise<string>;
   deleteCollection: (id: string) => Promise<void>;
@@ -70,24 +71,29 @@ export const useCollectionStore = create<CollectionState>((set, get) => ({
   assignedRouteIds: new Set<string>(),
   isLoading: false,
 
-  loadCollections: async () => {
+  loadCollectionMetadata: async () => {
     try {
       const [collections, assignedRouteIds] = await Promise.all([
         getAllCollections(),
         getAllAssignedRouteIds(),
       ]);
       set({ collections, assignedRouteIds });
-      // If there's an active collection, load its stitched data.
-      // loadStitchedCollection is fingerprint-cached, so unchanged collections
-      // short-circuit without re-reading points.
-      const active = collections.find((c) => c.isActive);
-      if (active) {
-        await get().loadStitchedCollection(active.id);
-      } else {
+      if (!collections.some((c) => c.isActive)) {
         set({ activeStitchedCollection: null, activeStitchedFingerprint: null });
       }
     } catch (e: any) {
       console.warn("Failed to load collections:", e);
+    }
+  },
+
+  loadCollections: async () => {
+    await get().loadCollectionMetadata();
+    // If there's an active collection, load its stitched data. This is
+    // fingerprint-cached, so unchanged collections short-circuit without
+    // re-reading points.
+    const active = get().collections.find((c) => c.isActive);
+    if (active) {
+      await get().loadStitchedCollection(active.id);
     }
   },
 
@@ -236,7 +242,8 @@ export const useCollectionStore = create<CollectionState>((set, get) => ({
     await setRoutesVisible(selectedRouteIds);
     // Reload route store to clear route isActive flags and pick up visibility changes
     const { useRouteStore } = await import("@/store/routeStore");
-    await useRouteStore.getState().loadRoutesAndPoints();
+    await useRouteStore.getState().loadRouteMetadata();
+    await useRouteStore.getState().loadRoutePoints([], { prune: true });
     await get().loadCollections();
     set({ isLoading: false });
   },
@@ -254,16 +261,8 @@ export const useCollectionStore = create<CollectionState>((set, get) => ({
         return;
       }
 
-      const stitched = await stitchCollection(id);
+      const stitched = await stitchCollection(id, { includePointsByRouteId: false });
       set({ activeStitchedCollection: stitched, activeStitchedFingerprint: fingerprint });
-      // Inject stitched + per-segment points into routeStore so etaStore and RouteLayer work
-      const { useRouteStore } = await import("@/store/routeStore");
-      const current = {
-        ...useRouteStore.getState().visibleRoutePoints,
-        [id]: stitched.points,
-        ...stitched.pointsByRouteId,
-      };
-      useRouteStore.setState({ visibleRoutePoints: current });
     } catch (e: any) {
       console.warn("Failed to stitch collection:", e);
     }

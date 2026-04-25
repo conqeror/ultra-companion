@@ -1,5 +1,6 @@
 import type { RoutePoint, PowerModelConfig, ETAResult } from "@/types";
 import { computeSegmentTime } from "./powerModel";
+import { findFirstPointAtOrAfterDistance } from "@/utils/geo";
 
 /**
  * Compute cumulative riding time (seconds) at each route point.
@@ -54,18 +55,10 @@ export function getETAToDistance(
   const distanceMeters = targetDistanceAlongRouteM - fromDist;
   if (distanceMeters < 0) return null;
 
-  // Find the two points bracketing the target distance
-  let lo = fromIndex;
-  let hi = points.length - 1;
-
-  // Linear scan forward from fromIndex (POIs are usually relatively close)
-  for (let i = fromIndex; i < points.length; i++) {
-    if (points[i].distanceFromStartMeters >= targetDistanceAlongRouteM) {
-      hi = i;
-      lo = Math.max(fromIndex, i - 1);
-      break;
-    }
-  }
+  // Find the two points bracketing the target distance.
+  const targetIndex = findFirstPointAtOrAfterDistance(points, targetDistanceAlongRouteM, fromIndex);
+  const hi = targetIndex < points.length ? targetIndex : points.length - 1;
+  const lo = Math.max(fromIndex, hi - 1);
 
   // Interpolate time between lo and hi
   const loTime = cumulativeTime[lo];

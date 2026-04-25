@@ -4,6 +4,9 @@ Stack and conventions are in `AGENTS.md`. This doc covers data models, offline s
 
 ## Data Models
 
+For long-route performance notes and expected loading behavior, see
+`docs/performance-notes.md`.
+
 ### Route
 
 ```typescript

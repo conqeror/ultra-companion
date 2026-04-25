@@ -89,6 +89,18 @@ describe("stitchingService", () => {
     expect(stitched.pointsByRouteId).toEqual({});
   });
 
+  it("can omit raw per-segment point arrays for active collection view models", async () => {
+    databaseMocks.getCollectionSegments.mockResolvedValue([
+      { collectionId: "c1", routeId: "r1", position: 0, isSelected: true },
+    ]);
+    databaseMocks.getRouteWithPoints.mockResolvedValue(route("r1"));
+
+    const stitched = await stitchCollection("c1", { includePointsByRouteId: false });
+
+    expect(stitched.points).toHaveLength(2);
+    expect(stitched.pointsByRouteId).toEqual({});
+  });
+
   it("stitchPOIs keeps raw distances and sorts by effective distances", () => {
     const segments = [
       {
@@ -124,5 +136,44 @@ describe("stitchingService", () => {
     expect(combined.map((p) => p.id)).toEqual(["a", "b"]);
     expect(combined.map((p) => p.distanceAlongRouteMeters)).toEqual([900, 10]);
     expect(combined.map((p) => p.effectiveDistanceMeters)).toEqual([900, 1_010]);
+  });
+
+  it("stitchPOIs filters by stitched distance window before copying display POIs", () => {
+    const segments = [
+      {
+        routeId: "r1",
+        routeName: "r1",
+        position: 0,
+        startPointIndex: 0,
+        endPointIndex: 1,
+        distanceOffsetMeters: 0,
+        segmentDistanceMeters: 1_000,
+        segmentAscentMeters: 10,
+        segmentDescentMeters: 10,
+      },
+      {
+        routeId: "r2",
+        routeName: "r2",
+        position: 1,
+        startPointIndex: 2,
+        endPointIndex: 3,
+        distanceOffsetMeters: 1_000,
+        segmentDistanceMeters: 1_000,
+        segmentAscentMeters: 10,
+        segmentDescentMeters: 10,
+      },
+    ];
+
+    const combined = stitchPOIs(
+      segments,
+      {
+        r1: [poi("behind", "r1", 100), poi("near", "r1", 900)],
+        r2: [poi("ahead", "r2", 100), poi("far", "r2", 900)],
+      },
+      { startDistanceMeters: 800, endDistanceMeters: 1_200 },
+    );
+
+    expect(combined.map((p) => p.id)).toEqual(["near", "ahead"]);
+    expect(combined.map((p) => p.effectiveDistanceMeters)).toEqual([900, 1_100]);
   });
 });

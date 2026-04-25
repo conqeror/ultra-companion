@@ -66,15 +66,16 @@ export default function RootLayout() {
     return unsubscribe;
   }, []);
 
-  // Prefetch route + collection state during splash so the first tab mount is instant.
+  // Prefetch cheap metadata during splash. Full route geometry is loaded by
+  // the active riding/detail screens when they actually need it.
   useEffect(() => {
     useRouteStore
       .getState()
-      .loadRoutesAndPoints()
+      .loadRouteMetadata()
       .catch((e) => console.warn("Route prefetch failed:", e));
     useCollectionStore
       .getState()
-      .loadCollections()
+      .loadCollectionMetadata()
       .catch((e) => console.warn("Collection prefetch failed:", e));
   }, []);
 
