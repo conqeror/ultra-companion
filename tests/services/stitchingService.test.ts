@@ -1,16 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { stitchCollection, stitchPOIs } from "@/services/stitchingService";
+import { databaseMocks } from "@/tests/mocks/database";
 import type { POI, RouteWithPoints } from "@/types";
-
-const { mockGetCollectionSegments, mockGetRouteWithPoints } = vi.hoisted(() => ({
-  mockGetCollectionSegments: vi.fn(),
-  mockGetRouteWithPoints: vi.fn(),
-}));
-
-vi.mock("@/db/database", () => ({
-  getCollectionSegments: mockGetCollectionSegments,
-  getRouteWithPoints: mockGetRouteWithPoints,
-}));
 
 const poi = (id: string, routeId: string, distanceAlongRouteMeters: number): POI => ({
   id,
@@ -57,18 +48,13 @@ const route = (id: string, distanceOffset = 0): RouteWithPoints => ({
 });
 
 describe("stitchingService", () => {
-  beforeEach(() => {
-    mockGetCollectionSegments.mockReset();
-    mockGetRouteWithPoints.mockReset();
-  });
-
   it("stitches selected segments in position order", async () => {
-    mockGetCollectionSegments.mockResolvedValue([
+    databaseMocks.getCollectionSegments.mockResolvedValue([
       { collectionId: "c1", routeId: "r2", position: 1, isSelected: true },
       { collectionId: "c1", routeId: "r1", position: 0, isSelected: true },
       { collectionId: "c1", routeId: "r3", position: 2, isSelected: false },
     ]);
-    mockGetRouteWithPoints.mockImplementation(async (routeId: string) => {
+    databaseMocks.getRouteWithPoints.mockImplementation(async (routeId: string) => {
       if (routeId === "r1") return route("r1");
       if (routeId === "r2") return route("r2");
       return null;
@@ -89,7 +75,7 @@ describe("stitchingService", () => {
   });
 
   it("returns empty stitched collection when no selected routes exist", async () => {
-    mockGetCollectionSegments.mockResolvedValue([
+    databaseMocks.getCollectionSegments.mockResolvedValue([
       { collectionId: "c1", routeId: "r1", position: 0, isSelected: false },
     ]);
 
