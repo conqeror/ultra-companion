@@ -22,4 +22,15 @@ describe("routeSnapping", () => {
     expect(local?.pointIndex).toBe(10);
     expect(jumped?.pointIndex).toBe(1_100);
   });
+
+  it("falls back globally when a stale local window has a plausible but wrong candidate", () => {
+    const points = Array.from({ length: 1_200 }, (_, idx) => point(idx, 5 + idx * 0.001));
+    points[10] = point(10, 0.005); // ~556m away, inside the old local window.
+    points[900] = point(900, 0); // True current position, outside the old local window.
+
+    const snapped = snapToRoute(0, 0, "r1", points, { previousPointIndex: 10 });
+
+    expect(snapped?.pointIndex).toBe(900);
+    expect(snapped?.distanceAlongRouteMeters).toBe(90_000);
+  });
 });

@@ -207,6 +207,9 @@ export const useRouteStore = create<RouteState>((set, get) => ({
       set({ visibleRoutePoints: next });
     }
     await get().loadRouteMetadata();
+    if (nextVisible && route.isActive) {
+      await get().loadRoutePoints([id], { prune: true });
+    }
   },
 
   setActiveRoute: async (id) => {
