@@ -1,6 +1,6 @@
 import React, { useMemo } from "react";
 import { ShapeSource, LineLayer } from "@rnmapbox/maps";
-import { routeToGeoJSON } from "@/utils/geo";
+import { routeToMapGeoJSON } from "@/utils/geo";
 import { useThemeColors } from "@/theme";
 import { ACTIVE_ROUTE_COLOR, INACTIVE_ROUTE_COLOR } from "@/constants";
 import type { Route, RoutePoint } from "@/types";
@@ -14,7 +14,7 @@ interface RouteLayerProps {
 
 export default function RouteLayer({ route, points, dimmed }: RouteLayerProps) {
   const colors = useThemeColors();
-  const geoJSON = useMemo(() => routeToGeoJSON(points), [points]);
+  const geoJSON = useMemo(() => routeToMapGeoJSON(points), [points]);
 
   const outlineStyle = useMemo(
     () => ({

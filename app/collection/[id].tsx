@@ -7,7 +7,6 @@ import { Text } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
 import { useThemeColors } from "@/theme";
 import { useCollectionStore } from "@/store/collectionStore";
-import { useRouteStore } from "@/store/routeStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import { useClimbStore } from "@/store/climbStore";
 import type { Collection, CollectionSegmentWithRoute, StitchedCollection } from "@/types";
@@ -46,7 +45,6 @@ export default function CollectionDetailScreen() {
   const selectVariant = useCollectionStore((s) => s.selectVariant);
   const setActiveCollection = useCollectionStore((s) => s.setActiveCollection);
   const deleteCollection = useCollectionStore((s) => s.deleteCollection);
-  const visibleRoutePoints = useRouteStore((s) => s.visibleRoutePoints);
   const units = useSettingsStore((s) => s.units);
 
   const loadData = useCallback(async () => {
@@ -72,12 +70,6 @@ export default function CollectionDetailScreen() {
           s.pointsByRouteId[unselectedRouteIds[i]] = unselectedPoints[i];
         }
         setStitched(s);
-        // Inject per-segment points for mini map RouteLayer rendering
-        const currentPoints = {
-          ...useRouteStore.getState().visibleRoutePoints,
-          ...s.pointsByRouteId,
-        };
-        useRouteStore.setState({ visibleRoutePoints: currentPoints });
       } catch {
         setStitched(null);
       }
@@ -290,7 +282,7 @@ export default function CollectionDetailScreen() {
                 }
               />
               {selectedSegmentRoutes.map((route) => {
-                const points = visibleRoutePoints[route.id];
+                const points = stitched?.pointsByRouteId[route.id];
                 if (!points) return null;
                 return (
                   <RouteLayer

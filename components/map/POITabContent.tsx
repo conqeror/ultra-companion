@@ -22,6 +22,7 @@ import { formatDistance, formatDuration, formatETA } from "@/utils/formatters";
 import { getOpeningHoursStatus, isOpenAt, getDaySchedules } from "@/services/openingHoursParser";
 import { stitchPOIs } from "@/services/stitchingService";
 import { toDisplayPOIForSegments, toDisplayPOIs } from "@/services/displayDistance";
+import { getETAToDistance as resolveETAToDistance } from "@/services/etaCalculator";
 import POIFilterBar from "@/components/map/POIFilterBar";
 import POIListItem from "@/components/poi/POIListItem";
 import type { ActiveRouteData, DisplayPOI, POI, StitchedSegmentInfo } from "@/types";
@@ -72,16 +73,8 @@ export default function POITabContent({ activeData }: POITabContentProps) {
         currentDist != null &&
         effectiveDist > currentDist
       ) {
-        let poiIdx = currentIdx;
-        for (let i = currentIdx; i < routePoints.length; i++) {
-          if (routePoints[i].distanceFromStartMeters >= effectiveDist) {
-            poiIdx = i;
-            break;
-          }
-          poiIdx = i;
-        }
-        const seconds = cumulativeTime[poiIdx] - cumulativeTime[currentIdx];
-        if (seconds > 0) ridingTime = seconds;
+        const eta = resolveETAToDistance(cumulativeTime, routePoints, currentIdx, effectiveDist);
+        if (eta && eta.ridingTimeSeconds > 0) ridingTime = eta.ridingTimeSeconds;
       }
       allStarred.push({ ...poi, ridingTimeSeconds: ridingTime });
     }

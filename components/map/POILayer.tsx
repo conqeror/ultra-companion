@@ -2,7 +2,7 @@ import React, { useMemo, useCallback } from "react";
 import { ShapeSource, CircleLayer } from "@rnmapbox/maps";
 import { usePoiStore } from "@/store/poiStore";
 import { useThemeColors } from "@/theme";
-import { POI_CATEGORIES } from "@/constants";
+import { POI_BEHIND_THRESHOLD_M, POI_CATEGORIES, POI_MAP_LOOKAHEAD_M } from "@/constants";
 import { haversineDistance } from "@/utils/geo";
 import { toDisplayPOIs } from "@/services/displayDistance";
 import { stitchPOIs } from "@/services/stitchingService";
@@ -13,9 +13,10 @@ const categoryColorMap = Object.fromEntries(POI_CATEGORIES.map((c) => [c.key, c.
 interface POILayerProps {
   routeIds: string[];
   segments: StitchedSegmentInfo[] | null;
+  currentDistanceMeters: number | null;
 }
 
-export default function POILayer({ routeIds, segments }: POILayerProps) {
+export default function POILayer({ routeIds, segments, currentDistanceMeters }: POILayerProps) {
   const getVisiblePOIs = usePoiStore((s) => s.getVisiblePOIs);
   const enabledCategories = usePoiStore((s) => s.enabledCategories);
   const starredPOIIds = usePoiStore((s) => s.starredPOIIds);
@@ -24,21 +25,36 @@ export default function POILayer({ routeIds, segments }: POILayerProps) {
   const colors = useThemeColors();
 
   const visiblePOIs = useMemo(() => {
+    const distanceWindow =
+      currentDistanceMeters == null
+        ? undefined
+        : {
+            startDistanceMeters: currentDistanceMeters - POI_BEHIND_THRESHOLD_M,
+            endDistanceMeters: currentDistanceMeters + POI_MAP_LOOKAHEAD_M,
+          };
+
     if (segments) {
       const poisByRoute: Record<string, POI[]> = {};
       for (const routeId of routeIds) {
         poisByRoute[routeId] = getVisiblePOIs(routeId);
       }
-      return stitchPOIs(segments, poisByRoute);
+      return stitchPOIs(segments, poisByRoute, distanceWindow);
     }
 
     const combined: DisplayPOI[] = [];
     for (const routeId of routeIds) {
-      combined.push(...toDisplayPOIs(getVisiblePOIs(routeId)));
+      const routePois = getVisiblePOIs(routeId).filter((poi) => {
+        if (!distanceWindow) return true;
+        return (
+          poi.distanceAlongRouteMeters >= distanceWindow.startDistanceMeters &&
+          poi.distanceAlongRouteMeters <= distanceWindow.endDistanceMeters
+        );
+      });
+      combined.push(...toDisplayPOIs(routePois));
     }
     return combined;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [routeIds, segments, allPois, enabledCategories, starredPOIIds]);
+  }, [routeIds, segments, currentDistanceMeters, allPois, enabledCategories, starredPOIIds]);
 
   const geoJSON = useMemo(
     (): GeoJSON.FeatureCollection => ({

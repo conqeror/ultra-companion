@@ -3,7 +3,7 @@ import type { POI, POISource, RoutePoint } from "@/types";
 import { fetchAllPOIs } from "./overpassClient";
 import { mapOverpassToPOIs, type ClassifiedPOI } from "./poiClassifier";
 import { fetchGooglePlacesPOIs } from "./googlePlacesClient";
-import { computePOIRouteAssociation } from "@/utils/geo";
+import { buildRouteSegmentSpatialIndex, computePOIRouteAssociation } from "@/utils/geo";
 import { insertPOIs, deletePOIsBySource } from "@/db/database";
 
 /** Associate classified POIs with route and filter by corridor */
@@ -15,8 +15,9 @@ function associateAndFilter(
   source: POISource,
 ): POI[] {
   const pois: POI[] = [];
+  const routeIndex = buildRouteSegmentSpatialIndex(routePoints, corridorWidthM);
   for (const c of classified) {
-    const assoc = computePOIRouteAssociation(c.latitude, c.longitude, routePoints);
+    const assoc = computePOIRouteAssociation(c.latitude, c.longitude, routePoints, routeIndex);
     if (assoc.distanceFromRouteMeters > corridorWidthM) continue;
     pois.push({
       id: `${routeId}_${c.sourceId}`,

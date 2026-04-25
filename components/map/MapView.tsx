@@ -57,7 +57,8 @@ export default function MapScreen() {
 
   const routes = useRouteStore((s) => s.routes);
   const visibleRoutePoints = useRouteStore((s) => s.visibleRoutePoints);
-  const loadRoutesAndPoints = useRouteStore((s) => s.loadRoutesAndPoints);
+  const loadRouteMetadata = useRouteStore((s) => s.loadRouteMetadata);
+  const loadRoutePoints = useRouteStore((s) => s.loadRoutePoints);
   const snappedPosition = useRouteStore((s) => s.snappedPosition);
   const setSnappedPosition = useRouteStore((s) => s.setSnappedPosition);
   const loadCollections = useCollectionStore((s) => s.loadCollections);
@@ -73,16 +74,20 @@ export default function MapScreen() {
   const activeRouteIds = useMemo(() => activeData?.routeIds ?? [], [activeData?.routeIds]);
   const activeRouteIdsKey = useMemo(() => activeRouteIds.join(","), [activeRouteIds]);
 
-  // Set of routeIds that are part of the active collection (for RouteLayer styling)
-  const activeCollectionRouteIds = useMemo(() => {
-    if (activeData?.type === "collection") return new Set(activeData.routeIds);
-    return null;
-  }, [activeData]);
+  useEffect(() => {
+    loadRouteMetadata();
+    loadCollections();
+  }, [loadRouteMetadata, loadCollections]);
+
+  const activeStandaloneRouteId = useMemo(
+    () => routes.find((route) => route.isActive)?.id ?? null,
+    [routes],
+  );
 
   useEffect(() => {
-    loadRoutesAndPoints();
-    loadCollections();
-  }, [loadRoutesAndPoints, loadCollections]);
+    if (!activeStandaloneRouteId) return;
+    loadRoutePoints([activeStandaloneRouteId], { prune: true });
+  }, [activeStandaloneRouteId, loadRoutePoints]);
 
   const loadClimbs = useClimbStore((s) => s.loadClimbs);
   const updateCurrentClimb = useClimbStore((s) => s.updateCurrentClimb);
@@ -138,7 +143,10 @@ export default function MapScreen() {
     if (!activeData || !activeRoutePoints?.length) return;
     const pos = useMapStore.getState().userPosition;
     if (!pos) return;
-    const snapped = snapToRoute(pos.latitude, pos.longitude, activeData.id, activeRoutePoints);
+    const previous = useRouteStore.getState().snappedPosition;
+    const snapped = snapToRoute(pos.latitude, pos.longitude, activeData.id, activeRoutePoints, {
+      previousPointIndex: previous?.routeId === activeData.id ? previous.pointIndex : undefined,
+    });
     setSnappedPosition(snapped);
     // Intentional: fire only when active id or points change; the full activeData reference isn't meaningful
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -149,7 +157,10 @@ export default function MapScreen() {
     (position: { latitude: number; longitude: number }) => {
       const data = getActiveRouteDataImperative();
       if (data && data.points.length > 0) {
-        const snapped = snapToRoute(position.latitude, position.longitude, data.id, data.points);
+        const previous = useRouteStore.getState().snappedPosition;
+        const snapped = snapToRoute(position.latitude, position.longitude, data.id, data.points, {
+          previousPointIndex: previous?.routeId === data.id ? previous.pointIndex : undefined,
+        });
         setSnappedPosition(snapped);
       }
     },
@@ -271,27 +282,35 @@ export default function MapScreen() {
     [themeColors.accent],
   );
 
-  // Routes that should be rendered on the map (active or part of active collection, with loaded points)
+  // Standalone active route rendering; collections render as one stitched route below.
   const renderedRoutes = useMemo(
-    () =>
-      routes.filter(
-        (r) =>
-          r.isVisible &&
-          visibleRoutePoints[r.id] &&
-          (r.isActive || (activeCollectionRouteIds?.has(r.id) ?? false)),
-      ),
-    [routes, visibleRoutePoints, activeCollectionRouteIds],
+    () => routes.filter((r) => r.isVisible && r.isActive && visibleRoutePoints[r.id]),
+    [routes, visibleRoutePoints],
   );
+
+  const activeCollectionRoute = useMemo(() => {
+    if (activeData?.type !== "collection") return null;
+    return {
+      id: activeData.id,
+      name: activeData.name,
+      fileName: `${activeData.id}.collection`,
+      color: "",
+      isActive: true,
+      isVisible: true,
+      totalDistanceMeters: activeData.totalDistanceMeters,
+      totalAscentMeters: activeData.totalAscentMeters,
+      totalDescentMeters: activeData.totalDescentMeters,
+      pointCount: activeRoutePoints?.length ?? 0,
+      createdAt: "",
+    };
+  }, [activeData, activeRoutePoints?.length]);
 
   // Forces LocationPuck to remount so its layer is recreated on top of route/POI layers.
   const renderedRouteKey = useMemo(() => {
-    return (
-      renderedRoutes
-        .map((r) => r.id)
-        .sort()
-        .join(",") + `-${mapStyle.styleKey}`
-    );
-  }, [renderedRoutes, mapStyle.styleKey]);
+    const ids = renderedRoutes.map((r) => r.id);
+    if (activeCollectionRoute) ids.push(activeCollectionRoute.id);
+    return ids.sort().join(",") + `-${mapStyle.styleKey}`;
+  }, [renderedRoutes, activeCollectionRoute, mapStyle.styleKey]);
 
   // Climb to highlight on the map — active when Climbs tab is selected
   const highlightedClimb = useMemo(() => {
@@ -343,6 +362,11 @@ export default function MapScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [highlightedClimb?.id]);
 
+  const currentPOIDistanceMeters =
+    snappedPosition && activeData && snappedPosition.routeId === activeData.id
+      ? snappedPosition.distanceAlongRouteMeters
+      : null;
+
   return (
     <View className="flex-1">
       <MapboxMapView
@@ -375,11 +399,20 @@ export default function MapScreen() {
             />
           );
         })}
+        {activeCollectionRoute && activeRoutePoints && activeRoutePoints.length > 1 && (
+          <RouteLayer
+            key={`${activeCollectionRoute.id}-${mapStyle.styleKey}`}
+            route={activeCollectionRoute}
+            points={activeRoutePoints}
+            dimmed={highlightedClimb != null}
+          />
+        )}
         {activeRouteIds.length > 0 && (
           <POILayer
             key={mapStyle.styleKey}
             routeIds={activeRouteIds}
             segments={activeData?.segments ?? null}
+            currentDistanceMeters={currentPOIDistanceMeters}
           />
         )}
         {highlightedClimb && activeRoutePoints && (

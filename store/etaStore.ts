@@ -88,13 +88,13 @@ export const useEtaStore = create<ETAState>((set, get) => ({
   },
 
   _resolveETA: (targetDistM) => {
-    const { cumulativeTime, routeId } = get();
+    const { cumulativeTime, routeId, cachedPoints } = get();
     if (!cumulativeTime || !routeId) return null;
 
     const snapped = useRouteStore.getState().snappedPosition;
     if (!snapped) return null;
 
-    const routePoints = useRouteStore.getState().visibleRoutePoints[routeId];
+    const routePoints = cachedPoints ?? useRouteStore.getState().visibleRoutePoints[routeId];
     if (!routePoints?.length) return null;
 
     return getETAToDistance(cumulativeTime, routePoints, snapped.pointIndex, targetDistM);

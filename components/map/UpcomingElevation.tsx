@@ -2,7 +2,7 @@ import React, { useMemo } from "react";
 import { View } from "react-native";
 import { Text } from "@/components/ui/text";
 import ElevationProfile from "@/components/elevation/ElevationProfile";
-import { extractRouteSlice } from "@/utils/geo";
+import { extractRouteSlice, findFirstPointAtOrAfterDistance } from "@/utils/geo";
 import { LOOK_BACK_RATIO } from "@/constants";
 import type { RoutePoint, UnitSystem, DisplayPOI, DisplayClimb } from "@/types";
 
@@ -64,10 +64,11 @@ export default function UpcomingElevation({
       startDist = currentDist - desiredBack;
     }
 
-    let startIdx = currentPointIndex;
-    while (startIdx > 0 && points[startIdx - 1].distanceFromStartMeters >= startDist) {
-      startIdx--;
-    }
+    const firstAtOrAfterStart = findFirstPointAtOrAfterDistance(points, startDist);
+    const startIdx =
+      points[firstAtOrAfterStart]?.distanceFromStartMeters === startDist
+        ? firstAtOrAfterStart
+        : Math.max(0, firstAtOrAfterStart - 1);
 
     const sliceOffsetMeters = points[startIdx].distanceFromStartMeters;
     const totalSliceM = totalWindow;

@@ -1,6 +1,9 @@
 import type { RoutePoint } from "@/types";
 
 const EARTH_RADIUS_M = 6_371_000;
+const METERS_PER_LAT_DEGREE = 111_320;
+const MAP_SIMPLIFY_TOLERANCE_M = 20;
+const mapGeoJSONCache = new WeakMap<RoutePoint[], GeoJSON.Feature<GeoJSON.LineString>>();
 
 export function toRad(deg: number): number {
   return (deg * Math.PI) / 180;
@@ -85,11 +88,14 @@ export function findNearestPointOnRoute(
   lat: number,
   lon: number,
   points: RoutePoint[],
+  options?: { startIndex?: number; endIndex?: number },
 ): { index: number; distanceMeters: number } {
   let minDist = Infinity;
-  let minIndex = 0;
+  let minIndex = options?.startIndex ?? 0;
+  const startIndex = Math.max(0, options?.startIndex ?? 0);
+  const endIndex = Math.min(points.length - 1, options?.endIndex ?? points.length - 1);
 
-  for (let i = 0; i < points.length; i++) {
+  for (let i = startIndex; i <= endIndex; i++) {
     const d = haversineDistance(lat, lon, points[i].latitude, points[i].longitude);
     if (d < minDist) {
       minDist = d;
@@ -98,6 +104,34 @@ export function findNearestPointOnRoute(
   }
 
   return { index: minIndex, distanceMeters: minDist };
+}
+
+/** First point index with distance >= targetDistanceMeters. Returns points.length if none. */
+export function findFirstPointAtOrAfterDistance(
+  points: RoutePoint[],
+  targetDistanceMeters: number,
+  startIndex = 0,
+): number {
+  let lo = Math.max(0, startIndex);
+  let hi = points.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (points[mid].distanceFromStartMeters < targetDistanceMeters) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
+/** Last point index with distance <= targetDistanceMeters. Returns startIndex - 1 if none. */
+export function findLastPointAtOrBeforeDistance(
+  points: RoutePoint[],
+  targetDistanceMeters: number,
+  startIndex = 0,
+): number {
+  const firstAfter = findFirstPointAtOrAfterDistance(points, targetDistanceMeters, startIndex);
+  if (firstAfter >= points.length) return points.length - 1;
+  if (points[firstAfter].distanceFromStartMeters <= targetDistanceMeters) return firstAfter;
+  return firstAfter - 1;
 }
 
 /** Downsample an array to at most maxPoints using Ramer-Douglas-Peucker on elevation vs distance */
@@ -161,12 +195,11 @@ export function extractRouteSlice(
   const startDist = points[startIndex].distanceFromStartMeters;
   const endDist = startDist + maxDistanceM;
 
-  let endIndex = startIndex;
-  while (endIndex < points.length - 1 && points[endIndex + 1].distanceFromStartMeters <= endDist) {
-    endIndex++;
-  }
-  // Include one point past the boundary for a complete slice
-  if (endIndex < points.length - 1) endIndex++;
+  // Include one point past the boundary for a complete slice.
+  const endIndex = Math.min(
+    points.length - 1,
+    findFirstPointAtOrAfterDistance(points, endDist, startIndex),
+  );
 
   const slice = points.slice(startIndex, endIndex + 1);
   return slice.map((p, i) => ({
@@ -206,8 +239,8 @@ export function computeSliceAscent(
   endDistanceMeters: number,
 ): number {
   let ascent = 0;
-  for (let i = startIndex + 1; i < points.length; i++) {
-    if (points[i].distanceFromStartMeters > endDistanceMeters) break;
+  const endIndex = findLastPointAtOrBeforeDistance(points, endDistanceMeters, startIndex + 1);
+  for (let i = startIndex + 1; i <= endIndex; i++) {
     const prev = points[i - 1].elevationMeters;
     const curr = points[i].elevationMeters;
     if (prev != null && curr != null && curr > prev) ascent += curr - prev;
@@ -222,8 +255,8 @@ export function computeSliceDescent(
   endDistanceMeters: number,
 ): number {
   let descent = 0;
-  for (let i = startIndex + 1; i < points.length; i++) {
-    if (points[i].distanceFromStartMeters > endDistanceMeters) break;
+  const endIndex = findLastPointAtOrBeforeDistance(points, endDistanceMeters, startIndex + 1);
+  for (let i = startIndex + 1; i <= endIndex; i++) {
     const prev = points[i - 1].elevationMeters;
     const curr = points[i].elevationMeters;
     if (prev != null && curr != null && curr < prev) descent += prev - curr;
@@ -272,6 +305,81 @@ export function pointToSegmentDistance(
   };
 }
 
+export interface RouteSegmentSpatialIndex {
+  points: RoutePoint[];
+  cellSizeDeg: number;
+  segmentsByCell: Map<string, number[]>;
+}
+
+function cellKey(latCell: number, lonCell: number): string {
+  return `${latCell}:${lonCell}`;
+}
+
+function degreePaddingForMeters(meters: number, latitude: number): { lat: number; lon: number } {
+  const lat = meters / METERS_PER_LAT_DEGREE;
+  const cosLat = Math.max(0.2, Math.abs(Math.cos(toRad(latitude))));
+  return { lat, lon: meters / (METERS_PER_LAT_DEGREE * cosLat) };
+}
+
+export function buildRouteSegmentSpatialIndex(
+  routePoints: RoutePoint[],
+  corridorWidthM: number,
+): RouteSegmentSpatialIndex | null {
+  if (routePoints.length < 2) return null;
+
+  const cellSizeDeg = Math.max(0.02, Math.min(0.2, (Math.max(corridorWidthM, 500) * 2) / 111_320));
+  const segmentsByCell = new Map<string, number[]>();
+
+  for (let i = 0; i < routePoints.length - 1; i++) {
+    const a = routePoints[i];
+    const b = routePoints[i + 1];
+    const midLat = (a.latitude + b.latitude) / 2;
+    const pad = degreePaddingForMeters(corridorWidthM, midLat);
+
+    const minLat = Math.min(a.latitude, b.latitude) - pad.lat;
+    const maxLat = Math.max(a.latitude, b.latitude) + pad.lat;
+    const minLon = Math.min(a.longitude, b.longitude) - pad.lon;
+    const maxLon = Math.max(a.longitude, b.longitude) + pad.lon;
+
+    const minLatCell = Math.floor(minLat / cellSizeDeg);
+    const maxLatCell = Math.floor(maxLat / cellSizeDeg);
+    const minLonCell = Math.floor(minLon / cellSizeDeg);
+    const maxLonCell = Math.floor(maxLon / cellSizeDeg);
+
+    for (let latCell = minLatCell; latCell <= maxLatCell; latCell++) {
+      for (let lonCell = minLonCell; lonCell <= maxLonCell; lonCell++) {
+        const key = cellKey(latCell, lonCell);
+        const bucket = segmentsByCell.get(key);
+        if (bucket) bucket.push(i);
+        else segmentsByCell.set(key, [i]);
+      }
+    }
+  }
+
+  return { points: routePoints, cellSizeDeg, segmentsByCell };
+}
+
+function getCandidateSegmentIndexes(
+  poiLat: number,
+  poiLon: number,
+  index?: RouteSegmentSpatialIndex | null,
+): number[] | null {
+  if (!index) return null;
+  const latCell = Math.floor(poiLat / index.cellSizeDeg);
+  const lonCell = Math.floor(poiLon / index.cellSizeDeg);
+  const candidates = new Set<number>();
+
+  for (let dLat = -1; dLat <= 1; dLat++) {
+    for (let dLon = -1; dLon <= 1; dLon++) {
+      const bucket = index.segmentsByCell.get(cellKey(latCell + dLat, lonCell + dLon));
+      if (!bucket) continue;
+      for (const segmentIndex of bucket) candidates.add(segmentIndex);
+    }
+  }
+
+  return candidates.size > 0 ? [...candidates] : null;
+}
+
 /**
  * For a POI at (lat, lon), find the nearest point on the route
  * and compute both perpendicular distance and distance along route.
@@ -281,6 +389,7 @@ export function computePOIRouteAssociation(
   poiLat: number,
   poiLon: number,
   routePoints: RoutePoint[],
+  spatialIndex?: RouteSegmentSpatialIndex | null,
 ): {
   distanceFromRouteMeters: number;
   distanceAlongRouteMeters: number;
@@ -306,8 +415,11 @@ export function computePOIRouteAssociation(
   let bestDist = Infinity;
   let bestAlongRoute = 0;
   let bestIndex = 0;
+  const candidateIndexes = getCandidateSegmentIndexes(poiLat, poiLon, spatialIndex);
+  const segmentsToCheck =
+    candidateIndexes ?? Array.from({ length: routePoints.length - 1 }, (_, i) => i);
 
-  for (let i = 0; i < routePoints.length - 1; i++) {
+  for (const i of segmentsToCheck) {
     const a = routePoints[i];
     const b = routePoints[i + 1];
 
@@ -347,4 +459,81 @@ export function routeToGeoJSON(points: RoutePoint[]): GeoJSON.Feature<GeoJSON.Li
       coordinates: points.map((p) => [p.longitude, p.latitude]),
     },
   };
+}
+
+function projectedPoint(point: RoutePoint, origin: RoutePoint): { x: number; y: number } {
+  const cosLat = Math.cos(toRad(origin.latitude));
+  return {
+    x: (point.longitude - origin.longitude) * METERS_PER_LAT_DEGREE * cosLat,
+    y: (point.latitude - origin.latitude) * METERS_PER_LAT_DEGREE,
+  };
+}
+
+function perpendicularDistanceMeters(
+  point: { x: number; y: number },
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+): number {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  if (dx === 0 && dy === 0) {
+    return Math.hypot(point.x - start.x, point.y - start.y);
+  }
+  const t = Math.max(
+    0,
+    Math.min(1, ((point.x - start.x) * dx + (point.y - start.y) * dy) / (dx * dx + dy * dy)),
+  );
+  const projX = start.x + t * dx;
+  const projY = start.y + t * dy;
+  return Math.hypot(point.x - projX, point.y - projY);
+}
+
+export function simplifyRoutePointsForMap(
+  points: RoutePoint[],
+  toleranceMeters = MAP_SIMPLIFY_TOLERANCE_M,
+): RoutePoint[] {
+  if (points.length <= 2) return points;
+
+  const origin = points[0];
+  const projected = points.map((point) => projectedPoint(point, origin));
+  const keep = new Uint8Array(points.length);
+  keep[0] = 1;
+  keep[points.length - 1] = 1;
+
+  const stack: [number, number][] = [[0, points.length - 1]];
+  while (stack.length > 0) {
+    const [start, end] = stack.pop()!;
+    if (end <= start + 1) continue;
+
+    let maxDistance = -1;
+    let maxIndex = -1;
+    for (let i = start + 1; i < end; i++) {
+      const distance = perpendicularDistanceMeters(projected[i], projected[start], projected[end]);
+      if (distance > maxDistance) {
+        maxDistance = distance;
+        maxIndex = i;
+      }
+    }
+
+    if (maxIndex !== -1 && maxDistance > toleranceMeters) {
+      keep[maxIndex] = 1;
+      stack.push([start, maxIndex], [maxIndex, end]);
+    }
+  }
+
+  const simplified: RoutePoint[] = [];
+  for (let i = 0; i < points.length; i++) {
+    if (keep[i]) simplified.push(points[i]);
+  }
+  return simplified;
+}
+
+/** Convert route points to simplified, cached GeoJSON for Mapbox rendering. */
+export function routeToMapGeoJSON(points: RoutePoint[]): GeoJSON.Feature<GeoJSON.LineString> {
+  const cached = mapGeoJSONCache.get(points);
+  if (cached) return cached;
+  const simplified = simplifyRoutePointsForMap(points);
+  const geoJSON = routeToGeoJSON(simplified);
+  mapGeoJSONCache.set(points, geoJSON);
+  return geoJSON;
 }

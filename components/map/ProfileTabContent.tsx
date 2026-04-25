@@ -9,7 +9,12 @@ import { useSettingsStore } from "@/store/settingsStore";
 import { usePoiStore } from "@/store/poiStore";
 import { useClimbStore } from "@/store/climbStore";
 import { PANEL_MODES } from "@/constants";
-import { computeSliceAscent, computeSliceDescent, extractRouteSlice } from "@/utils/geo";
+import {
+  computeSliceAscent,
+  computeSliceDescent,
+  extractRouteSlice,
+  findFirstPointAtOrAfterDistance,
+} from "@/utils/geo";
 import { formatDistance, formatElevation } from "@/utils/formatters";
 import { climbDifficultyColor } from "@/constants/climbHelpers";
 import { stitchPOIs } from "@/services/stitchingService";
@@ -100,13 +105,11 @@ export default function ProfileTabContent({ activeData, width, height }: Profile
     if (!currentClimb || !activeRoutePoints?.length) return null;
     const padding = 500;
     const startDist = Math.max(0, currentClimb.effectiveStartDistanceMeters - padding);
-    let startIdx = 0;
-    for (let i = 0; i < activeRoutePoints.length; i++) {
-      if (activeRoutePoints[i].distanceFromStartMeters >= startDist) {
-        startIdx = Math.max(0, i - 1);
-        break;
-      }
-    }
+    const firstAtOrAfterStart = findFirstPointAtOrAfterDistance(activeRoutePoints, startDist);
+    const startIdx =
+      activeRoutePoints[firstAtOrAfterStart]?.distanceFromStartMeters === startDist
+        ? firstAtOrAfterStart
+        : Math.max(0, firstAtOrAfterStart - 1);
     const totalSliceM =
       currentClimb.effectiveEndDistanceMeters +
       padding -

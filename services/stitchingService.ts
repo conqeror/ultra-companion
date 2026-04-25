@@ -2,13 +2,34 @@ import { getRouteWithPoints, getCollectionSegments } from "@/db/database";
 import { toDisplayPOI } from "@/services/displayDistance";
 import type { StitchedCollection, StitchedSegmentInfo, RoutePoint, POI, DisplayPOI } from "@/types";
 
-export async function stitchCollection(collectionId: string): Promise<StitchedCollection> {
+interface StitchCollectionOptions {
+  /** Keep raw per-segment point arrays in the returned view model. */
+  includePointsByRouteId?: boolean;
+}
+
+interface DistanceWindow {
+  startDistanceMeters?: number;
+  endDistanceMeters?: number;
+}
+
+function isInDistanceWindow(distanceMeters: number, window?: DistanceWindow): boolean {
+  if (!window) return true;
+  if (window.startDistanceMeters != null && distanceMeters < window.startDistanceMeters) {
+    return false;
+  }
+  if (window.endDistanceMeters != null && distanceMeters > window.endDistanceMeters) {
+    return false;
+  }
+  return true;
+}
+
+export async function stitchCollection(
+  collectionId: string,
+  options: StitchCollectionOptions = {},
+): Promise<StitchedCollection> {
   const allSegments = await getCollectionSegments(collectionId);
   const selected = allSegments.filter((s) => s.isSelected);
   selected.sort((a, b) => a.position - b.position);
-
-  // Load all segment routes in parallel
-  const routeResults = await Promise.all(selected.map((seg) => getRouteWithPoints(seg.routeId)));
 
   const stitchedPoints: RoutePoint[] = [];
   const segmentInfos: StitchedSegmentInfo[] = [];
@@ -19,11 +40,13 @@ export async function stitchCollection(collectionId: string): Promise<StitchedCo
   let totalDescent = 0;
 
   for (let i = 0; i < selected.length; i++) {
-    const route = routeResults[i];
+    const route = await getRouteWithPoints(selected[i].routeId);
     if (!route) continue;
 
     const points = route.points;
-    pointsByRouteId[route.id] = points;
+    if (options.includePointsByRouteId ?? true) {
+      pointsByRouteId[route.id] = points;
+    }
     const startPointIndex = globalIndex;
 
     for (const pt of points) {
@@ -70,6 +93,7 @@ export async function stitchCollection(collectionId: string): Promise<StitchedCo
 export function stitchPOIs(
   segments: StitchedSegmentInfo[],
   poisByRoute: Record<string, POI[]>,
+  window?: DistanceWindow,
 ): DisplayPOI[] {
   const combined: DisplayPOI[] = [];
 
@@ -78,6 +102,8 @@ export function stitchPOIs(
     if (!pois) continue;
 
     for (const poi of pois) {
+      const effectiveDistanceMeters = poi.distanceAlongRouteMeters + seg.distanceOffsetMeters;
+      if (!isInDistanceWindow(effectiveDistanceMeters, window)) continue;
       combined.push(toDisplayPOI(poi, seg.distanceOffsetMeters));
     }
   }
