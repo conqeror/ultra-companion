@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { View, Alert } from "react-native";
 import { Text } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
@@ -22,11 +22,19 @@ function formatDate(iso: string): string {
   return `${day} ${month}, ${h}:${m}`;
 }
 
+function isSourceReady(info: SourceInfo): boolean {
+  return info.status === "done" || info.count > 0;
+}
+
 export default function DataSection({ routeId, points }: DataSectionProps) {
+  const [isPreparingOffline, setIsPreparingOffline] = useState(false);
+
   // Map tiles state
   const tileInfo = useOfflineStore((s) => s.getRouteInfo(routeId));
   const isConnected = useOfflineStore((s) => s.isConnected);
-  const startTileDownload = useOfflineStore((s) => s.startDownload);
+  const startTileDownload = useOfflineStore((s) => s.startTileDownload);
+  const prepareRouteOffline = useOfflineStore((s) => s.prepareRouteOffline);
+  const cancelDownload = useOfflineStore((s) => s.cancelDownload);
   const deleteTiles = useOfflineStore((s) => s.deleteOfflineData);
   const tilesReady = tileInfo.status === "complete";
   const tilesDownloading = tileInfo.status === "downloading";
@@ -36,6 +44,22 @@ export default function DataSection({ routeId, points }: DataSectionProps) {
   const googleInfo = usePoiStore((s) => s.sourceInfo[routeId]?.google) ?? DEFAULT_SOURCE_INFO;
   const fetchSource = usePoiStore((s) => s.fetchSource);
   const clearSource = usePoiStore((s) => s.clearSource);
+  const osmFetching = osmInfo.status === "fetching";
+  const googleFetching = googleInfo.status === "fetching";
+  const osmReady = isSourceReady(osmInfo);
+  const googleReady = isSourceReady(googleInfo);
+  const routeOfflineReady = tilesReady && osmReady && googleReady;
+  const hasBusySource = osmFetching || googleFetching;
+  const prepBusy = isPreparingOffline || tilesDownloading || hasBusySource;
+
+  const handlePrepareOffline = async () => {
+    setIsPreparingOffline(true);
+    try {
+      await prepareRouteOffline(routeId, points);
+    } finally {
+      setIsPreparingOffline(false);
+    }
+  };
 
   const handleDeleteTiles = () => {
     Alert.alert("Delete Map Tiles", "Remove downloaded tiles for this route?", [
@@ -47,7 +71,7 @@ export default function DataSection({ routeId, points }: DataSectionProps) {
   const handleCancelTiles = () => {
     Alert.alert("Cancel Download", "Stop downloading map tiles?", [
       { text: "Continue", style: "cancel" },
-      { text: "Cancel", style: "destructive", onPress: () => deleteTiles(routeId) },
+      { text: "Cancel", style: "destructive", onPress: () => cancelDownload(routeId) },
     ]);
   };
 
@@ -61,6 +85,31 @@ export default function DataSection({ routeId, points }: DataSectionProps) {
   return (
     <View>
       <Text className="text-[22px] font-barlow-semibold text-foreground px-4 mt-4 mb-3">Data</Text>
+
+      <View className="mx-4 bg-card rounded-xl px-4 py-3 mb-4">
+        <View className="mb-3">
+          <Text className="text-[15px] font-barlow-semibold text-foreground">
+            Prepare for Offline
+          </Text>
+          <Text className="text-[13px] text-muted-foreground font-barlow mt-1">
+            {routeOfflineReady
+              ? "Map tiles, Google Places, and OpenStreetMap ready"
+              : "Map tiles + missing Google Places and OpenStreetMap"}
+          </Text>
+        </View>
+        <Button
+          disabled={!isConnected || prepBusy || routeOfflineReady}
+          variant={routeOfflineReady ? "secondary" : "default"}
+          onPress={handlePrepareOffline}
+          label={
+            isPreparingOffline
+              ? "Preparing..."
+              : routeOfflineReady
+                ? "Offline Ready"
+                : "Prepare for Offline"
+          }
+        />
+      </View>
 
       {/* Map Tiles */}
       <DataRow
@@ -180,7 +229,7 @@ function SourceRow({
   isConnected: boolean;
 }) {
   const isFetching = info.status === "fetching";
-  const hasData = info.count > 0;
+  const hasData = isSourceReady(info);
   const progress = info.progress;
 
   return (
@@ -188,8 +237,10 @@ function SourceRow({
       <DataRow
         title={title}
         subtitle={
-          isFetching && progress
-            ? `${progress.phase}: ${progress.done}/${progress.total}`
+          isFetching
+            ? progress
+              ? `${progress.phase}: ${progress.done}/${progress.total}`
+              : "Fetching..."
             : hasData
               ? `${info.count} POIs`
               : "Not fetched"

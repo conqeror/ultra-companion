@@ -67,6 +67,28 @@ export const DEFAULT_SOURCE_INFO: SourceInfo = {
   progress: null,
 };
 
+const fetchGenerations = new Map<string, number>();
+
+function fetchGenerationKey(routeId: string, source: POISource): string {
+  return `${routeId}:${source}`;
+}
+
+function nextFetchGeneration(routeId: string, source: POISource): number {
+  const key = fetchGenerationKey(routeId, source);
+  const next = (fetchGenerations.get(key) ?? 0) + 1;
+  fetchGenerations.set(key, next);
+  return next;
+}
+
+function isCurrentFetch(routeId: string, source: POISource, generation: number): boolean {
+  return fetchGenerations.get(fetchGenerationKey(routeId, source)) === generation;
+}
+
+function invalidateRouteFetches(routeId: string): void {
+  nextFetchGeneration(routeId, "osm");
+  nextFetchGeneration(routeId, "google");
+}
+
 const SOURCE_INFO_KEY_PREFIX = "sourceInfo_";
 const sourceInfoKey = (routeId: string, source: POISource) =>
   `${SOURCE_INFO_KEY_PREFIX}${source}_${routeId}`;
@@ -258,7 +280,9 @@ export const usePoiStore = create<POIState>((set, get) => ({
   },
 
   fetchSource: async (routeId, source, routePoints) => {
+    const generation = nextFetchGeneration(routeId, source);
     const updateSourceInfo = (partial: Partial<SourceInfo>, opts?: { persist?: boolean }) => {
+      if (!isCurrentFetch(routeId, source, generation)) return;
       set((s) => {
         const current = s.sourceInfo[routeId]?.[source] ?? { ...DEFAULT_SOURCE_INFO };
         const updated = { ...current, ...partial };
@@ -289,7 +313,9 @@ export const usePoiStore = create<POIState>((set, get) => ({
         progress: null,
       });
 
+      if (!isCurrentFetch(routeId, source, generation)) return;
       const pois = await getPOIsForRoute(routeId);
+      if (!isCurrentFetch(routeId, source, generation)) return;
       set((s) => ({ pois: { ...s.pois, [routeId]: pois } }));
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to fetch POIs";
@@ -298,6 +324,7 @@ export const usePoiStore = create<POIState>((set, get) => ({
   },
 
   clearSource: async (routeId, source) => {
+    nextFetchGeneration(routeId, source);
     await deletePOIsBySource(routeId, source);
     clearSourceInfo(routeId, source);
 
@@ -378,6 +405,7 @@ export const usePoiStore = create<POIState>((set, get) => ({
   },
 
   clearPOIs: async (routeId) => {
+    invalidateRouteFetches(routeId);
     await deletePOIsForRoute(routeId);
     clearSourceInfo(routeId, "osm");
     clearSourceInfo(routeId, "google");
@@ -387,6 +415,7 @@ export const usePoiStore = create<POIState>((set, get) => ({
   cleanupRouteState: (routeId) => {
     // Called when a route is deleted. DB cascade handles pois rows; this
     // only scrubs in-memory state + MMKV source metadata so nothing orphans.
+    invalidateRouteFetches(routeId);
     clearSourceInfo(routeId, "osm");
     clearSourceInfo(routeId, "google");
     set((s) => buildRouteScrubPatch(s, routeId, "remove"));

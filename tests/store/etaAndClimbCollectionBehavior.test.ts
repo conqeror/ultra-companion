@@ -4,15 +4,10 @@ import { buildStitchedCollection, stitchedSegmentsFixture } from "@/tests/fixtur
 import { buildPoi } from "@/tests/fixtures/poi";
 import { buildRoutePoint } from "@/tests/fixtures/route";
 import { createStitchedCollectionHarness } from "@/tests/helpers/stitchedCollectionHarness";
-import { databaseMocks } from "@/tests/mocks/database";
 import { etaCalculatorMocks } from "@/tests/mocks/etaCalculator";
-import { createMockMMKV } from "@/tests/mocks/reactNativeMmkv";
+import { toDisplayPOI } from "@/services/displayDistance";
 
 const stitchedHarness = createStitchedCollectionHarness();
-
-vi.mock("react-native-mmkv", () => ({
-  createMMKV: createMockMMKV,
-}));
 
 vi.mock("@/services/etaCalculator", async () => {
   const actual = await vi.importActual<typeof import("@/services/etaCalculator")>(
@@ -42,11 +37,6 @@ vi.mock("@/store/poiStore", () => ({
   },
 }));
 
-vi.mock("@/db/database", () => ({
-  getClimbsForRoute: databaseMocks.getClimbsForRoute,
-  updateClimbName: databaseMocks.updateClimbName,
-}));
-
 import { useEtaStore } from "@/store/etaStore";
 import { useClimbStore } from "@/store/climbStore";
 
@@ -65,8 +55,6 @@ describe("stitched collection coordinate behavior", () => {
     });
     stitchedHarness.reset();
     etaCalculatorMocks.computeRouteETA.mockReset();
-    databaseMocks.getClimbsForRoute.mockReset();
-    databaseMocks.updateClimbName.mockReset();
   });
 
   it("applies segment offsets for POI ETA and supports segment 0 and later segments", () => {
@@ -89,8 +77,8 @@ describe("stitched collection coordinate behavior", () => {
       points: stitchedPoints,
     });
 
-    const etaSegment0 = useEtaStore.getState().getETAToPOI(buildPoi("p0", "r1", 900));
-    const etaSegment1 = useEtaStore.getState().getETAToPOI(buildPoi("p1", "r2", 200));
+    const etaSegment0 = useEtaStore.getState().getETAToPOI(toDisplayPOI(buildPoi("p0", "r1", 900)));
+    const etaSegment1 = useEtaStore.getState().getETAToPOI(toDisplayPOI(buildPoi("p1", "r2", 200)));
 
     expect(etaSegment0?.ridingTimeSeconds).toBe(90);
     expect(etaSegment1?.ridingTimeSeconds).toBe(120);
@@ -119,7 +107,7 @@ describe("stitched collection coordinate behavior", () => {
       r2: [buildPoi("poi-late", "r2", 200)],
     };
 
-    const preStitched = buildPoi("poi-late", "r2", 1_200);
+    const preStitched = toDisplayPOI(buildPoi("poi-late", "r2", 200), 1_000);
     const eta = useEtaStore.getState().getETAToPOI(preStitched);
 
     expect(eta?.ridingTimeSeconds).toBe(120);
@@ -151,7 +139,9 @@ describe("stitched collection coordinate behavior", () => {
       .getState()
       .getClimbsForDisplay(["r1", "r2"], stitchedSegmentsFixture);
 
-    expect(display.map((c) => [c.id, c.startDistanceMeters, c.endDistanceMeters])).toEqual([
+    expect(
+      display.map((c) => [c.id, c.effectiveStartDistanceMeters, c.effectiveEndDistanceMeters]),
+    ).toEqual([
       ["c1", 700, 900],
       ["c2", 1_100, 1_400],
     ]);

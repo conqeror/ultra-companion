@@ -47,7 +47,9 @@ interface OfflineState {
   isConnected: boolean;
 
   // Actions
-  startDownload: (routeId: string, points: RoutePoint[]) => Promise<void>;
+  startTileDownload: (routeId: string, points: RoutePoint[]) => Promise<void>;
+  prepareRouteOffline: (routeId: string, points: RoutePoint[]) => Promise<void>;
+  cancelDownload: (routeId: string) => Promise<void>;
   deleteOfflineData: (routeId: string) => Promise<void>;
   refreshAllStatuses: () => Promise<void>;
   initConnectivityListener: () => () => void;
@@ -56,6 +58,18 @@ interface OfflineState {
   getRouteInfo: (routeId: string) => OfflineRouteInfo;
   isRouteOfflineReady: (routeId: string) => boolean;
   getTotalStorageBytes: () => number;
+}
+
+const downloadGenerations = new Map<string, number>();
+
+function nextDownloadGeneration(routeId: string): number {
+  const next = (downloadGenerations.get(routeId) ?? 0) + 1;
+  downloadGenerations.set(routeId, next);
+  return next;
+}
+
+function isCurrentDownload(routeId: string, generation: number): boolean {
+  return downloadGenerations.get(routeId) === generation;
 }
 
 export const useOfflineStore = create<OfflineState>((set, get) => ({
@@ -80,11 +94,15 @@ export const useOfflineStore = create<OfflineState>((set, get) => ({
     return total;
   },
 
-  startDownload: async (routeId, points) => {
+  startTileDownload: async (routeId, points) => {
+    if (get().routeInfo[routeId]?.status === "downloading") return;
+
+    const generation = nextDownloadGeneration(routeId);
     const estimated = estimateDownloadSize(points);
 
     // Persist-and-set helper for non-progress updates
     const updateInfo = (partial: Partial<OfflineRouteInfo>) => {
+      if (!isCurrentDownload(routeId, generation)) return;
       set((s) => {
         const updated = {
           ...s.routeInfo,
@@ -103,55 +121,90 @@ export const useOfflineStore = create<OfflineState>((set, get) => ({
       error: null,
     });
 
-    // Fetch any missing POI sources through usePoiStore so per-source state
-    // (count, status, error, progress) stays in sync with the UI. Errors are
-    // captured in sourceInfo per-source; tile download continues regardless.
-    const { usePoiStore } = await import("@/store/poiStore");
-    const poiStore = usePoiStore.getState();
-    const counts = await getPOICountsBySource(routeId);
-    if (counts.osm === 0) {
-      await poiStore.fetchSource(routeId, "osm", points);
-    }
-    if (counts.google === 0) {
-      await poiStore.fetchSource(routeId, "google", points);
-    }
-
     // Throttled progress: update store at most every 500ms, skip MMKV persist
     let lastProgressUpdate = 0;
-    await downloadRouteTiles(
-      routeId,
-      points,
-      (percentage, completedBytes) => {
-        const now = Date.now();
-        if (now - lastProgressUpdate < 500) return;
-        lastProgressUpdate = now;
-        const current = get().routeInfo[routeId];
-        if (current?.status !== "downloading") return;
-        set((s) => ({
-          routeInfo: {
-            ...s.routeInfo,
-            [routeId]: {
-              ...(s.routeInfo[routeId] ?? DEFAULT_ROUTE_INFO),
-              percentage,
-              downloadedBytes: completedBytes,
+    try {
+      await downloadRouteTiles(
+        routeId,
+        points,
+        (percentage, completedBytes) => {
+          if (!isCurrentDownload(routeId, generation)) return;
+          const now = Date.now();
+          if (now - lastProgressUpdate < 500) return;
+          lastProgressUpdate = now;
+          const current = get().routeInfo[routeId];
+          if (current?.status !== "downloading") return;
+          set((s) => ({
+            routeInfo: {
+              ...s.routeInfo,
+              [routeId]: {
+                ...(s.routeInfo[routeId] ?? DEFAULT_ROUTE_INFO),
+                percentage,
+                downloadedBytes: completedBytes,
+              },
             },
-          },
-        }));
-      },
-      () => {
-        updateInfo({
-          status: "complete",
-          percentage: 100,
-          downloadedAt: new Date().toISOString(),
-        });
-      },
-      (error) => {
-        updateInfo({ status: "error", error });
-      },
-    );
+          }));
+        },
+        () => {
+          updateInfo({
+            status: "complete",
+            percentage: 100,
+            downloadedAt: new Date().toISOString(),
+          });
+        },
+        (error) => {
+          updateInfo({ status: "error", error });
+        },
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Download failed";
+      updateInfo({ status: "error", error: message });
+    }
+  },
+
+  prepareRouteOffline: async (routeId, points) => {
+    const { usePoiStore } = await import("@/store/poiStore");
+    const poiStore = usePoiStore.getState();
+    let counts = { osm: 0, google: 0 };
+
+    try {
+      counts = await getPOICountsBySource(routeId);
+    } catch (error) {
+      console.warn("Failed to read POI counts before offline preparation:", error);
+    }
+
+    const fetchIfMissing = async (source: "google" | "osm", count: number) => {
+      if (count > 0) return;
+      try {
+        await poiStore.fetchSource(routeId, source, points);
+      } catch (error) {
+        console.warn(`Failed to prepare ${source} POIs for route ${routeId}:`, error);
+      }
+    };
+
+    // Keep source failures scoped. A Google API error should not prevent OSM
+    // from fetching or map tiles from starting.
+    await fetchIfMissing("google", counts.google);
+    await fetchIfMissing("osm", counts.osm);
+
+    const info = get().routeInfo[routeId];
+    if (info?.status === "complete" || info?.status === "downloading") return;
+    await get().startTileDownload(routeId, points);
+  },
+
+  cancelDownload: async (routeId) => {
+    nextDownloadGeneration(routeId);
+    await deleteRoutePacks(routeId);
+    set((s) => {
+      const updated = { ...s.routeInfo };
+      delete updated[routeId];
+      persistRouteInfo(updated);
+      return { routeInfo: updated };
+    });
   },
 
   deleteOfflineData: async (routeId) => {
+    nextDownloadGeneration(routeId);
     await deleteRoutePacks(routeId);
     set((s) => {
       const updated = { ...s.routeInfo };
