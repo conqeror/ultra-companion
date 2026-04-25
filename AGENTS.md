@@ -8,6 +8,7 @@ Logistics companion app for ultra-distance cycling races. iOS only, personal use
 - `docs/features.md` — what's implemented
 - `docs/architecture.md` — data models, offline strategy, key technical decisions
 - `docs/ideas.md` — future feature ideas
+- `docs/roadmap.md` — current GitHub issue priority order and prioritization notes
 - `docs/design-system.md` — colors, typography, component patterns
 - `docs/known-issues.md` — bugs and warnings
 - `docs/tests.md` — unit test backlog (not yet implemented)
@@ -61,6 +62,8 @@ Logistics companion app for ultra-distance cycling races. iOS only, personal use
 
 When working from a GitHub issue, use the issue body and comments as the source of truth for the task.
 
+- When creating a new issue, always assign appropriate labels before or immediately after creation. Use at least one broad type label (`bug`, `enhancement`, `documentation`) and one area label (`area:routes`, `area:collections`, `area:pois`, `area:climbs`, `area:terrain`, `area:offline`, `area:eta`, `area:performance`, `area:testing`, `area:docs`) where applicable. Add one `priority:*` label (`priority:p0`, `priority:p1`, `priority:p2`, `priority:p3`) and focused `type:*` labels (`type:ux`, `type:refactor`, `type:test`, `type:performance`) when they clarify the work.
+- When a new issue changes the intended backlog order or priority bands, update `docs/roadmap.md` in the same pass.
 - Create a branch named `codex/issue-<number>-<short-slug>` when making changes.
 - Open a ready-for-review PR against `main` when the implementation is ready for review. Do not create draft PRs unless explicitly requested.
 - Include `Fixes #<number>` in the PR description so GitHub links the PR to the issue and closes the issue when the PR is merged.
