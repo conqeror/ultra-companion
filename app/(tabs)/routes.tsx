@@ -64,18 +64,16 @@ function buildImportSummaryMessage(summary: RouteImportSummary): string {
 export default function RoutesScreen() {
   const router = useRouter();
   const colors = useThemeColors();
-  const {
-    routes,
-    isLoading,
-    error,
-    importProgress,
-    loadRouteMetadata,
-    importRoute,
-    deleteRoute,
-    toggleVisibility,
-    setActiveRoute,
-    clearError,
-  } = useRouteStore();
+  const routes = useRouteStore((s) => s.routes);
+  const isLoading = useRouteStore((s) => s.isLoading);
+  const error = useRouteStore((s) => s.error);
+  const importProgress = useRouteStore((s) => s.importProgress);
+  const loadRouteMetadata = useRouteStore((s) => s.loadRouteMetadata);
+  const importRoute = useRouteStore((s) => s.importRoute);
+  const deleteRoute = useRouteStore((s) => s.deleteRoute);
+  const toggleVisibility = useRouteStore((s) => s.toggleVisibility);
+  const setActiveRoute = useRouteStore((s) => s.setActiveRoute);
+  const clearError = useRouteStore((s) => s.clearError);
 
   const collections = useCollectionStore((s) => s.collections);
   const loadCollections = useCollectionStore((s) => s.loadCollections);

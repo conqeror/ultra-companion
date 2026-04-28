@@ -11,7 +11,7 @@ import { useClimbStore } from "@/store/climbStore";
 import { PANEL_MODES } from "@/constants";
 import {
   computeSliceAscentFromDistance,
-  computeSliceDescentFromDistance,
+  computeSliceElevationTotalsFromDistance,
   extractRouteSlice,
   findFirstPointAtOrAfterDistance,
   findNearestPointIndexAtDistance,
@@ -164,8 +164,11 @@ export default function ProfileTabContent({ activeData, width, height }: Profile
 
   const statsText = useMemo(() => {
     if (!isSnapped || !activeRoutePoints?.length) return null;
-    const asc = computeSliceAscentFromDistance(activeRoutePoints, windowStartDist, windowEndDist);
-    const desc = computeSliceDescentFromDistance(activeRoutePoints, windowStartDist, windowEndDist);
+    const { ascent: asc, descent: desc } = computeSliceElevationTotalsFromDistance(
+      activeRoutePoints,
+      windowStartDist,
+      windowEndDist,
+    );
     return `↑ ${formatElevation(asc, units)}  ·  ↓ ${formatElevation(desc, units)}`;
   }, [isSnapped, activeRoutePoints, windowStartDist, windowEndDist, units]);
 

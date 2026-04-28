@@ -54,7 +54,8 @@ export default function MapScreen() {
   const [hasGpsFix, setHasGpsFix] = useState(false);
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
 
-  const { followUser, setFollowUser } = useMapStore();
+  const followUser = useMapStore((s) => s.followUser);
+  const setFollowUser = useMapStore((s) => s.setFollowUser);
   const refreshPosition = useMapStore((s) => s.refreshPosition);
   const persistCamera = useMapStore((s) => s.persistCamera);
   const initialCamera = useRef({

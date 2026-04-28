@@ -3,6 +3,7 @@ import {
   buildRouteSegmentSpatialIndex,
   computeElevationProgressAtDistance,
   computeSliceAscentFromDistance,
+  computeSliceElevationTotalsFromDistance,
   computePOIRouteAssociation,
   downsampleRoutePointsByDistance,
   findFirstPointAtOrAfterDistance,
@@ -140,6 +141,10 @@ describe("geo route performance helpers", () => {
     expect(progress.ascentRemaining).toBe(50);
     expect(progress.descentRemaining).toBe(50);
     expect(computeSliceAscentFromDistance(points, 50, 150)).toBe(50);
+    expect(computeSliceElevationTotalsFromDistance(points, 50, 150)).toEqual({
+      ascent: 50,
+      descent: 25,
+    });
   });
 
   it("interpolates exact duplicate-distance joins from the forward segment", () => {

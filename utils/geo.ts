@@ -497,15 +497,24 @@ export function computeSliceAscent(
   return ascent;
 }
 
-function computeSliceElevationTotals(
+export function computeSliceElevationTotalsFromDistance(
   points: RoutePoint[],
   startDistanceMeters: number,
   endDistanceMeters: number,
 ): { ascent: number; descent: number } {
   const totals = { ascent: 0, descent: 0 };
-  if (endDistanceMeters <= startDistanceMeters) return totals;
+  if (points.length < 2 || endDistanceMeters <= startDistanceMeters) return totals;
 
-  for (let i = 1; i < points.length; i++) {
+  const firstSegmentIndex = Math.max(
+    1,
+    findFirstPointAtOrAfterDistance(points, startDistanceMeters),
+  );
+  const lastSegmentIndex = Math.min(
+    points.length - 1,
+    findFirstPointAtOrAfterDistance(points, endDistanceMeters, firstSegmentIndex - 1),
+  );
+
+  for (let i = firstSegmentIndex; i <= lastSegmentIndex; i++) {
     const prev = points[i - 1];
     const curr = points[i];
     if (prev.elevationMeters == null || curr.elevationMeters == null) continue;
@@ -536,7 +545,8 @@ export function computeSliceAscentFromDistance(
   startDistanceMeters: number,
   endDistanceMeters: number,
 ): number {
-  return computeSliceElevationTotals(points, startDistanceMeters, endDistanceMeters).ascent;
+  return computeSliceElevationTotalsFromDistance(points, startDistanceMeters, endDistanceMeters)
+    .ascent;
 }
 
 /** Compute descent within a distance-bounded slice starting at a given index */
@@ -560,7 +570,8 @@ export function computeSliceDescentFromDistance(
   startDistanceMeters: number,
   endDistanceMeters: number,
 ): number {
-  return computeSliceElevationTotals(points, startDistanceMeters, endDistanceMeters).descent;
+  return computeSliceElevationTotalsFromDistance(points, startDistanceMeters, endDistanceMeters)
+    .descent;
 }
 
 // --- Phase 3: POI-to-route association ---
