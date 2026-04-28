@@ -39,6 +39,23 @@ export interface RouteWithPoints extends Route {
   points: RoutePoint[];
 }
 
+export interface RouteImportFailure {
+  fileName: string;
+  reason: string;
+}
+
+export interface RouteImportProgress {
+  current: number;
+  total: number;
+  fileName: string;
+}
+
+export interface RouteImportSummary {
+  imported: Route[];
+  failed: RouteImportFailure[];
+  total: number;
+}
+
 export interface SnappedPosition {
   routeId: string;
   pointIndex: number;

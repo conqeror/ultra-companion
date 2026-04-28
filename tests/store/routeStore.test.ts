@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import * as DocumentPicker from "expo-document-picker";
 import { databaseMocks } from "@/tests/mocks/database";
 import type { Route, RoutePoint } from "@/types";
 
@@ -15,6 +16,9 @@ vi.mock("expo-file-system", () => ({
 }));
 
 import { useRouteStore } from "@/store/routeStore";
+
+const initialImportRoute = useRouteStore.getState().importRoute;
+const initialImportFromUri = useRouteStore.getState().importFromUri;
 
 const route = (overrides: Partial<Route> = {}): Route => ({
   id: "r1",
@@ -41,14 +45,118 @@ const point = (idx: number): RoutePoint => ({
 
 describe("routeStore", () => {
   beforeEach(() => {
+    vi.mocked(DocumentPicker.getDocumentAsync).mockReset();
     useRouteStore.setState({
       routes: [],
       isLoading: false,
       error: null,
+      importProgress: null,
       visibleRoutePoints: {},
       snappedPosition: null,
       snapHistory: [],
+      importRoute: initialImportRoute,
+      importFromUri: initialImportFromUri,
     });
+  });
+
+  it("imports every selected route file and isolates per-file failures", async () => {
+    const importedA = route({ id: "r1", name: "Segment 1", fileName: "segment-1.gpx" });
+    const importedB = route({ id: "r2", name: "Segment 2", fileName: "segment-2.kml" });
+    const importFromUri = vi
+      .fn()
+      .mockResolvedValueOnce(importedA)
+      .mockRejectedValueOnce(new Error("Invalid GPX: missing <gpx> root element"))
+      .mockResolvedValueOnce(importedB);
+
+    vi.mocked(DocumentPicker.getDocumentAsync).mockResolvedValue({
+      canceled: false,
+      assets: [
+        { uri: "file://segment-1.gpx", name: "segment-1.gpx", lastModified: 0 },
+        { uri: "file://bad.gpx", name: "bad.gpx", lastModified: 0 },
+        { uri: "file://segment-2.kml", name: "segment-2.kml", lastModified: 0 },
+      ],
+    });
+    useRouteStore.setState({ importFromUri });
+
+    const summary = await useRouteStore.getState().importRoute();
+
+    expect(DocumentPicker.getDocumentAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ multiple: true }),
+    );
+    expect(importFromUri).toHaveBeenNthCalledWith(
+      1,
+      "file://segment-1.gpx",
+      "segment-1.gpx",
+      expect.objectContaining({ createdAt: expect.any(String) }),
+    );
+    expect(importFromUri).toHaveBeenNthCalledWith(
+      2,
+      "file://bad.gpx",
+      "bad.gpx",
+      expect.objectContaining({ createdAt: expect.any(String) }),
+    );
+    expect(importFromUri).toHaveBeenNthCalledWith(
+      3,
+      "file://segment-2.kml",
+      "segment-2.kml",
+      expect.objectContaining({ createdAt: expect.any(String) }),
+    );
+    expect(summary).toEqual({
+      imported: [importedA, importedB],
+      failed: [
+        {
+          fileName: "bad.gpx",
+          reason: "Invalid GPX: missing <gpx> root element",
+        },
+      ],
+      total: 3,
+    });
+    expect(useRouteStore.getState().isLoading).toBe(false);
+    expect(useRouteStore.getState().importProgress).toBeNull();
+  });
+
+  it("keeps importing remaining files when unnamed asset URI decoding fails", async () => {
+    const importedA = route({ id: "r1", name: "Segment 1", fileName: "segment-1.gpx" });
+    const importedB = route({ id: "r2", name: "Segment 2", fileName: "segment-2.kml" });
+    const importFromUri = vi.fn().mockResolvedValueOnce(importedA).mockResolvedValueOnce(importedB);
+
+    vi.mocked(DocumentPicker.getDocumentAsync).mockResolvedValue({
+      canceled: false,
+      assets: [
+        { uri: "file://segment-1.gpx", name: "segment-1.gpx", lastModified: 0 },
+        { uri: "file://bad%ZZ.gpx", name: "", lastModified: 0 },
+        { uri: "file://segment-2.kml", name: "segment-2.kml", lastModified: 0 },
+      ],
+    });
+    useRouteStore.setState({ importFromUri });
+
+    const summary = await useRouteStore.getState().importRoute();
+
+    expect(importFromUri).toHaveBeenCalledTimes(2);
+    expect(importFromUri).toHaveBeenNthCalledWith(
+      1,
+      "file://segment-1.gpx",
+      "segment-1.gpx",
+      expect.objectContaining({ createdAt: expect.any(String) }),
+    );
+    expect(importFromUri).toHaveBeenNthCalledWith(
+      2,
+      "file://segment-2.kml",
+      "segment-2.kml",
+      expect.objectContaining({ createdAt: expect.any(String) }),
+    );
+    expect(summary).toEqual({
+      imported: [importedA, importedB],
+      failed: [
+        {
+          fileName: "route-2",
+          reason: "URI malformed",
+        },
+      ],
+      total: 3,
+    });
+    expect(useRouteStore.getState().isLoading).toBe(false);
+    expect(useRouteStore.getState().importProgress).toBeNull();
   });
 
   it("reloads active route points when visibility is turned back on", async () => {
