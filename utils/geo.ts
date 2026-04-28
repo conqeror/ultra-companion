@@ -106,6 +106,82 @@ export function findNearestPointOnRoute(
   return { index: minIndex, distanceMeters: minDist };
 }
 
+export interface DownsampleRoutePointsOptions<TOutput> {
+  intervalMeters: number;
+  mapPoint: (point: RoutePoint) => TOutput;
+  isSameOutput?: (a: TOutput, b: TOutput) => boolean;
+}
+
+/** Downsample route points by route distance while preserving first and last points. */
+export function downsampleRoutePointsByDistance<TOutput>(
+  points: RoutePoint[],
+  options: DownsampleRoutePointsOptions<TOutput>,
+): TOutput[] {
+  if (points.length === 0) return [];
+
+  const { intervalMeters, mapPoint, isSameOutput } = options;
+  const result: TOutput[] = [mapPoint(points[0])];
+  let lastIncludedDistance = points[0].distanceFromStartMeters;
+  let lastIncludedIndex = 0;
+
+  for (let i = 1; i < points.length; i++) {
+    if (points[i].distanceFromStartMeters - lastIncludedDistance >= intervalMeters) {
+      result.push(mapPoint(points[i]));
+      lastIncludedDistance = points[i].distanceFromStartMeters;
+      lastIncludedIndex = i;
+    }
+  }
+
+  if (lastIncludedIndex !== points.length - 1) {
+    const endpoint = mapPoint(points[points.length - 1]);
+    const previous = result[result.length - 1];
+    if (!isSameOutput || !isSameOutput(endpoint, previous)) {
+      result.push(endpoint);
+    }
+  }
+
+  return result;
+}
+
+export interface SplitRoutePointsOptions {
+  maxSegmentLengthMeters: number;
+  balanceSegments?: boolean;
+  includeShortRoute?: boolean;
+}
+
+/** Split route points by distance with a one-point overlap between adjacent segments. */
+export function splitRoutePointsByDistance(
+  points: RoutePoint[],
+  options: SplitRoutePointsOptions,
+): RoutePoint[][] {
+  if (points.length < 2) return options.includeShortRoute ? [points] : [];
+
+  const totalDistance =
+    points[points.length - 1].distanceFromStartMeters - points[0].distanceFromStartMeters;
+  if (totalDistance <= options.maxSegmentLengthMeters) return [points];
+
+  const segmentLength = options.balanceSegments
+    ? totalDistance / Math.ceil(totalDistance / options.maxSegmentLengthMeters)
+    : options.maxSegmentLengthMeters;
+  const segments: RoutePoint[][] = [];
+  let segmentStart = 0;
+  let segmentStartDistance = points[0].distanceFromStartMeters;
+
+  for (let i = 1; i < points.length; i++) {
+    if (points[i].distanceFromStartMeters - segmentStartDistance >= segmentLength) {
+      segments.push(points.slice(segmentStart, i + 1));
+      segmentStart = i;
+      segmentStartDistance = points[i].distanceFromStartMeters;
+    }
+  }
+
+  if (segmentStart < points.length - 1) {
+    segments.push(points.slice(segmentStart));
+  }
+
+  return segments;
+}
+
 /** First point index with distance >= targetDistanceMeters. Returns points.length if none. */
 export function findFirstPointAtOrAfterDistance(
   points: RoutePoint[],

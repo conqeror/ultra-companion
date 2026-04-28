@@ -8,6 +8,7 @@ import {
 } from "@/modules/offline-tiles";
 import type { RoutePoint } from "@/types";
 import { MAP_STYLE_URL } from "@/types";
+import { downsampleRoutePointsByDistance } from "@/utils/geo";
 import {
   OFFLINE_MIN_ZOOM,
   OFFLINE_MAX_ZOOM,
@@ -24,26 +25,7 @@ function extractRouteId(id: string): string | null {
   return id.slice(OFFLINE_PACK_PREFIX.length);
 }
 
-/**
- * Downsample route points to ~1 per 200m.
- * Returns [[lng, lat], ...] for the native module.
- */
-function downsampleCoords(points: RoutePoint[]): number[][] {
-  if (points.length === 0) return [];
-
-  const MIN_GAP_M = 200;
-  const coords: number[][] = [[points[0].longitude, points[0].latitude]];
-  let lastDist = points[0].distanceFromStartMeters;
-
-  for (let i = 1; i < points.length; i++) {
-    if (points[i].distanceFromStartMeters - lastDist >= MIN_GAP_M || i === points.length - 1) {
-      coords.push([points[i].longitude, points[i].latitude]);
-      lastDist = points[i].distanceFromStartMeters;
-    }
-  }
-
-  return coords;
-}
+const TILE_ROUTE_POINT_INTERVAL_M = 200;
 
 /**
  * Estimate download size based on route length.
@@ -66,7 +48,10 @@ export async function downloadRouteTiles(
 ): Promise<void> {
   const id = packId(routeId);
   const styleURL = MAP_STYLE_URL;
-  const coords = downsampleCoords(points);
+  const coords = downsampleRoutePointsByDistance(points, {
+    intervalMeters: TILE_ROUTE_POINT_INTERVAL_M,
+    mapPoint: (point) => [point.longitude, point.latitude],
+  });
 
   if (coords.length < 2) {
     onError("Route too short for offline download");

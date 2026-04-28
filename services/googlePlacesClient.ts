@@ -1,4 +1,5 @@
 import type { RoutePoint, POICategory } from "@/types";
+import { downsampleRoutePointsByDistance, splitRoutePointsByDistance } from "@/utils/geo";
 import type { ClassifiedPOI } from "./poiClassifier";
 
 // --- Google Places API response types ---
@@ -53,30 +54,6 @@ function encodeSignedValue(value: number): string {
   }
   encoded += String.fromCharCode(v + 63);
   return encoded;
-}
-
-/** Downsample route to ~1 point per km for a compact polyline */
-function downsampleForPolyline(points: RoutePoint[]): { latitude: number; longitude: number }[] {
-  if (points.length === 0) return [];
-
-  const result = [{ latitude: points[0].latitude, longitude: points[0].longitude }];
-  let lastDist = points[0].distanceFromStartMeters;
-
-  for (let i = 1; i < points.length; i++) {
-    if (points[i].distanceFromStartMeters - lastDist >= 1000) {
-      result.push({ latitude: points[i].latitude, longitude: points[i].longitude });
-      lastDist = points[i].distanceFromStartMeters;
-    }
-  }
-
-  // Always include last point
-  const last = points[points.length - 1];
-  const lastResult = result[result.length - 1];
-  if (last.latitude !== lastResult.latitude || last.longitude !== lastResult.longitude) {
-    result.push({ latitude: last.latitude, longitude: last.longitude });
-  }
-
-  return result;
 }
 
 // --- Tags ---
@@ -174,35 +151,13 @@ async function searchAlongRoute(
 // --- Route segmentation ---
 
 const MAX_SEGMENT_M = 50_000;
+const POLYLINE_POINT_INTERVAL_M = 1_000;
 
-/** Split route points into even segments of at most MAX_SEGMENT_M, with 1-point overlap */
-function splitRoute(points: RoutePoint[]): RoutePoint[][] {
-  if (points.length < 2) return [points];
-
-  const totalDist =
-    points[points.length - 1].distanceFromStartMeters - points[0].distanceFromStartMeters;
-  if (totalDist <= MAX_SEGMENT_M) return [points];
-
-  const numSegments = Math.ceil(totalDist / MAX_SEGMENT_M);
-  const segmentLength = totalDist / numSegments;
-  const segments: RoutePoint[][] = [];
-  let segStart = 0;
-  let segStartDist = points[0].distanceFromStartMeters;
-
-  for (let i = 1; i < points.length; i++) {
-    if (points[i].distanceFromStartMeters - segStartDist >= segmentLength) {
-      segments.push(points.slice(segStart, i + 1)); // overlap by 1 point
-      segStart = i;
-      segStartDist = points[i].distanceFromStartMeters;
-    }
-  }
-
-  // Remaining points
-  if (segStart < points.length - 1) {
-    segments.push(points.slice(segStart));
-  }
-
-  return segments;
+function samePolylinePoint(
+  a: { latitude: number; longitude: number },
+  b: { latitude: number; longitude: number },
+): boolean {
+  return a.latitude === b.latitude && a.longitude === b.longitude;
 }
 
 // --- Main orchestrator ---
@@ -212,7 +167,11 @@ export async function fetchGooglePlacesPOIs(
   apiKey: string,
   onProgress?: (done: number, total: number) => void,
 ): Promise<ClassifiedPOI[]> {
-  const segments = splitRoute(routePoints);
+  const segments = splitRoutePointsByDistance(routePoints, {
+    maxSegmentLengthMeters: MAX_SEGMENT_M,
+    balanceSegments: true,
+    includeShortRoute: true,
+  });
   const totalSteps = segments.length * SEARCHES.length;
   let step = 0;
 
@@ -220,7 +179,11 @@ export async function fetchGooglePlacesPOIs(
   const results: ClassifiedPOI[] = [];
 
   for (const segment of segments) {
-    const downsampled = downsampleForPolyline(segment);
+    const downsampled = downsampleRoutePointsByDistance(segment, {
+      intervalMeters: POLYLINE_POINT_INTERVAL_M,
+      mapPoint: (point) => ({ latitude: point.latitude, longitude: point.longitude }),
+      isSameOutput: samePolylinePoint,
+    });
     const encodedPolyline = encodePolyline(downsampled);
 
     onProgress?.(step, totalSteps);
