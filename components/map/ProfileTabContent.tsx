@@ -10,11 +10,13 @@ import { usePoiStore } from "@/store/poiStore";
 import { useClimbStore } from "@/store/climbStore";
 import { PANEL_MODES } from "@/constants";
 import {
-  computeSliceAscent,
-  computeSliceDescent,
+  computeSliceAscentFromDistance,
+  computeSliceDescentFromDistance,
   extractRouteSlice,
   findFirstPointAtOrAfterDistance,
+  findNearestPointIndexAtDistance,
 } from "@/utils/geo";
+import { resolveRouteProgress } from "@/utils/routeProgress";
 import { formatDistance, formatElevation } from "@/utils/formatters";
 import { climbDifficultyColor } from "@/constants/climbHelpers";
 import { stitchPOIs } from "@/services/stitchingService";
@@ -23,7 +25,6 @@ import UpcomingElevation from "./UpcomingElevation";
 import ElevationProfile from "@/components/elevation/ElevationProfile";
 import type { PanelMode, POI, ActiveRouteData, DisplayClimb } from "@/types";
 
-const MAX_SNAP_DISTANCE_M = 1000;
 const HEADER_HEIGHT = 44;
 const STATS_HEIGHT = 28;
 const CLIMB_ROW_HEIGHT = 36;
@@ -62,11 +63,12 @@ export default function ProfileTabContent({ activeData, width, height }: Profile
   const units = useSettingsStore((s) => s.units);
   const setSelectedPOI = usePoiStore((s) => s.setSelectedPOI);
 
-  const isSnapped =
-    snappedPosition &&
-    activeId &&
-    snappedPosition.routeId === activeId &&
-    snappedPosition.distanceFromRouteMeters <= MAX_SNAP_DISTANCE_M;
+  const activeRouteProgress = useMemo(
+    () => resolveRouteProgress(snappedPosition, activeId, activeRoutePoints),
+    [snappedPosition, activeId, activeRoutePoints],
+  );
+  const isSnapped = activeRouteProgress != null;
+  const currentDistanceMeters = activeRouteProgress?.distanceAlongRouteMeters ?? null;
 
   const getStarredPOIs = usePoiStore((s) => s.getStarredPOIs);
   const starredPOIIds = usePoiStore((s) => s.starredPOIIds);
@@ -116,52 +118,56 @@ export default function ProfileTabContent({ activeData, width, height }: Profile
       activeRoutePoints[startIdx].distanceFromStartMeters;
     const sliced = extractRouteSlice(activeRoutePoints, startIdx, totalSliceM);
     let currentIdxInSlice: number | undefined;
-    if (isSnapped) {
-      currentIdxInSlice = snappedPosition!.pointIndex - startIdx;
-      if (currentIdxInSlice < 0 || currentIdxInSlice >= sliced.length) {
-        currentIdxInSlice = undefined;
+    let currentDistanceInSliceMeters: number | undefined;
+    if (currentDistanceMeters != null) {
+      const relativeDistanceMeters =
+        currentDistanceMeters - activeRoutePoints[startIdx].distanceFromStartMeters;
+      const sliceEndMeters = sliced[sliced.length - 1]?.distanceFromStartMeters ?? 0;
+      if (relativeDistanceMeters >= 0 && relativeDistanceMeters <= sliceEndMeters) {
+        currentIdxInSlice = findNearestPointIndexAtDistance(sliced, relativeDistanceMeters);
+        currentDistanceInSliceMeters = relativeDistanceMeters;
       }
     }
     return {
       points: sliced,
       currentIdxInSlice,
+      currentDistanceInSliceMeters,
       offsetMeters: activeRoutePoints[startIdx].distanceFromStartMeters,
     };
-  }, [currentClimb, activeRoutePoints, isSnapped, snappedPosition]);
+  }, [currentClimb, activeRoutePoints, currentDistanceMeters]);
 
   const climbProgressText = useMemo(() => {
-    if (!currentClimb || !isSnapped || !snappedPosition || !activeRoutePoints?.length) return null;
-    const currentDist = snappedPosition.distanceAlongRouteMeters;
+    if (!currentClimb || !activeRouteProgress || !activeRoutePoints?.length) return null;
+    const currentDist = activeRouteProgress.distanceAlongRouteMeters;
     const distToTop = currentClimb.effectiveEndDistanceMeters - currentDist;
     if (distToTop <= 0) return null;
-    const ascentRemaining = computeSliceAscent(
+    const ascentRemaining = computeSliceAscentFromDistance(
       activeRoutePoints,
-      snappedPosition.pointIndex,
+      currentDist,
       currentClimb.effectiveEndDistanceMeters,
     );
     return `↑ ${formatElevation(ascentRemaining, units)} remaining  ·  ${formatDistance(distToTop, units)} to top  ·  ${currentClimb.averageGradientPercent}% avg`;
-  }, [currentClimb, isSnapped, snappedPosition, activeRoutePoints, units]);
+  }, [currentClimb, activeRouteProgress, activeRoutePoints, units]);
 
   const showClimbZoom = isClimbZoomed && currentClimb && climbSlice && climbSlice.points.length > 1;
 
   // Slice bounds (matches UpcomingElevation's window)
-  const { windowStartDist, windowEndDist, riderIdx } = useMemo(() => {
-    if (!isSnapped || !activeRoutePoints?.length) {
-      return { windowStartDist: 0, windowEndDist: 0, riderIdx: 0 };
+  const { windowStartDist, windowEndDist } = useMemo(() => {
+    if (currentDistanceMeters == null || !activeRoutePoints?.length) {
+      return { windowStartDist: 0, windowEndDist: 0 };
     }
-    const idx = snappedPosition!.pointIndex;
-    const distDone = activeRoutePoints[idx]?.distanceFromStartMeters ?? 0;
+    const distDone = currentDistanceMeters;
     const la = lookAheadForMode(panelMode);
     const endDist = Math.min(distDone + la, activeTotalDistance);
-    return { windowStartDist: distDone, windowEndDist: endDist, riderIdx: idx };
-  }, [isSnapped, snappedPosition, activeRoutePoints, panelMode, activeTotalDistance]);
+    return { windowStartDist: distDone, windowEndDist: endDist };
+  }, [currentDistanceMeters, activeRoutePoints, panelMode, activeTotalDistance]);
 
   const statsText = useMemo(() => {
     if (!isSnapped || !activeRoutePoints?.length) return null;
-    const asc = computeSliceAscent(activeRoutePoints, riderIdx, windowEndDist);
-    const desc = computeSliceDescent(activeRoutePoints, riderIdx, windowEndDist);
+    const asc = computeSliceAscentFromDistance(activeRoutePoints, windowStartDist, windowEndDist);
+    const desc = computeSliceDescentFromDistance(activeRoutePoints, windowStartDist, windowEndDist);
     return `↑ ${formatElevation(asc, units)}  ·  ↓ ${formatElevation(desc, units)}`;
-  }, [isSnapped, activeRoutePoints, riderIdx, windowEndDist, units]);
+  }, [isSnapped, activeRoutePoints, windowStartDist, windowEndDist, units]);
 
   const climbsAhead = useMemo<DisplayClimb[]>(() => {
     if (climbsForChart.length === 0) return [];
@@ -183,7 +189,6 @@ export default function ProfileTabContent({ activeData, width, height }: Profile
     );
   }
 
-  const effectivePointIndex = isSnapped ? snappedPosition!.pointIndex : 0;
   const lookAhead = lookAheadForMode(panelMode);
 
   const showHeader = !showClimbZoom;
@@ -272,6 +277,7 @@ export default function ProfileTabContent({ activeData, width, height }: Profile
             width={chartWidth}
             height={chartHeight}
             currentPointIndex={climbSlice!.currentIdxInSlice}
+            currentDistanceMeters={climbSlice!.currentDistanceInSliceMeters}
             showLegend={false}
             distanceOffsetMeters={climbSlice!.offsetMeters}
             climbs={climbsForChart}
@@ -280,7 +286,7 @@ export default function ProfileTabContent({ activeData, width, height }: Profile
         ) : (
           <UpcomingElevation
             points={activeRoutePoints}
-            currentPointIndex={effectivePointIndex}
+            currentDistanceMeters={currentDistanceMeters}
             lookAhead={lookAhead}
             units={units}
             width={chartWidth}

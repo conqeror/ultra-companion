@@ -5,54 +5,74 @@ import {
   WEATHER_TIMELINE_HOURS,
 } from "@/constants";
 import { fetchForecasts, type HourlyForecast } from "./weatherClient";
-import { getETAToDistance } from "./etaCalculator";
-import { computeBearing } from "@/utils/geo";
+import { getETAToDistanceFromDistance } from "./etaCalculator";
+import { computeBearing, interpolateRoutePointAtDistance } from "@/utils/geo";
+
+function validRouteStartDistance(points: RoutePoint[], distanceMeters: number): number | null {
+  if (points.length === 0) return null;
+  if (!Number.isFinite(distanceMeters)) return null;
+  const routeEndMeters = points[points.length - 1].distanceFromStartMeters;
+  if (distanceMeters < 0 || distanceMeters > routeEndMeters) return null;
+  return distanceMeters;
+}
 
 export function sampleWaypoints(
   points: RoutePoint[],
-  fromIndex: number,
-): { latitude: number; longitude: number; distanceAlongRouteM: number; index: number }[] {
-  if (points.length === 0 || fromIndex < 0 || fromIndex >= points.length) return [];
+  fromDistanceAlongRouteM: number,
+): {
+  latitude: number;
+  longitude: number;
+  distanceAlongRouteM: number;
+  index: number;
+  segmentIndex: number;
+}[] {
+  const startDist = validRouteStartDistance(points, fromDistanceAlongRouteM);
+  if (startDist == null) return [];
 
-  const startDist = points[fromIndex].distanceFromStartMeters;
   const maxDist = startDist + WEATHER_LOOKAHEAD_M;
+  const start = interpolateRoutePointAtDistance(points, startDist);
+  if (!start) return [];
+
   const waypoints: {
     latitude: number;
     longitude: number;
     distanceAlongRouteM: number;
     index: number;
+    segmentIndex: number;
   }[] = [
     {
-      latitude: points[fromIndex].latitude,
-      longitude: points[fromIndex].longitude,
+      latitude: start.latitude,
+      longitude: start.longitude,
       distanceAlongRouteM: 0,
-      index: fromIndex,
+      index: start.nearestIndex,
+      segmentIndex: start.segmentIndex,
     },
   ];
 
   let nextThreshold = startDist + WEATHER_WAYPOINT_INTERVAL_M;
-  for (let i = fromIndex + 1; i < points.length; i++) {
-    const dist = points[i].distanceFromStartMeters;
-    if (dist > maxDist) break;
-    if (dist >= nextThreshold) {
-      waypoints.push({
-        latitude: points[i].latitude,
-        longitude: points[i].longitude,
-        distanceAlongRouteM: dist - startDist,
-        index: i,
-      });
-      nextThreshold = dist + WEATHER_WAYPOINT_INTERVAL_M;
-    }
+  while (
+    nextThreshold <= maxDist &&
+    nextThreshold <= points[points.length - 1].distanceFromStartMeters
+  ) {
+    const waypoint = interpolateRoutePointAtDistance(points, nextThreshold);
+    if (!waypoint) break;
+    waypoints.push({
+      latitude: waypoint.latitude,
+      longitude: waypoint.longitude,
+      distanceAlongRouteM: nextThreshold - startDist,
+      index: waypoint.nearestIndex,
+      segmentIndex: waypoint.segmentIndex,
+    });
+    nextThreshold += WEATHER_WAYPOINT_INTERVAL_M;
   }
 
   return waypoints;
 }
 
-function getBearingAtIndex(points: RoutePoint[], index: number): number | null {
+function getBearingAtSegment(points: RoutePoint[], segmentIndex: number): number | null {
   if (points.length < 2) return null;
-  const next = Math.min(index + 1, points.length - 1);
-  const prev = Math.max(index - 1, 0);
-  if (prev === next) return null;
+  const prev = Math.max(0, Math.min(segmentIndex, points.length - 2));
+  const next = prev + 1;
   return computeBearing(
     points[prev].latitude,
     points[prev].longitude,
@@ -79,10 +99,13 @@ export function classifyWind(windDirectionDeg: number, routeBearingDeg: number):
  */
 export async function buildWeatherTimeline(
   points: RoutePoint[],
-  fromIndex: number,
+  fromDistanceAlongRouteM: number,
   cumulativeTime: number[],
 ): Promise<WeatherPoint[]> {
-  const waypoints = sampleWaypoints(points, fromIndex);
+  const startDist = validRouteStartDistance(points, fromDistanceAlongRouteM);
+  if (startDist == null) return [];
+
+  const waypoints = sampleWaypoints(points, fromDistanceAlongRouteM);
   if (waypoints.length === 0) return [];
 
   const forecasts = await fetchForecasts(
@@ -96,12 +119,10 @@ export async function buildWeatherTimeline(
     return { waypoint: wp, forecast: match };
   });
 
-  const startDist = points[fromIndex].distanceFromStartMeters;
-
   // Precompute riding time to each waypoint (avoids repeated linear scans in the hourly loop)
   const waypointETAs = waypointForecasts.map((wpf) => {
     const targetDist = startDist + wpf.waypoint.distanceAlongRouteM;
-    const eta = getETAToDistance(cumulativeTime, points, fromIndex, targetDist);
+    const eta = getETAToDistanceFromDistance(cumulativeTime, points, startDist, targetDist);
     return {
       waypoint: wpf.waypoint,
       forecast: wpf.forecast,
@@ -149,7 +170,7 @@ export async function buildWeatherTimeline(
     const hourData = findClosestHour(parsed, hourTime.getTime());
     if (!hourData) continue;
 
-    const bearing = getBearingAtIndex(points, bestWp.waypoint.index);
+    const bearing = getBearingAtSegment(points, bestWp.waypoint.segmentIndex);
 
     timeline.push({
       hourOffset: h,

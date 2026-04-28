@@ -1,7 +1,7 @@
 import type { RoutePoint, SnappedPosition } from "@/types";
 
 export interface MockRouteStoreState {
-  snappedPosition: Pick<SnappedPosition, "pointIndex"> | null;
+  snappedPosition: SnappedPosition | null;
   visibleRoutePoints: Record<string, RoutePoint[]>;
 }
 

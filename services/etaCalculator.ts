@@ -39,8 +39,59 @@ export function getETABetweenIndices(
   return cumulativeTime[toIndex] - cumulativeTime[fromIndex];
 }
 
+function getTimeAtDistance(
+  cumulativeTime: number[],
+  points: RoutePoint[],
+  distanceAlongRouteM: number,
+): number | null {
+  if (points.length === 0 || cumulativeTime.length === 0) return null;
+  if (points.length !== cumulativeTime.length) return null;
+
+  if (points.length === 1) return cumulativeTime[0];
+
+  const hi = Math.min(
+    findFirstPointAtOrAfterDistance(points, distanceAlongRouteM),
+    points.length - 1,
+  );
+  const lo = Math.max(0, hi - 1);
+
+  const loTime = cumulativeTime[lo];
+  const hiTime = cumulativeTime[hi];
+  const loDist = points[lo].distanceFromStartMeters;
+  const hiDist = points[hi].distanceFromStartMeters;
+
+  if (hiDist - loDist <= 0) return loTime;
+
+  const t = (distanceAlongRouteM - loDist) / (hiDist - loDist);
+  return loTime + t * (hiTime - loTime);
+}
+
 /**
- * Get ETA to a specific distance along the route, interpolating between points.
+ * Get ETA between two route distances, interpolating between points.
+ */
+export function getETAToDistanceFromDistance(
+  cumulativeTime: number[],
+  points: RoutePoint[],
+  fromDistanceAlongRouteM: number,
+  targetDistanceAlongRouteM: number,
+): ETAResult | null {
+  if (points.length === 0 || cumulativeTime.length === 0) return null;
+
+  const distanceMeters = targetDistanceAlongRouteM - fromDistanceAlongRouteM;
+  if (distanceMeters < 0) return null;
+
+  const fromTime = getTimeAtDistance(cumulativeTime, points, fromDistanceAlongRouteM);
+  const targetTime = getTimeAtDistance(cumulativeTime, points, targetDistanceAlongRouteM);
+  if (fromTime == null || targetTime == null) return null;
+
+  const ridingTimeSeconds = targetTime - fromTime;
+  const eta = new Date(Date.now() + ridingTimeSeconds * 1000);
+
+  return { distanceMeters, ridingTimeSeconds, eta };
+}
+
+/**
+ * Get ETA from a route point index to a specific distance along the route.
  */
 export function getETAToDistance(
   cumulativeTime: number[],
@@ -48,34 +99,11 @@ export function getETAToDistance(
   fromIndex: number,
   targetDistanceAlongRouteM: number,
 ): ETAResult | null {
-  if (points.length === 0 || cumulativeTime.length === 0) return null;
   if (fromIndex < 0 || fromIndex >= points.length) return null;
-
-  const fromDist = points[fromIndex].distanceFromStartMeters;
-  const distanceMeters = targetDistanceAlongRouteM - fromDist;
-  if (distanceMeters < 0) return null;
-
-  // Find the two points bracketing the target distance.
-  const targetIndex = findFirstPointAtOrAfterDistance(points, targetDistanceAlongRouteM, fromIndex);
-  const hi = targetIndex < points.length ? targetIndex : points.length - 1;
-  const lo = Math.max(fromIndex, hi - 1);
-
-  // Interpolate time between lo and hi
-  const loTime = cumulativeTime[lo];
-  const hiTime = cumulativeTime[hi];
-  const loDist = points[lo].distanceFromStartMeters;
-  const hiDist = points[hi].distanceFromStartMeters;
-
-  let interpolatedTime: number;
-  if (hiDist - loDist > 0) {
-    const t = (targetDistanceAlongRouteM - loDist) / (hiDist - loDist);
-    interpolatedTime = loTime + t * (hiTime - loTime);
-  } else {
-    interpolatedTime = loTime;
-  }
-
-  const ridingTimeSeconds = interpolatedTime - cumulativeTime[fromIndex];
-  const eta = new Date(Date.now() + ridingTimeSeconds * 1000);
-
-  return { distanceMeters, ridingTimeSeconds, eta };
+  return getETAToDistanceFromDistance(
+    cumulativeTime,
+    points,
+    points[fromIndex].distanceFromStartMeters,
+    targetDistanceAlongRouteM,
+  );
 }

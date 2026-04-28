@@ -50,7 +50,7 @@ interface WeatherState {
   fetchWeather: (
     routeId: string,
     points: RoutePoint[],
-    fromIndex: number,
+    fromDistanceAlongRouteMeters: number,
     cumulativeTime: number[],
   ) => Promise<void>;
   clearWeather: () => void;
@@ -68,7 +68,7 @@ export const useWeatherStore = create<WeatherState>((set, get) => {
     fetchStatus: cacheIsFresh && cached?.timeline?.length ? "done" : "idle",
     error: null,
 
-    fetchWeather: async (routeId, points, fromIndex, cumulativeTime) => {
+    fetchWeather: async (routeId, points, fromDistanceAlongRouteMeters, cumulativeTime) => {
       const state = get();
 
       // Skip if already fetching
@@ -90,7 +90,11 @@ export const useWeatherStore = create<WeatherState>((set, get) => {
       set({ fetchStatus: "fetching", error: null });
 
       try {
-        const timeline = await buildWeatherTimeline(points, fromIndex, cumulativeTime);
+        const timeline = await buildWeatherTimeline(
+          points,
+          fromDistanceAlongRouteMeters,
+          cumulativeTime,
+        );
 
         const cache: CachedWeather = {
           timeline,

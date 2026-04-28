@@ -47,6 +47,7 @@ describe("routeStore", () => {
       error: null,
       visibleRoutePoints: {},
       snappedPosition: null,
+      snapHistory: [],
     });
   });
 
@@ -65,5 +66,39 @@ describe("routeStore", () => {
     expect(databaseMocks.getRoutePoints).toHaveBeenCalledWith("r1");
     expect(useRouteStore.getState().routes).toEqual([visibleActiveRoute]);
     expect(useRouteStore.getState().visibleRoutePoints).toEqual({ r1: points });
+  });
+
+  it("clears snapped position and snap history together", () => {
+    useRouteStore.setState({
+      snappedPosition: {
+        routeId: "r1",
+        pointIndex: 0,
+        distanceAlongRouteMeters: 100,
+        distanceFromRouteMeters: 5,
+      },
+      snapHistory: [
+        {
+          routeId: "r1",
+          latitude: 0,
+          longitude: 0,
+          timestamp: 1,
+          heading: null,
+          speed: null,
+          selectedCandidate: {
+            pointIndex: 0,
+            segmentIndex: 0,
+            projectedFraction: 0,
+            distanceAlongRouteMeters: 100,
+            distanceFromRouteMeters: 5,
+            segmentBearingDegrees: 0,
+          },
+        },
+      ],
+    });
+
+    useRouteStore.getState().clearRouteProgress();
+
+    expect(useRouteStore.getState().snappedPosition).toBeNull();
+    expect(useRouteStore.getState().snapHistory).toEqual([]);
   });
 });

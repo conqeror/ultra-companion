@@ -14,7 +14,15 @@ import { parseGPX } from "@/services/gpxParser";
 import { parseKML } from "@/services/kmlParser";
 import { INACTIVE_ROUTE_COLOR } from "@/constants";
 import { generateId } from "@/utils/generateId";
-import type { Route, RouteWithPoints, RoutePoint, SnappedPosition } from "@/types";
+import type {
+  Route,
+  RouteWithPoints,
+  RoutePoint,
+  SnappedPosition,
+  RouteSnapHistorySample,
+} from "@/types";
+
+const MAX_SNAP_HISTORY_SAMPLES = 5;
 
 interface RouteState {
   routes: Route[];
@@ -24,6 +32,7 @@ interface RouteState {
   visibleRoutePoints: Record<string, RoutePoint[]>;
   // Snapped position on active route
   snappedPosition: SnappedPosition | null;
+  snapHistory: RouteSnapHistorySample[];
 
   /** Fetch route metadata only. Cheap; safe to call on every tab mount. */
   loadRouteMetadata: () => Promise<void>;
@@ -44,6 +53,8 @@ interface RouteState {
   setActiveRoute: (id: string) => Promise<void>;
   getRouteDetail: (id: string) => Promise<RouteWithPoints | null>;
   setSnappedPosition: (pos: SnappedPosition | null) => void;
+  recordSnapHistory: (sample: RouteSnapHistorySample) => void;
+  clearRouteProgress: () => void;
   clearError: () => void;
 }
 
@@ -53,6 +64,7 @@ export const useRouteStore = create<RouteState>((set, get) => ({
   error: null,
   visibleRoutePoints: {},
   snappedPosition: null,
+  snapHistory: [],
 
   loadRouteMetadata: async () => {
     try {
@@ -213,6 +225,7 @@ export const useRouteStore = create<RouteState>((set, get) => ({
   },
 
   setActiveRoute: async (id) => {
+    set({ snappedPosition: null, snapHistory: [] });
     await dbSetActiveRoute(id);
     // Clear active collection in collectionStore
     const { useCollectionStore } = await import("@/store/collectionStore");
@@ -239,11 +252,24 @@ export const useRouteStore = create<RouteState>((set, get) => ({
     const prev = get().snappedPosition;
     if (
       prev?.pointIndex === snappedPosition?.pointIndex &&
-      prev?.routeId === snappedPosition?.routeId
+      prev?.routeId === snappedPosition?.routeId &&
+      Math.abs(
+        (prev?.distanceAlongRouteMeters ?? 0) - (snappedPosition?.distanceAlongRouteMeters ?? 0),
+      ) < 1 &&
+      Math.abs(
+        (prev?.distanceFromRouteMeters ?? 0) - (snappedPosition?.distanceFromRouteMeters ?? 0),
+      ) < 1
     )
       return;
     set({ snappedPosition });
   },
+
+  recordSnapHistory: (sample) => {
+    const sameRouteHistory = get().snapHistory.filter((entry) => entry.routeId === sample.routeId);
+    set({ snapHistory: [...sameRouteHistory, sample].slice(-MAX_SNAP_HISTORY_SAMPLES) });
+  },
+
+  clearRouteProgress: () => set({ snappedPosition: null, snapHistory: [] }),
 
   clearError: () => set({ error: null }),
 }));

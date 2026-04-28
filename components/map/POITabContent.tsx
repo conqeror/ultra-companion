@@ -22,7 +22,8 @@ import { formatDistance, formatDuration, formatETA } from "@/utils/formatters";
 import { getOpeningHoursStatus, isOpenAt, getDaySchedules } from "@/services/openingHoursParser";
 import { stitchPOIs } from "@/services/stitchingService";
 import { toDisplayPOIForSegments, toDisplayPOIs } from "@/services/displayDistance";
-import { getETAToDistance as resolveETAToDistance } from "@/services/etaCalculator";
+import { getETAToDistanceFromDistance as resolveETAToDistance } from "@/services/etaCalculator";
+import { resolveActiveRouteProgress } from "@/utils/routeProgress";
 import POIFilterBar from "@/components/map/POIFilterBar";
 import POIListItem from "@/components/poi/POIListItem";
 import type { ActiveRouteData, DisplayPOI, POI, StitchedSegmentInfo } from "@/types";
@@ -50,8 +51,11 @@ export default function POITabContent({ activeData }: POITabContentProps) {
   const routeIds = useMemo(() => activeData?.routeIds ?? [], [activeData?.routeIds]);
   const routePoints = activeData?.points ?? null;
   const segments = activeData?.segments ?? null;
-  const currentDist = snappedPosition?.distanceAlongRouteMeters ?? null;
-  const currentIdx = snappedPosition?.pointIndex ?? null;
+  const activeRouteProgress = useMemo(
+    () => resolveActiveRouteProgress(activeData, snappedPosition),
+    [activeData, snappedPosition],
+  );
+  const currentDist = activeRouteProgress?.distanceAlongRouteMeters ?? null;
 
   const starredUpcoming = useMemo(() => {
     if (routeIds.length === 0) return [];
@@ -66,14 +70,8 @@ export default function POITabContent({ activeData }: POITabContentProps) {
     for (const poi of displayed) {
       const effectiveDist = poi.effectiveDistanceMeters;
       let ridingTime: number | null = null;
-      if (
-        currentIdx != null &&
-        cumulativeTime &&
-        routePoints &&
-        currentDist != null &&
-        effectiveDist > currentDist
-      ) {
-        const eta = resolveETAToDistance(cumulativeTime, routePoints, currentIdx, effectiveDist);
+      if (cumulativeTime && routePoints && currentDist != null && effectiveDist > currentDist) {
+        const eta = resolveETAToDistance(cumulativeTime, routePoints, currentDist, effectiveDist);
         if (eta && eta.ridingTimeSeconds > 0) ridingTime = eta.ridingTimeSeconds;
       }
       allStarred.push({ ...poi, ridingTimeSeconds: ridingTime });
@@ -85,16 +83,7 @@ export default function POITabContent({ activeData }: POITabContentProps) {
     );
     // starredPOIIds is a reactivity trigger: getStarredPOIs reads from store via get() and is not itself reactive
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    routeIds,
-    segments,
-    getStarredPOIs,
-    starredPOIIds,
-    currentDist,
-    currentIdx,
-    cumulativeTime,
-    routePoints,
-  ]);
+  }, [routeIds, segments, getStarredPOIs, starredPOIIds, currentDist, cumulativeTime, routePoints]);
 
   const totalPOICount = usePoiStore((s) => {
     let count = 0;
@@ -144,7 +133,12 @@ export default function POITabContent({ activeData }: POITabContentProps) {
   // Show inline detail when a POI is selected
   if (selectedPOI) {
     return (
-      <InlinePOIDetail poi={selectedPOI} segments={segments} onBack={() => setSelectedPOI(null)} />
+      <InlinePOIDetail
+        poi={selectedPOI}
+        segments={segments}
+        currentDist={currentDist}
+        onBack={() => setSelectedPOI(null)}
+      />
     );
   }
 
@@ -319,15 +313,16 @@ function CompactPOIRow({
 function InlinePOIDetail({
   poi,
   segments,
+  currentDist,
   onBack,
 }: {
   poi: DisplayPOI;
   segments: StitchedSegmentInfo[] | null;
+  currentDist: number | null;
   onBack: () => void;
 }) {
   const colors = useThemeColors();
   const units = useSettingsStore((s) => s.units);
-  const snappedPosition = useRouteStore((s) => s.snappedPosition);
   const toggleStarred = usePoiStore((s) => s.toggleStarred);
   const isStarred = usePoiStore((s) => s.starredPOIIds.has(poi.id));
   const getETAToPOI = useEtaStore((s) => s.getETAToPOI);
@@ -337,9 +332,9 @@ function InlinePOIDetail({
   const displayPOI = useMemo(() => toDisplayPOIForSegments(poi, segments), [poi, segments]);
 
   const distAhead = useMemo(() => {
-    if (!snappedPosition || !displayPOI) return null;
-    return displayPOI.effectiveDistanceMeters - snappedPosition.distanceAlongRouteMeters;
-  }, [displayPOI, snappedPosition]);
+    if (currentDist == null || !displayPOI) return null;
+    return displayPOI.effectiveDistanceMeters - currentDist;
+  }, [displayPOI, currentDist]);
 
   const etaResult = useMemo(
     () => (displayPOI ? getETAToPOI(displayPOI) : null),

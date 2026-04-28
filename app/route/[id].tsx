@@ -11,7 +11,12 @@ import { useClimbStore } from "@/store/climbStore";
 import type { RouteWithPoints, Climb } from "@/types";
 import { useMapStyle } from "@/hooks/useMapStyle";
 import { formatDistance, formatElevation } from "@/utils/formatters";
-import { computeElevationProgress, computeBounds } from "@/utils/geo";
+import {
+  computeBounds,
+  computeElevationProgressAtDistance,
+  findPointIndexAtOrAfterDistance,
+} from "@/utils/geo";
+import { resolveRouteProgress } from "@/utils/routeProgress";
 import { toDisplayClimbs, toDisplayPOIs } from "@/services/displayDistance";
 import ElevationProfile from "@/components/elevation/ElevationProfile";
 import RouteLayer from "@/components/map/RouteLayer";
@@ -57,15 +62,21 @@ export default function RouteDetailScreen() {
     }
   }, [id, loadPOIs, loadClimbs]);
 
+  const activeRouteProgress = useMemo(
+    () => resolveRouteProgress(snappedPosition, id, route?.points),
+    [snappedPosition, id, route?.points],
+  );
+  const currentDistanceMeters = activeRouteProgress?.distanceAlongRouteMeters;
+
   const currentPointIndex = useMemo(() => {
-    if (snappedPosition?.routeId === id) return snappedPosition.pointIndex;
-    return undefined;
-  }, [snappedPosition, id]);
+    if (currentDistanceMeters == null || !route?.points.length) return undefined;
+    return findPointIndexAtOrAfterDistance(route.points, currentDistanceMeters);
+  }, [currentDistanceMeters, route]);
 
   const elevProgress = useMemo(() => {
-    if (currentPointIndex == null || !route) return null;
-    return computeElevationProgress(route.points, currentPointIndex);
-  }, [currentPointIndex, route]);
+    if (currentDistanceMeters == null || !route) return null;
+    return computeElevationProgressAtDistance(route.points, currentDistanceMeters);
+  }, [currentDistanceMeters, route]);
 
   const screenOptions = useMemo(() => ({ title: route?.name ?? "Route" }), [route?.name]);
 
@@ -163,6 +174,7 @@ export default function RouteDetailScreen() {
             width={chartWidth}
             height={chartHeight}
             currentPointIndex={currentPointIndex}
+            currentDistanceMeters={currentDistanceMeters}
             pois={chartPOIs}
             onPOIPress={setSelectedPOI}
             climbs={chartClimbs}
@@ -173,26 +185,16 @@ export default function RouteDetailScreen() {
         <DataSection routeId={id!} points={route.points} />
 
         {/* Progress (if snapped) */}
-        {currentPointIndex != null && elevProgress && (
+        {currentDistanceMeters != null && elevProgress && (
           <View className="mt-2">
             <Text className="text-[22px] font-barlow-semibold text-foreground px-4 mt-2 mb-3">
               Progress
             </Text>
             <View className="flex-row px-4 mb-3 gap-3">
-              <StatBox
-                label="Completed"
-                value={formatDistance(
-                  route.points[currentPointIndex].distanceFromStartMeters,
-                  units,
-                )}
-              />
+              <StatBox label="Completed" value={formatDistance(currentDistanceMeters, units)} />
               <StatBox
                 label="Remaining"
-                value={formatDistance(
-                  route.totalDistanceMeters -
-                    route.points[currentPointIndex].distanceFromStartMeters,
-                  units,
-                )}
+                value={formatDistance(route.totalDistanceMeters - currentDistanceMeters, units)}
               />
             </View>
             <View className="flex-row px-4 mb-3 gap-3">

@@ -2,13 +2,17 @@ import React, { useMemo } from "react";
 import { View } from "react-native";
 import { Text } from "@/components/ui/text";
 import ElevationProfile from "@/components/elevation/ElevationProfile";
-import { extractRouteSlice, findFirstPointAtOrAfterDistance } from "@/utils/geo";
+import {
+  extractRouteSlice,
+  findFirstPointAtOrAfterDistance,
+  findNearestPointIndexAtDistance,
+} from "@/utils/geo";
 import { LOOK_BACK_RATIO } from "@/constants";
 import type { RoutePoint, UnitSystem, DisplayPOI, DisplayClimb } from "@/types";
 
 interface UpcomingElevationProps {
   points: RoutePoint[];
-  currentPointIndex: number;
+  currentDistanceMeters: number | null;
   /** Look-ahead distance in meters */
   lookAhead: number;
   units: UnitSystem;
@@ -26,7 +30,7 @@ interface UpcomingElevationProps {
 
 export default function UpcomingElevation({
   points,
-  currentPointIndex,
+  currentDistanceMeters,
   lookAhead,
   units,
   width,
@@ -36,16 +40,27 @@ export default function UpcomingElevation({
   climbs,
   fitToWidth,
 }: UpcomingElevationProps) {
-  const { slicedPoints, currentIdxInSlice, offsetMeters, sliceEndDist } = useMemo(() => {
+  const {
+    slicedPoints,
+    currentIdxInSlice,
+    currentDistanceInSliceMeters,
+    offsetMeters,
+    sliceEndDist,
+  } = useMemo(() => {
     if (points.length < 2)
       return {
         slicedPoints: [] as RoutePoint[],
-        currentIdxInSlice: 0,
+        currentIdxInSlice: undefined as number | undefined,
+        currentDistanceInSliceMeters: undefined as number | undefined,
         offsetMeters: 0,
         sliceEndDist: 0,
       };
 
-    const currentDist = points[currentPointIndex].distanceFromStartMeters;
+    const hasCurrentDistance = currentDistanceMeters != null;
+    const currentDist = Math.max(
+      0,
+      Math.min(points[points.length - 1].distanceFromStartMeters, currentDistanceMeters ?? 0),
+    );
     const totalDist = points[points.length - 1].distanceFromStartMeters;
 
     // Window is the selected range total, split 25/75 behind/ahead of the rider.
@@ -73,15 +88,20 @@ export default function UpcomingElevation({
     const sliceOffsetMeters = points[startIdx].distanceFromStartMeters;
     const totalSliceM = totalWindow;
     const sliced = extractRouteSlice(points, startIdx, totalSliceM);
-    const idxInSlice = currentPointIndex - startIdx;
+    const distanceInSliceMeters = hasCurrentDistance ? currentDist - sliceOffsetMeters : undefined;
+    const idxInSlice =
+      distanceInSliceMeters != null
+        ? findNearestPointIndexAtDistance(sliced, distanceInSliceMeters)
+        : undefined;
 
     return {
       slicedPoints: sliced,
       currentIdxInSlice: idxInSlice,
+      currentDistanceInSliceMeters: distanceInSliceMeters,
       offsetMeters: sliceOffsetMeters,
       sliceEndDist: sliceOffsetMeters + totalSliceM,
     };
-  }, [points, currentPointIndex, lookAhead]);
+  }, [points, currentDistanceMeters, lookAhead]);
 
   // Filter POIs to visible slice range
   const visiblePOIs = useMemo(() => {
@@ -116,6 +136,7 @@ export default function UpcomingElevation({
       width={width}
       height={height}
       currentPointIndex={currentIdxInSlice}
+      currentDistanceMeters={currentDistanceInSliceMeters}
       showLegend={false}
       distanceOffsetMeters={offsetMeters}
       pois={visiblePOIs}
