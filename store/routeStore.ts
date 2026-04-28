@@ -195,12 +195,15 @@ export const useRouteStore = create<RouteState>((set, get) => ({
 
       for (let i = 0; i < result.assets.length; i++) {
         const asset = result.assets[i];
-        const fileName =
-          asset.name || decodeURIComponent(asset.uri.split("/").pop() || "") || `route-${i + 1}`;
-
+        const fallbackFileName = `route-${i + 1}`;
+        let fileName = fallbackFileName;
         set({ importProgress: total > 1 ? { current: i + 1, total, fileName } : null });
 
         try {
+          fileName =
+            asset.name || decodeURIComponent(asset.uri.split("/").pop() || "") || fallbackFileName;
+          set({ importProgress: total > 1 ? { current: i + 1, total, fileName } : null });
+
           // The routes query sorts newest-first; stagger batch timestamps so
           // selected-file order remains visible in the list and collection flow.
           const createdAt = total > 1 ? new Date(batchCreatedAt - i).toISOString() : undefined;
