@@ -128,10 +128,132 @@ export function findLastPointAtOrBeforeDistance(
   targetDistanceMeters: number,
   startIndex = 0,
 ): number {
-  const firstAfter = findFirstPointAtOrAfterDistance(points, targetDistanceMeters, startIndex);
-  if (firstAfter >= points.length) return points.length - 1;
-  if (points[firstAfter].distanceFromStartMeters <= targetDistanceMeters) return firstAfter;
-  return firstAfter - 1;
+  let lo = Math.max(0, startIndex);
+  let hi = points.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (points[mid].distanceFromStartMeters <= targetDistanceMeters) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo - 1;
+}
+
+export function findPointIndexAtOrAfterDistance(
+  points: RoutePoint[],
+  targetDistanceMeters: number,
+  startIndex = 0,
+): number {
+  if (points.length === 0) return 0;
+  return Math.min(
+    points.length - 1,
+    Math.max(0, findFirstPointAtOrAfterDistance(points, targetDistanceMeters, startIndex)),
+  );
+}
+
+export function findPointIndexAtOrBeforeDistance(
+  points: RoutePoint[],
+  targetDistanceMeters: number,
+  startIndex = 0,
+): number {
+  if (points.length === 0) return 0;
+  return Math.max(
+    0,
+    Math.min(
+      points.length - 1,
+      findLastPointAtOrBeforeDistance(points, targetDistanceMeters, startIndex),
+    ),
+  );
+}
+
+export function findNearestPointIndexAtDistance(
+  points: RoutePoint[],
+  targetDistanceMeters: number,
+): number {
+  if (points.length === 0) return 0;
+  const hi = findPointIndexAtOrAfterDistance(points, targetDistanceMeters);
+  if (points[hi].distanceFromStartMeters === targetDistanceMeters) {
+    return findPointIndexAtOrBeforeDistance(points, targetDistanceMeters, hi);
+  }
+  const lo = findPointIndexAtOrBeforeDistance(points, targetDistanceMeters);
+  const hiDelta = Math.abs(points[hi].distanceFromStartMeters - targetDistanceMeters);
+  const loDelta = Math.abs(targetDistanceMeters - points[lo].distanceFromStartMeters);
+  return hiDelta < loDelta ? hi : lo;
+}
+
+export interface InterpolatedRoutePoint {
+  latitude: number;
+  longitude: number;
+  elevationMeters: number | null;
+  distanceFromStartMeters: number;
+  nearestIndex: number;
+  segmentIndex: number;
+}
+
+export function interpolateRoutePointAtDistance(
+  points: RoutePoint[],
+  targetDistanceMeters: number,
+): InterpolatedRoutePoint | null {
+  if (points.length === 0) return null;
+  if (points.length === 1 || targetDistanceMeters <= points[0].distanceFromStartMeters) {
+    const first = points[0];
+    return {
+      latitude: first.latitude,
+      longitude: first.longitude,
+      elevationMeters: first.elevationMeters,
+      distanceFromStartMeters: first.distanceFromStartMeters,
+      nearestIndex: 0,
+      segmentIndex: 0,
+    };
+  }
+
+  if (targetDistanceMeters >= points[points.length - 1].distanceFromStartMeters) {
+    const lastIndex = points.length - 1;
+    const segmentIndex = Math.max(0, lastIndex - 1);
+    const last = points[lastIndex];
+    return {
+      latitude: last.latitude,
+      longitude: last.longitude,
+      elevationMeters: last.elevationMeters,
+      distanceFromStartMeters: last.distanceFromStartMeters,
+      nearestIndex: lastIndex,
+      segmentIndex,
+    };
+  }
+
+  const lo = findPointIndexAtOrBeforeDistance(points, targetDistanceMeters);
+  if (points[lo].distanceFromStartMeters === targetDistanceMeters) {
+    const exactIndex = lo;
+    const segmentIndex = Math.min(exactIndex, points.length - 2);
+    const exact = points[exactIndex];
+    return {
+      latitude: exact.latitude,
+      longitude: exact.longitude,
+      elevationMeters: exact.elevationMeters,
+      distanceFromStartMeters: exact.distanceFromStartMeters,
+      nearestIndex: exactIndex,
+      segmentIndex,
+    };
+  }
+
+  const hi = lo + 1;
+  const a = points[lo];
+  const b = points[hi];
+  const segmentMeters = b.distanceFromStartMeters - a.distanceFromStartMeters;
+  const t =
+    segmentMeters > 0 ? (targetDistanceMeters - a.distanceFromStartMeters) / segmentMeters : 0;
+  const elevationMeters =
+    a.elevationMeters != null && b.elevationMeters != null
+      ? a.elevationMeters + t * (b.elevationMeters - a.elevationMeters)
+      : null;
+
+  return {
+    latitude: a.latitude + t * (b.latitude - a.latitude),
+    longitude: a.longitude + t * (b.longitude - a.longitude),
+    elevationMeters,
+    distanceFromStartMeters: targetDistanceMeters,
+    nearestIndex: t < 0.5 ? lo : hi,
+    segmentIndex: lo,
+  };
 }
 
 /** Downsample an array to at most maxPoints using Ramer-Douglas-Peucker on elevation vs distance */
@@ -179,6 +301,57 @@ export function computeElevationProgress(
   }
 
   return { ascentDone, descentDone, ascentRemaining, descentRemaining };
+}
+
+function addElevationDelta(
+  fromElevation: number,
+  toElevation: number,
+  bucket: { ascent: number; descent: number },
+): void {
+  const diff = toElevation - fromElevation;
+  if (diff > 0) bucket.ascent += diff;
+  else bucket.descent += Math.abs(diff);
+}
+
+export function computeElevationProgressAtDistance(
+  points: RoutePoint[],
+  currentDistanceMeters: number,
+): {
+  ascentDone: number;
+  descentDone: number;
+  ascentRemaining: number;
+  descentRemaining: number;
+} {
+  const done = { ascent: 0, descent: 0 };
+  const remaining = { ascent: 0, descent: 0 };
+
+  for (let i = 1; i < points.length; i++) {
+    const prev = points[i - 1];
+    const curr = points[i];
+    if (prev.elevationMeters == null || curr.elevationMeters == null) continue;
+
+    const startDist = prev.distanceFromStartMeters;
+    const endDist = curr.distanceFromStartMeters;
+
+    if (currentDistanceMeters >= endDist) {
+      addElevationDelta(prev.elevationMeters, curr.elevationMeters, done);
+    } else if (currentDistanceMeters <= startDist) {
+      addElevationDelta(prev.elevationMeters, curr.elevationMeters, remaining);
+    } else {
+      const t = (currentDistanceMeters - startDist) / (endDist - startDist);
+      const currentElevation =
+        prev.elevationMeters + t * (curr.elevationMeters - prev.elevationMeters);
+      addElevationDelta(prev.elevationMeters, currentElevation, done);
+      addElevationDelta(currentElevation, curr.elevationMeters, remaining);
+    }
+  }
+
+  return {
+    ascentDone: done.ascent,
+    descentDone: done.descent,
+    ascentRemaining: remaining.ascent,
+    descentRemaining: remaining.descent,
+  };
 }
 
 /**
@@ -248,6 +421,48 @@ export function computeSliceAscent(
   return ascent;
 }
 
+function computeSliceElevationTotals(
+  points: RoutePoint[],
+  startDistanceMeters: number,
+  endDistanceMeters: number,
+): { ascent: number; descent: number } {
+  const totals = { ascent: 0, descent: 0 };
+  if (endDistanceMeters <= startDistanceMeters) return totals;
+
+  for (let i = 1; i < points.length; i++) {
+    const prev = points[i - 1];
+    const curr = points[i];
+    if (prev.elevationMeters == null || curr.elevationMeters == null) continue;
+
+    const segStart = prev.distanceFromStartMeters;
+    const segEnd = curr.distanceFromStartMeters;
+    if (segEnd <= startDistanceMeters) continue;
+    if (segStart >= endDistanceMeters) break;
+    if (segEnd <= segStart) continue;
+
+    const fromDistance = Math.max(startDistanceMeters, segStart);
+    const toDistance = Math.min(endDistanceMeters, segEnd);
+    if (toDistance <= fromDistance) continue;
+
+    const fromT = (fromDistance - segStart) / (segEnd - segStart);
+    const toT = (toDistance - segStart) / (segEnd - segStart);
+    const fromElevation =
+      prev.elevationMeters + fromT * (curr.elevationMeters - prev.elevationMeters);
+    const toElevation = prev.elevationMeters + toT * (curr.elevationMeters - prev.elevationMeters);
+    addElevationDelta(fromElevation, toElevation, totals);
+  }
+
+  return totals;
+}
+
+export function computeSliceAscentFromDistance(
+  points: RoutePoint[],
+  startDistanceMeters: number,
+  endDistanceMeters: number,
+): number {
+  return computeSliceElevationTotals(points, startDistanceMeters, endDistanceMeters).ascent;
+}
+
 /** Compute descent within a distance-bounded slice starting at a given index */
 export function computeSliceDescent(
   points: RoutePoint[],
@@ -262,6 +477,14 @@ export function computeSliceDescent(
     if (prev != null && curr != null && curr < prev) descent += prev - curr;
   }
   return descent;
+}
+
+export function computeSliceDescentFromDistance(
+  points: RoutePoint[],
+  startDistanceMeters: number,
+  endDistanceMeters: number,
+): number {
+  return computeSliceElevationTotals(points, startDistanceMeters, endDistanceMeters).descent;
 }
 
 // --- Phase 3: POI-to-route association ---
@@ -303,6 +526,15 @@ export function pointToSegmentDistance(
     distanceMeters: haversineDistance(pLat, pLon, projLat, projLon),
     fraction,
   };
+}
+
+export interface RouteSegmentProjectionCandidate {
+  segmentIndex: number;
+  nearestPointIndex: number;
+  fraction: number;
+  distanceMeters: number;
+  distanceAlongRouteMeters: number;
+  bearingDegrees: number;
 }
 
 export interface RouteSegmentSpatialIndex {
@@ -378,6 +610,95 @@ function getCandidateSegmentIndexes(
   }
 
   return candidates.size > 0 ? [...candidates] : null;
+}
+
+export function findRouteSegmentCandidates(
+  lat: number,
+  lon: number,
+  routePoints: RoutePoint[],
+  options?: {
+    spatialIndex?: RouteSegmentSpatialIndex | null;
+    maxDistanceMeters?: number;
+    maxCandidates?: number;
+    startSegmentIndex?: number;
+    endSegmentIndex?: number;
+  },
+): RouteSegmentProjectionCandidate[] {
+  if (routePoints.length === 0) return [];
+
+  if (routePoints.length === 1) {
+    return [
+      {
+        segmentIndex: 0,
+        nearestPointIndex: 0,
+        fraction: 0,
+        distanceMeters: haversineDistance(
+          lat,
+          lon,
+          routePoints[0].latitude,
+          routePoints[0].longitude,
+        ),
+        distanceAlongRouteMeters: routePoints[0].distanceFromStartMeters,
+        bearingDegrees: 0,
+      },
+    ];
+  }
+
+  const startSegmentIndex = Math.max(0, options?.startSegmentIndex ?? 0);
+  const endSegmentIndex = Math.min(
+    routePoints.length - 2,
+    options?.endSegmentIndex ?? routePoints.length - 2,
+  );
+  const indexedCandidates = getCandidateSegmentIndexes(lat, lon, options?.spatialIndex);
+  const segmentIndexes =
+    indexedCandidates ??
+    Array.from(
+      { length: endSegmentIndex - startSegmentIndex + 1 },
+      (_, i) => i + startSegmentIndex,
+    );
+
+  const candidates: RouteSegmentProjectionCandidate[] = [];
+  let nearestOutsideRange: RouteSegmentProjectionCandidate | null = null;
+
+  for (const segmentIndex of segmentIndexes) {
+    if (segmentIndex < startSegmentIndex || segmentIndex > endSegmentIndex) continue;
+
+    const a = routePoints[segmentIndex];
+    const b = routePoints[segmentIndex + 1];
+    const { distanceMeters, fraction } = pointToSegmentDistance(
+      lat,
+      lon,
+      a.latitude,
+      a.longitude,
+      b.latitude,
+      b.longitude,
+    );
+    const candidate = {
+      segmentIndex,
+      nearestPointIndex: fraction < 0.5 ? segmentIndex : segmentIndex + 1,
+      fraction,
+      distanceMeters,
+      distanceAlongRouteMeters:
+        a.distanceFromStartMeters +
+        fraction * (b.distanceFromStartMeters - a.distanceFromStartMeters),
+      bearingDegrees: computeBearing(a.latitude, a.longitude, b.latitude, b.longitude),
+    };
+
+    if (options?.maxDistanceMeters == null || distanceMeters <= options.maxDistanceMeters) {
+      candidates.push(candidate);
+    } else if (!nearestOutsideRange || distanceMeters < nearestOutsideRange.distanceMeters) {
+      nearestOutsideRange = candidate;
+    }
+  }
+
+  const sorted = candidates.sort((a, b) => {
+    if (a.distanceMeters !== b.distanceMeters) return a.distanceMeters - b.distanceMeters;
+    return a.distanceAlongRouteMeters - b.distanceAlongRouteMeters;
+  });
+
+  if (sorted.length === 0 && nearestOutsideRange) return [nearestOutsideRange];
+
+  return sorted.slice(0, options?.maxCandidates ?? 80);
 }
 
 /**

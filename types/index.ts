@@ -46,6 +46,41 @@ export interface SnappedPosition {
   distanceFromRouteMeters: number;
 }
 
+declare const ActiveRouteProgressBrand: unique symbol;
+export type ActiveRouteProgress = SnappedPosition & {
+  readonly [ActiveRouteProgressBrand]: true;
+};
+
+export type RouteSnapConfidence = "high" | "medium" | "low";
+
+export interface RouteSnapCandidate {
+  pointIndex: number;
+  segmentIndex: number;
+  projectedFraction: number;
+  distanceAlongRouteMeters: number;
+  distanceFromRouteMeters: number;
+  segmentBearingDegrees: number;
+}
+
+export interface RouteSnapResult {
+  routeId: string;
+  selectedCandidate: RouteSnapCandidate;
+  candidates: RouteSnapCandidate[];
+  confidence: RouteSnapConfidence;
+  isAmbiguous: boolean;
+  snappedPosition: SnappedPosition;
+}
+
+export interface RouteSnapHistorySample {
+  routeId: string;
+  latitude: number;
+  longitude: number;
+  timestamp: number;
+  heading: number | null;
+  speed: number | null;
+  selectedCandidate: RouteSnapCandidate;
+}
+
 declare const DisplayDistanceMetersBrand: unique symbol;
 export type DisplayDistanceMeters = number & {
   readonly [DisplayDistanceMetersBrand]: true;

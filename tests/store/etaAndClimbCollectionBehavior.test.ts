@@ -71,7 +71,12 @@ describe("stitched collection coordinate behavior", () => {
       cachedPoints: stitchedPoints,
     });
 
-    stitchedHarness.routeState.snappedPosition = { pointIndex: 0 };
+    stitchedHarness.routeState.snappedPosition = {
+      routeId: "c1",
+      pointIndex: 0,
+      distanceAlongRouteMeters: 0,
+      distanceFromRouteMeters: 0,
+    };
     stitchedHarness.routeState.visibleRoutePoints = { c1: stitchedPoints };
     stitchedHarness.collectionState.activeStitchedCollection = buildStitchedCollection({
       points: stitchedPoints,
@@ -98,7 +103,12 @@ describe("stitched collection coordinate behavior", () => {
       cachedPoints: stitchedPoints,
     });
 
-    stitchedHarness.routeState.snappedPosition = { pointIndex: 0 };
+    stitchedHarness.routeState.snappedPosition = {
+      routeId: "c1",
+      pointIndex: 0,
+      distanceAlongRouteMeters: 0,
+      distanceFromRouteMeters: 0,
+    };
     stitchedHarness.routeState.visibleRoutePoints = { c1: stitchedPoints };
     stitchedHarness.collectionState.activeStitchedCollection = buildStitchedCollection({
       points: stitchedPoints,
@@ -111,6 +121,62 @@ describe("stitched collection coordinate behavior", () => {
     const eta = useEtaStore.getState().getETAToPOI(preStitched);
 
     expect(eta?.ridingTimeSeconds).toBe(120);
+  });
+
+  it("uses projected snapped distance rather than point index for POI ETA", () => {
+    const stitchedPoints = [
+      buildRoutePoint(0, 0),
+      buildRoutePoint(1_000, 1),
+      buildRoutePoint(2_000, 2),
+    ];
+
+    useEtaStore.setState({
+      routeId: "c1",
+      cumulativeTime: [0, 100, 200],
+      cachedPoints: stitchedPoints,
+    });
+
+    stitchedHarness.routeState.snappedPosition = {
+      routeId: "c1",
+      pointIndex: 0,
+      distanceAlongRouteMeters: 250,
+      distanceFromRouteMeters: 0,
+    };
+    stitchedHarness.routeState.visibleRoutePoints = { c1: stitchedPoints };
+    stitchedHarness.collectionState.activeStitchedCollection = buildStitchedCollection({
+      points: stitchedPoints,
+    });
+
+    const eta = useEtaStore.getState().getETAToPOI(toDisplayPOI(buildPoi("p0", "r1", 900)));
+
+    expect(eta?.distanceMeters).toBe(650);
+    expect(eta?.ridingTimeSeconds).toBe(65);
+  });
+
+  it("does not resolve ETA from stale snap progress for another route", () => {
+    const stitchedPoints = [
+      buildRoutePoint(0, 0),
+      buildRoutePoint(1_000, 1),
+      buildRoutePoint(2_000, 2),
+    ];
+
+    useEtaStore.setState({
+      routeId: "c1",
+      cumulativeTime: [0, 100, 200],
+      cachedPoints: stitchedPoints,
+    });
+
+    stitchedHarness.routeState.snappedPosition = {
+      routeId: "old-route",
+      pointIndex: 0,
+      distanceAlongRouteMeters: 250,
+      distanceFromRouteMeters: 0,
+    };
+    stitchedHarness.routeState.visibleRoutePoints = { c1: stitchedPoints };
+
+    const eta = useEtaStore.getState().getETAToPOI(toDisplayPOI(buildPoi("p0", "r1", 900)));
+
+    expect(eta).toBeNull();
   });
 
   it("recomputes ETA cache when collection variant swaps points array with same route id", () => {

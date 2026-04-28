@@ -109,7 +109,8 @@ We use **Vitest** for pure-logic tests. It runs in a Node environment and avoids
 ### `services/routeSnapping.ts:snapToRoute`
 
 - Point exactly on route → returns that point's index, `distanceAlongRouteMeters` = its `distanceFromStartMeters`.
-- Point off route → returns nearest point (not interpolated — codify current behaviour).
+- Point off route → returns projected segment progress as authoritative `distanceAlongRouteMeters` while still carrying nearest `pointIndex`.
+- Out-and-back / self-crossing route → recent local snap history keeps progress on the intended leg.
 - Empty route → returns `null`.
 
 ## Not in scope (for now)

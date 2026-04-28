@@ -19,7 +19,8 @@ import {
   getClimbDifficulty,
   CLIMB_DIFFICULTY_LABELS,
 } from "@/constants/climbHelpers";
-import { extractRouteSlice } from "@/utils/geo";
+import { extractRouteSlice, findNearestPointIndexAtDistance } from "@/utils/geo";
+import { resolveActiveRouteProgress } from "@/utils/routeProgress";
 import { formatDistance, formatElevation } from "@/utils/formatters";
 import ElevationProfile from "@/components/elevation/ElevationProfile";
 import ClimbListItem from "@/components/climb/ClimbListItem";
@@ -54,7 +55,11 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
 
   const routeIds = useMemo(() => activeData?.routeIds ?? [], [activeData?.routeIds]);
   const segments = activeData?.segments ?? null;
-  const currentDist = snappedPosition?.distanceAlongRouteMeters ?? null;
+  const activeRouteProgress = useMemo(
+    () => resolveActiveRouteProgress(activeData, snappedPosition),
+    [activeData, snappedPosition],
+  );
+  const currentDist = activeRouteProgress?.distanceAlongRouteMeters ?? null;
 
   const displayedClimbs = useMemo(
     () => getClimbsForDisplay(routeIds, segments),
@@ -91,16 +96,22 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
     const sliced = extractRouteSlice(points, startIdx, sliceLength);
     if (sliced.length < 2) return null;
     let currentIdxInSlice: number | undefined;
-    if (snappedPosition) {
-      const idx = snappedPosition.pointIndex - startIdx;
-      if (idx >= 0 && idx < sliced.length) currentIdxInSlice = idx;
+    let currentDistanceInSliceMeters: number | undefined;
+    if (currentDist != null) {
+      const relativeDistance = currentDist - points[startIdx].distanceFromStartMeters;
+      const sliceEndDistance = sliced[sliced.length - 1].distanceFromStartMeters;
+      if (relativeDistance >= 0 && relativeDistance <= sliceEndDistance) {
+        currentIdxInSlice = findNearestPointIndexAtDistance(sliced, relativeDistance);
+        currentDistanceInSliceMeters = relativeDistance;
+      }
     }
     return {
       points: sliced,
       offsetMeters: points[startIdx].distanceFromStartMeters,
       currentIdxInSlice,
+      currentDistanceInSliceMeters,
     };
-  }, [climb, activeData, snappedPosition]);
+  }, [climb, activeData, currentDist]);
 
   const handleStartEdit = () => {
     if (!climb) return;
@@ -223,6 +234,7 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
               showLegend={false}
               distanceOffsetMeters={climbProfile.offsetMeters}
               currentPointIndex={climbProfile.currentIdxInSlice}
+              currentDistanceMeters={climbProfile.currentDistanceInSliceMeters}
             />
           )}
         </View>

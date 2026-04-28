@@ -17,13 +17,15 @@ import POILayer from "./POILayer";
 import ClimbHighlightLayer from "./ClimbHighlightLayer";
 import TabbedBottomPanel from "./TabbedBottomPanel";
 import { resolveActiveClimb } from "@/utils/climbSelect";
-import { snapToRoute } from "@/services/routeSnapping";
+import { resolveActiveRouteProgress } from "@/utils/routeProgress";
+import { snapToRouteDetailed } from "@/services/routeSnapping";
 import { useActiveRouteData, getActiveRouteDataImperative } from "@/hooks/useActiveRouteData";
 import { usePoiStore } from "@/store/poiStore";
 import { useClimbStore } from "@/store/climbStore";
 import { useEtaStore } from "@/store/etaStore";
 import { useWeatherStore } from "@/store/weatherStore";
 import { useOfflineStore } from "@/store/offlineStore";
+import type { RoutePoint, UserPosition } from "@/types";
 
 // Initialize Mapbox with access token from app config
 try {
@@ -61,6 +63,8 @@ export default function MapScreen() {
   const loadRoutePoints = useRouteStore((s) => s.loadRoutePoints);
   const snappedPosition = useRouteStore((s) => s.snappedPosition);
   const setSnappedPosition = useRouteStore((s) => s.setSnappedPosition);
+  const recordSnapHistory = useRouteStore((s) => s.recordSnapHistory);
+  const clearRouteProgress = useRouteStore((s) => s.clearRouteProgress);
   const loadCollections = useCollectionStore((s) => s.loadCollections);
   const loadPOIs = usePoiStore((s) => s.loadPOIs);
   const computeETAForRoute = useEtaStore((s) => s.computeETAForRoute);
@@ -73,6 +77,11 @@ export default function MapScreen() {
   const activeRoutePoints = activeData?.points ?? null;
   const activeRouteIds = useMemo(() => activeData?.routeIds ?? [], [activeData?.routeIds]);
   const activeRouteIdsKey = useMemo(() => activeRouteIds.join(","), [activeRouteIds]);
+  const activeRouteProgress = useMemo(
+    () => resolveActiveRouteProgress(activeData, snappedPosition),
+    [activeData, snappedPosition],
+  );
+  const activeProgressDistanceMeters = activeRouteProgress?.distanceAlongRouteMeters ?? null;
 
   useEffect(() => {
     loadRouteMetadata();
@@ -96,15 +105,23 @@ export default function MapScreen() {
   const getClimbsForDisplay = useClimbStore((s) => s.getClimbsForDisplay);
   const allClimbData = useClimbStore((s) => s.climbs);
 
-  // Clear stale climb selection when active route/collection changes
+  // Clear stale climb selection and progress when active route/collection geometry changes.
   const activeContextKey = activeData ? `${activeData.id}:${activeRouteIdsKey}` : null;
-  const prevActiveContextKey = useRef(activeContextKey);
+  const prevActiveGeometry = useRef({
+    contextKey: activeContextKey,
+    points: activeRoutePoints,
+  });
   useEffect(() => {
-    if (activeContextKey !== prevActiveContextKey.current) {
-      prevActiveContextKey.current = activeContextKey;
+    const previous = prevActiveGeometry.current;
+    if (activeContextKey !== previous.contextKey || activeRoutePoints !== previous.points) {
+      prevActiveGeometry.current = {
+        contextKey: activeContextKey,
+        points: activeRoutePoints,
+      };
       setSelectedClimb(null);
+      clearRouteProgress();
     }
-  }, [activeContextKey, setSelectedClimb]);
+  }, [activeContextKey, activeRoutePoints, setSelectedClimb, clearRouteProgress]);
 
   // Load POIs and climbs when active context changes
   useEffect(() => {
@@ -128,43 +145,80 @@ export default function MapScreen() {
     if (
       activeData &&
       activeRoutePoints?.length &&
-      snappedPosition &&
+      activeRouteProgress &&
       cumulativeTime &&
       isConnected
     ) {
-      fetchWeather(activeData.id, activeRoutePoints, snappedPosition.pointIndex, cumulativeTime);
+      fetchWeather(
+        activeData.id,
+        activeRoutePoints,
+        activeRouteProgress.distanceAlongRouteMeters,
+        cumulativeTime,
+      );
     }
-    // Intentional: fire on id/pointIndex changes, not full object identities
+    // Intentional: fire on id/progress changes, not full object identities
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeData?.id, snappedPosition?.pointIndex, isConnected, cumulativeTime, fetchWeather]);
+  }, [activeData?.id, activeProgressDistanceMeters, isConnected, cumulativeTime, fetchWeather]);
+
+  const applyRouteSnap = useCallback(
+    (position: UserPosition, data: { id: string; points: RoutePoint[] }) => {
+      const routeState = useRouteStore.getState();
+      const previous = routeState.snappedPosition;
+      const snapped = snapToRouteDetailed(
+        position.latitude,
+        position.longitude,
+        data.id,
+        data.points,
+        {
+          previousPointIndex: previous?.routeId === data.id ? previous.pointIndex : undefined,
+          previousDistanceAlongRouteMeters:
+            previous?.routeId === data.id ? previous.distanceAlongRouteMeters : undefined,
+          history: routeState.snapHistory,
+          headingDegrees: position.heading,
+          speedMetersPerSecond: position.speed,
+          timestamp: position.timestamp,
+        },
+      );
+
+      if (!snapped) {
+        clearRouteProgress();
+        return;
+      }
+
+      setSnappedPosition(snapped.snappedPosition);
+
+      recordSnapHistory({
+        routeId: data.id,
+        latitude: position.latitude,
+        longitude: position.longitude,
+        timestamp: position.timestamp,
+        heading: position.heading,
+        speed: position.speed,
+        selectedCandidate: snapped.selectedCandidate,
+      });
+    },
+    [clearRouteProgress, recordSnapHistory, setSnappedPosition],
+  );
 
   // Snap eagerly when routes load (don't wait for next GPS refresh)
   useEffect(() => {
     if (!activeData || !activeRoutePoints?.length) return;
     const pos = useMapStore.getState().userPosition;
     if (!pos) return;
-    const previous = useRouteStore.getState().snappedPosition;
-    const snapped = snapToRoute(pos.latitude, pos.longitude, activeData.id, activeRoutePoints, {
-      previousPointIndex: previous?.routeId === activeData.id ? previous.pointIndex : undefined,
-    });
-    setSnappedPosition(snapped);
+    applyRouteSnap(pos, { id: activeData.id, points: activeRoutePoints });
     // Intentional: fire only when active id or points change; the full activeData reference isn't meaningful
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeData?.id, activeRoutePoints, setSnappedPosition]);
+  }, [activeData?.id, activeRoutePoints, applyRouteSnap]);
 
   // Snap to route after each position refresh
   const snapAfterRefresh = useCallback(
-    (position: { latitude: number; longitude: number }) => {
+    (position: UserPosition) => {
       const data = getActiveRouteDataImperative();
       if (data && data.points.length > 0) {
-        const previous = useRouteStore.getState().snappedPosition;
-        const snapped = snapToRoute(position.latitude, position.longitude, data.id, data.points, {
-          previousPointIndex: previous?.routeId === data.id ? previous.pointIndex : undefined,
-        });
-        setSnappedPosition(snapped);
+        applyRouteSnap(position, { id: data.id, points: data.points });
       }
     },
-    [setSnappedPosition],
+    [applyRouteSnap],
   );
 
   // On-demand GPS: fetch position on mount
@@ -196,16 +250,16 @@ export default function MapScreen() {
 
   // Track current climb based on snapped position
   useEffect(() => {
-    if (snappedPosition && activeData) {
+    if (activeRouteProgress && activeData) {
       updateCurrentClimb(
-        snappedPosition.distanceAlongRouteMeters,
+        activeRouteProgress.distanceAlongRouteMeters,
         activeData.routeIds,
         activeData.segments,
       );
     }
     // Intentional: fire on primitive id/distance changes, not on full object/array identities
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [snappedPosition?.distanceAlongRouteMeters, activeData?.id, updateCurrentClimb]);
+  }, [activeProgressDistanceMeters, activeData?.id, updateCurrentClimb]);
 
   // Fly to selected POI
   const selectedPOI = usePoiStore((s) => s.selectedPOI);
@@ -316,11 +370,7 @@ export default function MapScreen() {
   const highlightedClimb = useMemo(() => {
     if (panelTab !== "climbs") return null;
     const displayed = getClimbsForDisplay(activeRouteIds, activeData?.segments ?? null);
-    return resolveActiveClimb(
-      displayed,
-      snappedPosition?.distanceAlongRouteMeters ?? null,
-      selectedClimb,
-    );
+    return resolveActiveClimb(displayed, activeProgressDistanceMeters, selectedClimb);
     // allClimbData is a reactivity trigger: getClimbsForDisplay reads store via get() and is not itself reactive
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
@@ -328,7 +378,7 @@ export default function MapScreen() {
     selectedClimb,
     activeRouteIds,
     activeData?.segments,
-    snappedPosition?.distanceAlongRouteMeters,
+    activeProgressDistanceMeters,
     allClimbData,
   ]);
 
@@ -362,10 +412,7 @@ export default function MapScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [highlightedClimb?.id]);
 
-  const currentPOIDistanceMeters =
-    snappedPosition && activeData && snappedPosition.routeId === activeData.id
-      ? snappedPosition.distanceAlongRouteMeters
-      : null;
+  const currentPOIDistanceMeters = activeProgressDistanceMeters;
 
   return (
     <View className="flex-1">

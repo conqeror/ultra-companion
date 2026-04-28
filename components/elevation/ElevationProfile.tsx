@@ -37,6 +37,7 @@ interface ElevationProfileProps {
   width: number;
   height: number;
   currentPointIndex?: number;
+  currentDistanceMeters?: number;
   showLegend?: boolean;
   /** Offset added to X-axis labels so they show absolute route distance */
   distanceOffsetMeters?: number;
@@ -207,6 +208,7 @@ export default function ElevationProfile({
   width,
   height,
   currentPointIndex,
+  currentDistanceMeters,
   showLegend = true,
   distanceOffsetMeters = 0,
   pois,
@@ -406,14 +408,30 @@ export default function ElevationProfile({
   }, [climbs, samples, totalMeters, distanceOffsetMeters, xScale, yScale, axisY]);
 
   const currentPos = useMemo(() => {
+    if (currentDistanceMeters != null) {
+      if (
+        !Number.isFinite(currentDistanceMeters) ||
+        currentDistanceMeters < 0 ||
+        currentDistanceMeters > totalMeters
+      ) {
+        return null;
+      }
+      const d = currentDistanceMeters;
+      return {
+        x: xScale(d),
+        y: yScale(interpolateElevation(samples, d)),
+        distanceMeters: d,
+      };
+    }
     if (currentPointIndex == null || currentPointIndex < 0 || currentPointIndex >= points.length)
       return null;
     const p = points[currentPointIndex];
     return {
       x: xScale(p.distanceFromStartMeters),
       y: yScale(p.elevationMeters ?? 0),
+      distanceMeters: p.distanceFromStartMeters,
     };
-  }, [currentPointIndex, points, xScale, yScale]);
+  }, [currentDistanceMeters, totalMeters, currentPointIndex, points, samples, xScale, yScale]);
 
   const scrollRef = useRef<ScrollView | null>(null);
   const [scrollX, setScrollX] = useState(0);
@@ -504,11 +522,10 @@ export default function ElevationProfile({
   }, [overviewShown, innerWidth, scrollX, viewportWidth, overviewInnerWidth]);
 
   const overviewCurrentX = useMemo(() => {
-    if (!overviewShown || !currentPos || totalMeters === 0 || currentPointIndex == null)
-      return null;
-    const frac = points[currentPointIndex].distanceFromStartMeters / totalMeters;
+    if (!overviewShown || !currentPos || totalMeters === 0) return null;
+    const frac = currentPos.distanceMeters / totalMeters;
     return PADDING.left + frac * overviewInnerWidth;
-  }, [overviewShown, currentPos, totalMeters, currentPointIndex, points, overviewInnerWidth]);
+  }, [overviewShown, currentPos, totalMeters, overviewInnerWidth]);
 
   const yLabels = useMemo(() => {
     const raw = buildYLabels(yMin, yMax, dataMin, dataMax).map((value) => ({

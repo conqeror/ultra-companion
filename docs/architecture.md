@@ -113,6 +113,12 @@ OSM opening hours are often missing or wrong for gas stations and groceries — 
 
 Routes are stored individually. Collections reference routes via `collection_segments` table with position-based slots. At display time, selected segments are stitched (points concatenated with distance offsets). `RoutePoint[]` consumers (snapping, ETA cumulative time, weather, elevation rendering) receive the stitched array unchanged — their input is already in "stitched coords".
 
+### Route Progress
+
+`SnappedPosition.distanceAlongRouteMeters` is the authoritative rider progress value. Route snapping computes it from segment projection, so it may fall between imported route points. `SnappedPosition.pointIndex` is still returned as the nearest route point for geometry anchoring and array-based helpers, but consumers should derive indexes from `distanceAlongRouteMeters` when they need an index for slicing, ETA, weather, or elevation rendering.
+
+Raw `SnappedPosition` is an internal store value. UI and service call sites should first resolve it through `utils/routeProgress.ts`, which returns branded `ActiveRouteProgress` only when the snap belongs to the active route or collection, is within the snap-distance threshold, and falls inside the active route's distance bounds. Active route/collection switches clear route progress (`snappedPosition` and snap history together) so stale progress cannot be reused while waiting for a fresh GPS fix.
+
 **Two coordinate systems for POIs and climbs.** POIs and climbs are stored per-route with `distanceAlongRouteMeters` / `startDistanceMeters` relative to **their own route** ("raw coords"). When a collection is active, snapped position, `RoutePoint.distanceFromStartMeters`, and ETA `cumulativeTime` live in **stitched coords** (raw + `segment.distanceOffsetMeters`).
 
 Displayed POIs and climbs use explicit display types:

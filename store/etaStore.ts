@@ -8,8 +8,9 @@ import type {
   DisplayPOI,
 } from "@/types";
 import { DEFAULT_POWER_CONFIG } from "@/constants";
-import { computeRouteETA, getETAToDistance } from "@/services/etaCalculator";
+import { computeRouteETA, getETAToDistanceFromDistance } from "@/services/etaCalculator";
 import { toDisplayPOIForSegments } from "@/services/displayDistance";
+import { resolveRouteProgress } from "@/utils/routeProgress";
 import { useRouteStore } from "./routeStore";
 import { useCollectionStore } from "./collectionStore";
 
@@ -96,7 +97,14 @@ export const useEtaStore = create<ETAState>((set, get) => ({
 
     const routePoints = cachedPoints ?? useRouteStore.getState().visibleRoutePoints[routeId];
     if (!routePoints?.length) return null;
+    const routeProgress = resolveRouteProgress(snapped, routeId, routePoints);
+    if (!routeProgress) return null;
 
-    return getETAToDistance(cumulativeTime, routePoints, snapped.pointIndex, targetDistM);
+    return getETAToDistanceFromDistance(
+      cumulativeTime,
+      routePoints,
+      routeProgress.distanceAlongRouteMeters,
+      targetDistM,
+    );
   },
 }));

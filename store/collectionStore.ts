@@ -242,8 +242,10 @@ export const useCollectionStore = create<CollectionState>((set, get) => ({
     await setRoutesVisible(selectedRouteIds);
     // Reload route store to clear route isActive flags and pick up visibility changes
     const { useRouteStore } = await import("@/store/routeStore");
-    await useRouteStore.getState().loadRouteMetadata();
-    await useRouteStore.getState().loadRoutePoints([], { prune: true });
+    const routeStore = useRouteStore.getState();
+    routeStore.clearRouteProgress();
+    await routeStore.loadRouteMetadata();
+    await routeStore.loadRoutePoints([], { prune: true });
     await get().loadCollections();
     set({ isLoading: false });
   },

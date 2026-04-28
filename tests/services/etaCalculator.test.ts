@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { computeRouteETA, getETABetweenIndices, getETAToDistance } from "@/services/etaCalculator";
+import {
+  computeRouteETA,
+  getETABetweenIndices,
+  getETAToDistance,
+  getETAToDistanceFromDistance,
+} from "@/services/etaCalculator";
 import { DEFAULT_POWER_CONFIG } from "@/constants";
 import type { RoutePoint } from "@/types";
 
@@ -61,6 +66,16 @@ describe("etaCalculator", () => {
     expect(result?.eta.toISOString()).toBe("2026-01-01T00:02:30.000Z");
 
     vi.useRealTimers();
+  });
+
+  it("getETAToDistanceFromDistance uses projected route progress as the start", () => {
+    const points = [basePoint(0, 100, 0), basePoint(1_000, 100, 1), basePoint(2_000, 100, 2)];
+    const cumulative = [0, 100, 200];
+
+    const result = getETAToDistanceFromDistance(cumulative, points, 250, 1_500);
+
+    expect(result?.distanceMeters).toBe(1_250);
+    expect(result?.ridingTimeSeconds).toBe(125);
   });
 
   it("getETAToDistance returns null for invalid cases and extrapolates after final point", () => {
