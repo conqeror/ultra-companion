@@ -52,6 +52,7 @@ describe("stitched collection coordinate behavior", () => {
       selectedClimb: null,
       currentClimbId: null,
       isClimbZoomed: false,
+      minimumDifficulty: "low",
     });
     stitchedHarness.reset();
     etaCalculatorMocks.computeRouteETA.mockReset();

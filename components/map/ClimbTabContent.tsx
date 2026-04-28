@@ -5,10 +5,12 @@ import {
   TextInput as RNTextInput,
   useWindowDimensions,
   FlatList,
+  ScrollView,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Text } from "@/components/ui/text";
-import { Mountain, Pencil, Check } from "lucide-react-native";
+import { Mountain, Pencil, Check, ChevronLeft, ChevronRight } from "lucide-react-native";
+import { cn } from "@/lib/cn";
 import { useThemeColors } from "@/theme";
 import { useSettingsStore } from "@/store/settingsStore";
 import { useRouteStore } from "@/store/routeStore";
@@ -18,6 +20,7 @@ import {
   climbDifficultyColor,
   getClimbDifficulty,
   CLIMB_DIFFICULTY_LABELS,
+  isClimbAtLeastDifficulty,
 } from "@/constants/climbHelpers";
 import { extractRouteSlice, findNearestPointIndexAtDistance } from "@/utils/geo";
 import { resolveActiveRouteProgress } from "@/utils/routeProgress";
@@ -25,11 +28,37 @@ import { formatDistance, formatElevation } from "@/utils/formatters";
 import ElevationProfile from "@/components/elevation/ElevationProfile";
 import ClimbListItem from "@/components/climb/ClimbListItem";
 import { resolveActiveClimb } from "@/utils/climbSelect";
-import type { ActiveRouteData, DisplayClimb } from "@/types";
+import type { ActiveRouteData, ClimbDifficulty, DisplayClimb } from "@/types";
 
 interface ClimbTabContentProps {
   activeData: ActiveRouteData | null;
 }
+
+const DIFFICULTY_FILTERS: {
+  key: ClimbDifficulty;
+  label: string;
+  accessibilityLabel: string;
+}[] = [
+  {
+    key: "low",
+    label: "Easy+",
+    accessibilityLabel: "Show easy, moderate, and hard climbs",
+  },
+  {
+    key: "medium",
+    label: "Moderate+",
+    accessibilityLabel: "Show moderate and hard climbs",
+  },
+  { key: "hard", label: "Hard", accessibilityLabel: "Show hard climbs" },
+];
+
+const DIFFICULTY_FILTER_COLOR_SCORE: Record<ClimbDifficulty, number> = {
+  low: 0,
+  medium: 150,
+  hard: 400,
+};
+
+const FILTER_BAR_HEIGHT = 56;
 
 export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
   const colors = useThemeColors();
@@ -41,6 +70,8 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
   const allClimbs = useClimbStore((s) => s.climbs);
   const selectedClimb = useClimbStore((s) => s.selectedClimb);
   const setSelectedClimb = useClimbStore((s) => s.setSelectedClimb);
+  const minimumDifficulty = useClimbStore((s) => s.minimumDifficulty);
+  const setMinimumDifficulty = useClimbStore((s) => s.setMinimumDifficulty);
   const renameClimb = useClimbStore((s) => s.renameClimb);
   const isExpanded = usePanelStore((s) => s.isExpanded);
   // Reset to current/upcoming climb when tab mounts
@@ -68,13 +99,47 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
     [routeIds, segments, allClimbs, getClimbsForDisplay],
   );
 
+  const sortedClimbs = useMemo(
+    () =>
+      [...displayedClimbs].sort(
+        (a, b) => a.effectiveStartDistanceMeters - b.effectiveStartDistanceMeters,
+      ),
+    [displayedClimbs],
+  );
+
+  const filteredClimbs = useMemo(
+    () =>
+      sortedClimbs.filter((c) => isClimbAtLeastDifficulty(c.difficultyScore, minimumDifficulty)),
+    [minimumDifficulty, sortedClimbs],
+  );
+
+  const difficultyCounts = useMemo(() => {
+    const counts: Record<ClimbDifficulty, number> = { low: 0, medium: 0, hard: 0 };
+    for (const c of sortedClimbs) {
+      counts.low += 1;
+      if (isClimbAtLeastDifficulty(c.difficultyScore, "medium")) counts.medium += 1;
+      if (isClimbAtLeastDifficulty(c.difficultyScore, "hard")) counts.hard += 1;
+    }
+    return counts;
+  }, [sortedClimbs]);
+
+  const selectedClimbForFilter =
+    selectedClimb && isClimbAtLeastDifficulty(selectedClimb.difficultyScore, minimumDifficulty)
+      ? selectedClimb
+      : null;
+
   const climb = useMemo(() => {
     if (editingClimb) return editingClimb;
-    return resolveActiveClimb(displayedClimbs, currentDist, selectedClimb);
-  }, [displayedClimbs, currentDist, editingClimb, selectedClimb]);
+    return resolveActiveClimb(filteredClimbs, currentDist, selectedClimbForFilter);
+  }, [filteredClimbs, currentDist, editingClimb, selectedClimbForFilter]);
 
   const difficulty = climb ? getClimbDifficulty(climb.difficultyScore) : "low";
   const diffColor = climb ? climbDifficultyColor(climb.difficultyScore) : colors.textTertiary;
+
+  const climbIndex = useMemo(
+    () => (climb ? filteredClimbs.findIndex((c) => c.id === climb.id) : -1),
+    [climb, filteredClimbs],
+  );
 
   const distToStart = useMemo(() => {
     if (!climb || currentDist == null) return null;
@@ -130,15 +195,23 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
     setEditingClimb(null);
   };
 
-  // Sorted climbs for the expanded list
-  const sortedClimbs = useMemo(
-    () =>
-      isExpanded
-        ? [...displayedClimbs].sort(
-            (a, b) => a.effectiveStartDistanceMeters - b.effectiveStartDistanceMeters,
-          )
-        : [],
-    [isExpanded, displayedClimbs],
+  const handleMinimumDifficultyChange = useCallback(
+    (filter: ClimbDifficulty) => {
+      setIsEditing(false);
+      setEditingClimb(null);
+      setMinimumDifficulty(filter);
+    },
+    [setMinimumDifficulty],
+  );
+
+  const handleNavigateClimb = useCallback(
+    (direction: -1 | 1) => {
+      if (climbIndex < 0) return;
+      const nextClimb = filteredClimbs[climbIndex + direction];
+      if (!nextClimb) return;
+      setSelectedClimb(nextClimb);
+    },
+    [climbIndex, filteredClimbs, setSelectedClimb],
   );
 
   const handleClimbPress = useCallback(
@@ -160,20 +233,59 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
     );
   }
 
-  if (!climb) return null;
+  if (!climb) {
+    return (
+      <View className="flex-1">
+        {isExpanded && (
+          <DifficultyFilterBar
+            activeFilter={minimumDifficulty}
+            counts={difficultyCounts}
+            onChange={handleMinimumDifficultyChange}
+          />
+        )}
+        <View className="flex-1 items-center justify-center px-4">
+          <Mountain size={24} color={colors.textTertiary} />
+          <Text className="text-[13px] text-muted-foreground font-barlow-medium mt-2 text-center">
+            No climbs match this filter
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
+  const climbPositionLabel =
+    climbIndex >= 0 ? `${climbIndex + 1}/${filteredClimbs.length}` : `-/${filteredClimbs.length}`;
+  const climbTitle = `${climbPositionLabel}: ${climb.name ?? "Climb"}`;
 
   return (
     <View className="flex-1">
+      {isExpanded && (
+        <DifficultyFilterBar
+          activeFilter={minimumDifficulty}
+          counts={difficultyCounts}
+          onChange={handleMinimumDifficultyChange}
+        />
+      )}
+
       {/* Header: name + difficulty */}
       <View className="flex-row items-center px-3 pt-1">
-        <View className="flex-1">
+        <ClimbArrowButton
+          direction="previous"
+          disabled={climbIndex <= 0}
+          onPress={() => handleNavigateClimb(-1)}
+        />
+
+        <View className="flex-1 mx-2">
           {isExpanded && isEditing ? (
             <View className="flex-row items-center">
+              <Text className="text-[15px] font-barlow-semibold text-foreground mr-1.5">
+                {climbPositionLabel}:
+              </Text>
               <RNTextInput
                 className="flex-1 text-[15px] font-barlow-semibold text-foreground border-b border-accent"
                 value={editName}
                 onChangeText={setEditName}
-                placeholder="Climb name"
+                placeholder="Climb"
                 placeholderTextColor={colors.textTertiary}
                 // eslint-disable-next-line jsx-a11y/no-autofocus -- intentional: focus input when user taps edit
                 autoFocus
@@ -201,13 +313,13 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
                 className="text-[15px] font-barlow-semibold text-foreground flex-shrink"
                 numberOfLines={1}
               >
-                {climb.name ?? "Unnamed climb"}
+                {climbTitle}
               </Text>
               <Pencil size={10} color={colors.textTertiary} style={{ marginLeft: 4 }} />
             </TouchableOpacity>
           ) : (
             <Text className="text-[15px] font-barlow-semibold text-foreground" numberOfLines={1}>
-              {climb.name ?? "Unnamed climb"}
+              {climbTitle}
             </Text>
           )}
           <View className="flex-row items-center">
@@ -215,8 +327,20 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
             <Text className="ml-1 text-[11px] font-barlow-medium" style={{ color: diffColor }}>
               {CLIMB_DIFFICULTY_LABELS[difficulty]} · {Math.round(climb.difficultyScore)}
             </Text>
+            {!isExpanded && (
+              <CompactDifficultyFilter
+                activeFilter={minimumDifficulty}
+                count={difficultyCounts[minimumDifficulty]}
+              />
+            )}
           </View>
         </View>
+
+        <ClimbArrowButton
+          direction="next"
+          disabled={climbIndex < 0 || climbIndex >= filteredClimbs.length - 1}
+          onPress={() => handleNavigateClimb(1)}
+        />
       </View>
 
       {/* Elevation profile */}
@@ -267,7 +391,7 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
       {isExpanded && (
         <View className="flex-1 border-t border-border mt-1">
           <FlatList
-            data={sortedClimbs}
+            data={filteredClimbs}
             keyExtractor={(item) => item.id}
             renderItem={({ item }) => (
               <ClimbListItem
@@ -277,10 +401,139 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
                 onPress={handleClimbPress}
               />
             )}
+            ListEmptyComponent={
+              <View className="items-center justify-center py-8 px-4">
+                <Text className="text-[13px] text-muted-foreground font-barlow-medium">
+                  No climbs match this difficulty
+                </Text>
+              </View>
+            }
             contentContainerStyle={{ paddingBottom: safeBottom }}
           />
         </View>
       )}
+    </View>
+  );
+}
+
+function ClimbArrowButton({
+  direction,
+  disabled,
+  onPress,
+}: {
+  direction: "previous" | "next";
+  disabled: boolean;
+  onPress: () => void;
+}) {
+  const colors = useThemeColors();
+  const Icon = direction === "previous" ? ChevronLeft : ChevronRight;
+
+  return (
+    <TouchableOpacity
+      className={cn(
+        "w-[48px] h-[48px] items-center justify-center rounded-full border",
+        disabled ? "border-transparent" : "bg-muted border-border",
+      )}
+      style={disabled ? { opacity: 0.4 } : undefined}
+      disabled={disabled}
+      onPress={onPress}
+      accessibilityLabel={direction === "previous" ? "Previous climb" : "Next climb"}
+      accessibilityState={{ disabled }}
+    >
+      <Icon size={22} color={disabled ? colors.textTertiary : colors.textSecondary} />
+    </TouchableOpacity>
+  );
+}
+
+function CompactDifficultyFilter({
+  activeFilter,
+  count,
+}: {
+  activeFilter: ClimbDifficulty;
+  count: number;
+}) {
+  const filter = DIFFICULTY_FILTERS.find((item) => item.key === activeFilter);
+  const color = climbDifficultyColor(DIFFICULTY_FILTER_COLOR_SCORE[activeFilter]);
+
+  return (
+    <View className="ml-2 flex-row items-center rounded-full border border-border bg-muted px-2 min-h-[22px]">
+      <View className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: color }} />
+      <Text className="ml-1 text-[10px] font-barlow-medium text-muted-foreground">
+        {filter?.label ?? CLIMB_DIFFICULTY_LABELS[activeFilter]} {count}
+      </Text>
+    </View>
+  );
+}
+
+function DifficultyFilterBar({
+  activeFilter,
+  counts,
+  onChange,
+}: {
+  activeFilter: ClimbDifficulty;
+  counts: Record<ClimbDifficulty, number>;
+  onChange: (filter: ClimbDifficulty) => void;
+}) {
+  const colors = useThemeColors();
+
+  return (
+    <View
+      style={{
+        height: FILTER_BAR_HEIGHT,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.borderSubtle,
+      }}
+    >
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={{ height: FILTER_BAR_HEIGHT, flexGrow: 0 }}
+        contentContainerStyle={{
+          height: FILTER_BAR_HEIGHT,
+          alignItems: "center",
+          paddingHorizontal: 12,
+          gap: 8,
+        }}
+      >
+        {DIFFICULTY_FILTERS.map((filter) => {
+          const isActive = activeFilter === filter.key;
+          const color = climbDifficultyColor(DIFFICULTY_FILTER_COLOR_SCORE[filter.key]);
+
+          return (
+            <TouchableOpacity
+              key={filter.key}
+              className={cn(
+                "flex-row items-center px-3 min-h-[48px] rounded-full",
+                isActive ? "bg-muted border border-border" : "border border-transparent",
+              )}
+              onPress={() => onChange(filter.key)}
+              accessibilityLabel={filter.accessibilityLabel}
+              accessibilityState={{ selected: isActive }}
+            >
+              <View
+                className="w-2 h-2 rounded-full"
+                style={{ backgroundColor: isActive ? color : colors.textTertiary }}
+              />
+              <Text
+                className={cn(
+                  "ml-1.5 text-[12px] font-barlow-medium",
+                  isActive ? "text-foreground" : "text-muted-foreground",
+                )}
+              >
+                {filter.label}
+              </Text>
+              <Text
+                className={cn(
+                  "ml-1 text-[10px] font-barlow-sc-medium",
+                  isActive ? "text-muted-foreground" : "text-muted-foreground/50",
+                )}
+              >
+                {counts[filter.key]}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
     </View>
   );
 }

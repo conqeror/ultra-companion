@@ -2,7 +2,7 @@
 
 Current issue priority and backlog order.
 
-Last reviewed: 2026-04-25
+Last reviewed: 2026-04-27
 
 ## How To Use This
 
@@ -33,31 +33,36 @@ When priorities change, update both:
 
 ### P1 - High-Value Next Work
 
-4. [#16 Add simple average-speed ETA mode](https://github.com/conqeror/ultra-companion/issues/16)
+4. [#22 Add saved custom POIs from Google Maps](https://github.com/conqeror/ultra-companion/issues/22)
+   Known, rider-vetted places from Google Maps should become route-aware Ultra POIs with ETA, opening-hours context, and offline availability.
+
+5. [#16 Add simple average-speed ETA mode](https://github.com/conqeror/ultra-companion/issues/16)
    Makes ETA understandable without tuning CdA/CRR/power. Small enough to ship before larger workflow changes.
 
-5. [#15 Support bulk import of multiple GPX/KML route files](https://github.com/conqeror/ultra-companion/issues/15)
+6. [#15 Support bulk import of multiple GPX/KML route files](https://github.com/conqeror/ultra-companion/issues/15)
    Reduces friction when preparing segmented races or collections.
 
-6. [#14 Redesign collection segment management workflow](https://github.com/conqeror/ultra-companion/issues/14)
+7. [#14 Redesign collection segment management workflow](https://github.com/conqeror/ultra-companion/issues/14)
    Important for route prep, but larger and more design-heavy than bulk import.
 
-7. [#13 Detect and surface important descents for safety and cold management](https://github.com/conqeror/ultra-companion/issues/13)
+8. [#13 Detect and surface important descents for safety and cold management](https://github.com/conqeror/ultra-companion/issues/13)
    Strong ultra-specific planning value. Can use existing elevation data and should work offline from the first version.
 
 ### P2 - Planned Backlog
 
-8. [#17 Polish climb management: edit outside ride view, favorites, and filters](https://github.com/conqeror/ultra-companion/issues/17)
+9. [#17 Polish climb management: edit outside ride view, favorites, and filters](https://github.com/conqeror/ultra-companion/issues/17)
    Useful polish, but less urgent than trust, prep, ETA, and descent awareness.
 
-9. [#18 Optimize long route and collection performance](https://github.com/conqeror/ultra-companion/issues/18)
+10. [#18 Optimize long route and collection performance](https://github.com/conqeror/ultra-companion/issues/18)
    Promote earlier if real long routes are already sluggish. Otherwise optimize after workflows stabilize.
 
-10. [#19 Add route surface type data from OSM](https://github.com/conqeror/ultra-companion/issues/19)
+11. [#19 Add route surface type data from OSM](https://github.com/conqeror/ultra-companion/issues/19)
     Excellent planning feature, but it is a larger milestone touching offline fetch, storage, map, profile, and collections.
+
+12. [#23 Support saved Google Places query presets along routes](https://github.com/conqeror/ultra-companion/issues/23)
+    Useful for personal chain/search preferences like Decathlon, but best after saved custom POIs establish durable POI semantics.
 
 ### P3 - Opportunistic
 
-11. [#5 Cleanup: consolidate route point downsampling and segmentation utilities](https://github.com/conqeror/ultra-companion/issues/5)
+13. [#5 Cleanup: consolidate route point downsampling and segmentation utilities](https://github.com/conqeror/ultra-companion/issues/5)
     Good cleanup when touching Overpass, Google Places, or offline route chunking.
-

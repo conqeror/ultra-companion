@@ -2,6 +2,7 @@ import React, { useMemo } from "react";
 import { ShapeSource, LineLayer } from "@rnmapbox/maps";
 import { gradientColor } from "@/theme/elevation";
 import { useThemeColors } from "@/theme";
+import { getClimbMapSamples } from "@/utils/climbGeometry";
 import type { DisplayClimb, RoutePoint } from "@/types";
 
 interface ClimbHighlightLayerProps {
@@ -21,19 +22,11 @@ export default function ClimbHighlightLayer({ climb, points }: ClimbHighlightLay
   const { geoJSON, gradientExpr } = useMemo(() => {
     if (points.length < 2) return { geoJSON: null, gradientExpr: null };
 
-    // Find points within the climb range
-    const climbPoints: RoutePoint[] = [];
-    for (const p of points) {
-      if (p.distanceFromStartMeters >= climbStart && p.distanceFromStartMeters <= climbEnd) {
-        climbPoints.push(p);
-      }
-      if (p.distanceFromStartMeters > climbEnd) break;
-    }
-
-    if (climbPoints.length < 2) return { geoJSON: null, gradientExpr: null };
+    const climbSamples = getClimbMapSamples(points, climbStart, climbEnd);
+    if (climbSamples.length < 2) return { geoJSON: null, gradientExpr: null };
 
     // Build a single LineString with all climb coordinates
-    const coordinates = climbPoints.map((p) => [p.longitude, p.latitude]);
+    const coordinates = climbSamples.map((p) => [p.longitude, p.latitude]);
 
     const lineGeoJSON: GeoJSON.Feature<GeoJSON.LineString> = {
       type: "Feature",
@@ -45,17 +38,17 @@ export default function ClimbHighlightLayer({ climb, points }: ClimbHighlightLay
     // line-progress goes from 0 (start) to 1 (end) based on projected line length.
     // We approximate using distance along the route.
     const totalDist =
-      climbPoints[climbPoints.length - 1].distanceFromStartMeters -
-      climbPoints[0].distanceFromStartMeters;
+      climbSamples[climbSamples.length - 1].distanceFromStartMeters -
+      climbSamples[0].distanceFromStartMeters;
 
     if (totalDist <= 0) return { geoJSON: null, gradientExpr: null };
 
-    const startDist = climbPoints[0].distanceFromStartMeters;
+    const startDist = climbSamples[0].distanceFromStartMeters;
     const stops: (number | string)[] = [];
 
-    for (let i = 0; i < climbPoints.length - 1; i++) {
-      const a = climbPoints[i];
-      const b = climbPoints[i + 1];
+    for (let i = 0; i < climbSamples.length - 1; i++) {
+      const a = climbSamples[i];
+      const b = climbSamples[i + 1];
       const segDist = b.distanceFromStartMeters - a.distanceFromStartMeters;
       if (segDist <= 0) continue;
 
@@ -70,8 +63,8 @@ export default function ClimbHighlightLayer({ climb, points }: ClimbHighlightLay
     }
 
     // Add final stop at 1.0
-    const lastA = climbPoints[climbPoints.length - 2];
-    const lastB = climbPoints[climbPoints.length - 1];
+    const lastA = climbSamples[climbSamples.length - 2];
+    const lastB = climbSamples[climbSamples.length - 1];
     const lastSegDist = lastB.distanceFromStartMeters - lastA.distanceFromStartMeters;
     const lastGrad =
       lastSegDist > 0

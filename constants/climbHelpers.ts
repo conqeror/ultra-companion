@@ -12,6 +12,16 @@ export function getClimbDifficulty(score: number): ClimbDifficulty {
   return "hard";
 }
 
+export const CLIMB_DIFFICULTY_RANK: Record<ClimbDifficulty, number> = {
+  low: 0,
+  medium: 1,
+  hard: 2,
+};
+
+export function isClimbAtLeastDifficulty(score: number, minimum: ClimbDifficulty): boolean {
+  return CLIMB_DIFFICULTY_RANK[getClimbDifficulty(score)] >= CLIMB_DIFFICULTY_RANK[minimum];
+}
+
 export function climbDifficultyColor(score: number): string {
   return CLIMB_DIFFICULTY_COLORS[getClimbDifficulty(score)];
 }

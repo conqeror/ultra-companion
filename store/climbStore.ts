@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { Climb, DisplayClimb, StitchedSegmentInfo } from "@/types";
+import type { Climb, ClimbDifficulty, DisplayClimb, StitchedSegmentInfo } from "@/types";
 import { getClimbsForRoute, updateClimbName } from "@/db/database";
 import { MIN_GAIN_M } from "@/services/climbDetector";
 import { toDisplayClimb, toDisplayClimbs } from "@/services/displayDistance";
@@ -12,12 +12,14 @@ interface ClimbState {
   selectedClimb: DisplayClimb | null;
   currentClimbId: string | null;
   isClimbZoomed: boolean;
+  minimumDifficulty: ClimbDifficulty;
 
   // Actions
   loadClimbs: (routeId: string) => Promise<void>;
   renameClimb: (climbId: string, routeId: string, name: string | null) => Promise<void>;
   setSelectedClimb: (climb: DisplayClimb | null) => void;
   setClimbZoomed: (zoomed: boolean) => void;
+  setMinimumDifficulty: (difficulty: ClimbDifficulty) => void;
   clearClimbCache: () => void;
 
   // Computed
@@ -38,6 +40,7 @@ export const useClimbStore = create<ClimbState>((set, get) => ({
   selectedClimb: null,
   currentClimbId: null,
   isClimbZoomed: false,
+  minimumDifficulty: "low",
 
   loadClimbs: async (routeId) => {
     const existing = get().climbs[routeId];
@@ -87,6 +90,7 @@ export const useClimbStore = create<ClimbState>((set, get) => ({
 
   setSelectedClimb: (climb) => set({ selectedClimb: climb }),
   setClimbZoomed: (zoomed) => set({ isClimbZoomed: zoomed }),
+  setMinimumDifficulty: (minimumDifficulty) => set({ minimumDifficulty, selectedClimb: null }),
   clearClimbCache: () => set({ climbs: {} }),
 
   getClimbsForDisplay: (routeIds, segments) => {

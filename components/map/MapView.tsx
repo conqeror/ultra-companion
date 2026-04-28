@@ -7,7 +7,7 @@ import { useRouteStore } from "@/store/routeStore";
 import { useCollectionStore } from "@/store/collectionStore";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { usePanelStore } from "@/store/panelStore";
-import { SHEET_COMPACT_RATIO } from "@/constants";
+import { SHEET_COMPACT_RATIO, SHEET_EXPANDED_RATIO } from "@/constants";
 import { useThemeColors } from "@/theme";
 import { useMapStyle } from "@/hooks/useMapStyle";
 import { GPS_STALE_THRESHOLD_MS } from "@/constants";
@@ -17,6 +17,8 @@ import POILayer from "./POILayer";
 import ClimbHighlightLayer from "./ClimbHighlightLayer";
 import TabbedBottomPanel from "./TabbedBottomPanel";
 import { resolveActiveClimb } from "@/utils/climbSelect";
+import { getClimbMapBounds, getZoomLevelToFitBounds } from "@/utils/climbGeometry";
+import { isClimbAtLeastDifficulty } from "@/constants/climbHelpers";
 import { resolveActiveRouteProgress } from "@/utils/routeProgress";
 import { snapToRouteDetailed } from "@/services/routeSnapping";
 import { useActiveRouteData, getActiveRouteDataImperative } from "@/hooks/useActiveRouteData";
@@ -26,6 +28,13 @@ import { useEtaStore } from "@/store/etaStore";
 import { useWeatherStore } from "@/store/weatherStore";
 import { useOfflineStore } from "@/store/offlineStore";
 import type { RoutePoint, UserPosition } from "@/types";
+
+const CLIMB_PAN_PADDING = {
+  top: 72,
+  right: 32,
+  bottom: 40,
+  left: 32,
+};
 
 // Initialize Mapbox with access token from app config
 try {
@@ -43,7 +52,7 @@ export default function MapScreen() {
   const cameraRef = useRef<Camera>(null);
   const mapRef = useRef<MapboxMapView>(null);
   const [hasGpsFix, setHasGpsFix] = useState(false);
-  const { height: screenHeight } = useWindowDimensions();
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
 
   const { followUser, setFollowUser } = useMapStore();
   const refreshPosition = useMapStore((s) => s.refreshPosition);
@@ -54,8 +63,11 @@ export default function MapScreen() {
   });
   const lastCamera = useRef(initialCamera.current);
   const panelTab = usePanelStore((s) => s.panelTab);
+  const isPanelExpanded = usePanelStore((s) => s.isExpanded);
   const { bottom: safeBottom } = useSafeAreaInsets();
-  const panelHeight = Math.round(screenHeight * SHEET_COMPACT_RATIO) + safeBottom;
+  const compactPanelHeight = Math.round(screenHeight * SHEET_COMPACT_RATIO) + safeBottom;
+  const expandedPanelHeight = Math.round(screenHeight * SHEET_EXPANDED_RATIO) + safeBottom;
+  const overlayPanelHeight = isPanelExpanded ? expandedPanelHeight : compactPanelHeight;
 
   const routes = useRouteStore((s) => s.routes);
   const visibleRoutePoints = useRouteStore((s) => s.visibleRoutePoints);
@@ -102,6 +114,7 @@ export default function MapScreen() {
   const updateCurrentClimb = useClimbStore((s) => s.updateCurrentClimb);
   const selectedClimb = useClimbStore((s) => s.selectedClimb);
   const setSelectedClimb = useClimbStore((s) => s.setSelectedClimb);
+  const minimumDifficulty = useClimbStore((s) => s.minimumDifficulty);
   const getClimbsForDisplay = useClimbStore((s) => s.getClimbsForDisplay);
   const allClimbData = useClimbStore((s) => s.climbs);
 
@@ -326,9 +339,9 @@ export default function MapScreen() {
       paddingTop: 0,
       paddingLeft: 0,
       paddingRight: 0,
-      paddingBottom: panelHeight,
+      paddingBottom: compactPanelHeight,
     }),
-    [panelHeight],
+    [compactPanelHeight],
   );
 
   const pulsingConfig = useMemo(
@@ -369,8 +382,14 @@ export default function MapScreen() {
   // Climb to highlight on the map — active when Climbs tab is selected
   const highlightedClimb = useMemo(() => {
     if (panelTab !== "climbs") return null;
-    const displayed = getClimbsForDisplay(activeRouteIds, activeData?.segments ?? null);
-    return resolveActiveClimb(displayed, activeProgressDistanceMeters, selectedClimb);
+    const displayed = getClimbsForDisplay(activeRouteIds, activeData?.segments ?? null).filter(
+      (c) => isClimbAtLeastDifficulty(c.difficultyScore, minimumDifficulty),
+    );
+    const selected =
+      selectedClimb && isClimbAtLeastDifficulty(selectedClimb.difficultyScore, minimumDifficulty)
+        ? selectedClimb
+        : null;
+    return resolveActiveClimb(displayed, activeProgressDistanceMeters, selected);
     // allClimbData is a reactivity trigger: getClimbsForDisplay reads store via get() and is not itself reactive
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
@@ -379,38 +398,53 @@ export default function MapScreen() {
     activeRouteIds,
     activeData?.segments,
     activeProgressDistanceMeters,
+    minimumDifficulty,
     allClimbData,
   ]);
 
-  // Fly to highlighted climb bounds
+  // Center highlighted climbs without increasing zoom; zoom out only when the climb cannot fit.
   useEffect(() => {
     if (!highlightedClimb || !activeRoutePoints?.length) return;
-    const climbStart = highlightedClimb.effectiveStartDistanceMeters;
-    const climbEnd = highlightedClimb.effectiveEndDistanceMeters;
-
-    let minLat = 90,
-      maxLat = -90,
-      minLon = 180,
-      maxLon = -180;
-    let found = false;
-    for (const p of activeRoutePoints) {
-      if (p.distanceFromStartMeters < climbStart) continue;
-      if (p.distanceFromStartMeters > climbEnd) break;
-      found = true;
-      if (p.latitude < minLat) minLat = p.latitude;
-      if (p.latitude > maxLat) maxLat = p.latitude;
-      if (p.longitude < minLon) minLon = p.longitude;
-      if (p.longitude > maxLon) maxLon = p.longitude;
-    }
-    if (!found) return;
+    const climbBounds = getClimbMapBounds(
+      activeRoutePoints,
+      highlightedClimb.effectiveStartDistanceMeters,
+      highlightedClimb.effectiveEndDistanceMeters,
+    );
+    if (!climbBounds) return;
+    const bounds = climbBounds;
 
     setFollowUser(false);
-    // Camera padding already accounts for the panel, so fitBounds
-    // only needs breathing room around the climb bounds.
-    cameraRef.current?.fitBounds([maxLon, maxLat], [minLon, minLat], [60, 40, 40, 40], 500);
-    // Intentional: fire only when the highlighted climb identity changes, not on every route point update
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [highlightedClimb?.id]);
+    cameraRef.current?.setCamera({
+      centerCoordinate: bounds.center,
+      padding: {
+        paddingTop: 0,
+        paddingRight: 0,
+        paddingBottom: overlayPanelHeight,
+        paddingLeft: 0,
+      },
+      zoomLevel: getZoomLevelToFitBounds(
+        lastCamera.current.zoom,
+        bounds,
+        screenWidth,
+        screenHeight,
+        {
+          top: CLIMB_PAN_PADDING.top,
+          right: CLIMB_PAN_PADDING.right,
+          bottom: overlayPanelHeight + CLIMB_PAN_PADDING.bottom,
+          left: CLIMB_PAN_PADDING.left,
+        },
+      ),
+      animationMode: "easeTo",
+      animationDuration: 500,
+    });
+  }, [
+    highlightedClimb,
+    activeRoutePoints,
+    overlayPanelHeight,
+    screenHeight,
+    screenWidth,
+    setFollowUser,
+  ]);
 
   const currentPOIDistanceMeters = activeProgressDistanceMeters;
 
