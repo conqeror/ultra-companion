@@ -54,7 +54,7 @@ When priorities change, update both:
    Useful polish, but less urgent than trust, prep, ETA, and descent awareness.
 
 10. [#18 Optimize long route and collection performance](https://github.com/conqeror/ultra-companion/issues/18)
-   Promote earlier if real long routes are already sluggish. Otherwise optimize after workflows stabilize.
+    Promote earlier if real long routes are already sluggish. Otherwise optimize after workflows stabilize.
 
 11. [#19 Add route surface type data from OSM](https://github.com/conqeror/ultra-companion/issues/19)
     Excellent planning feature, but it is a larger milestone touching offline fetch, storage, map, profile, and collections.

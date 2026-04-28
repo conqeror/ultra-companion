@@ -4,12 +4,14 @@ import {
   computeElevationProgressAtDistance,
   computeSliceAscentFromDistance,
   computePOIRouteAssociation,
+  downsampleRoutePointsByDistance,
   findFirstPointAtOrAfterDistance,
   findLastPointAtOrBeforeDistance,
   findNearestPointIndexAtDistance,
   interpolateRoutePointAtDistance,
   routeToMapGeoJSON,
   simplifyRoutePointsForMap,
+  splitRoutePointsByDistance,
 } from "@/utils/geo";
 import type { RoutePoint } from "@/types";
 
@@ -24,6 +26,91 @@ function point(idx: number, distanceFromStartMeters: number, latitude = 0): Rout
 }
 
 describe("geo route performance helpers", () => {
+  it("downsamples route points by distance with caller-defined output shape", () => {
+    const points = [point(0, 0), point(1, 400), point(2, 1_000), point(3, 1_600), point(4, 2_100)];
+
+    const sampled = downsampleRoutePointsByDistance(points, {
+      intervalMeters: 1_000,
+      mapPoint: (routePoint) => ({
+        lat: routePoint.latitude,
+        lon: routePoint.longitude,
+      }),
+    });
+
+    expect(sampled).toEqual([
+      { lat: 0, lon: 0 },
+      { lat: 0, lon: 0.01 },
+      { lat: 0, lon: 0.021 },
+    ]);
+  });
+
+  it("allows callers to decide whether duplicate endpoint coordinates are retained", () => {
+    const points = [
+      point(0, 0, 0),
+      { ...point(1, 1_000, 1), longitude: 1 },
+      { ...point(2, 1_500, 1), longitude: 1 },
+    ];
+
+    const withoutEndpointComparator = downsampleRoutePointsByDistance(points, {
+      intervalMeters: 1_000,
+      mapPoint: (routePoint) => [routePoint.longitude, routePoint.latitude],
+    });
+    const withEndpointComparator = downsampleRoutePointsByDistance(points, {
+      intervalMeters: 1_000,
+      mapPoint: (routePoint) => ({
+        lat: routePoint.latitude,
+        lon: routePoint.longitude,
+      }),
+      isSameOutput: (a, b) => a.lat === b.lat && a.lon === b.lon,
+    });
+
+    expect(withoutEndpointComparator).toEqual([
+      [0, 0],
+      [1, 1],
+      [1, 1],
+    ]);
+    expect(withEndpointComparator).toEqual([
+      { lat: 0, lon: 0 },
+      { lat: 1, lon: 1 },
+    ]);
+  });
+
+  it("splits route points by distance with one-point overlap", () => {
+    const points = [0, 30, 60, 90, 120].map((distance, idx) => point(idx, distance));
+
+    const segments = splitRoutePointsByDistance(points, { maxSegmentLengthMeters: 50 });
+
+    expect(segments.map((segment) => segment.map((routePoint) => routePoint.idx))).toEqual([
+      [0, 1, 2],
+      [2, 3, 4],
+    ]);
+  });
+
+  it("can balance route point segments and preserve short routes when requested", () => {
+    const points = [0, 40, 80, 120].map((distance, idx) => point(idx, distance));
+    const singlePointRoute = [point(0, 0)];
+
+    const balanced = splitRoutePointsByDistance(points, {
+      maxSegmentLengthMeters: 50,
+      balanceSegments: true,
+    });
+
+    expect(balanced.map((segment) => segment.map((routePoint) => routePoint.idx))).toEqual([
+      [0, 1],
+      [1, 2],
+      [2, 3],
+    ]);
+    expect(splitRoutePointsByDistance(singlePointRoute, { maxSegmentLengthMeters: 50 })).toEqual(
+      [],
+    );
+    expect(
+      splitRoutePointsByDistance(singlePointRoute, {
+        maxSegmentLengthMeters: 50,
+        includeShortRoute: true,
+      }),
+    ).toEqual([singlePointRoute]);
+  });
+
   it("finds distance boundaries with binary search semantics", () => {
     const points = [point(0, 0), point(1, 100), point(2, 100), point(3, 200), point(4, 400)];
 

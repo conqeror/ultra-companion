@@ -1,5 +1,6 @@
 import type { RoutePoint } from "@/types";
 import { OVERPASS_API_URLS, OVERPASS_SEGMENT_LENGTH_M, OVERPASS_RETRY_DELAYS } from "@/constants";
+import { downsampleRoutePointsByDistance, splitRoutePointsByDistance } from "@/utils/geo";
 
 let _nextServerIndex = 0;
 
@@ -25,59 +26,10 @@ interface OverpassResponse {
   elements: OverpassElement[];
 }
 
-// --- Route downsampling for queries ---
+const QUERY_POINT_INTERVAL_M = 1_000;
 
-/** Downsample route points to ~1 point per intervalM meters */
-function downsampleByDistance(
-  points: RoutePoint[],
-  intervalM: number,
-): { lat: number; lon: number }[] {
-  if (points.length === 0) return [];
-
-  const result: { lat: number; lon: number }[] = [
-    { lat: points[0].latitude, lon: points[0].longitude },
-  ];
-  let lastDist = points[0].distanceFromStartMeters;
-
-  for (let i = 1; i < points.length; i++) {
-    if (points[i].distanceFromStartMeters - lastDist >= intervalM) {
-      result.push({ lat: points[i].latitude, lon: points[i].longitude });
-      lastDist = points[i].distanceFromStartMeters;
-    }
-  }
-
-  // Always include the last point
-  const last = points[points.length - 1];
-  const lastResult = result[result.length - 1];
-  if (last.latitude !== lastResult.lat || last.longitude !== lastResult.lon) {
-    result.push({ lat: last.latitude, lon: last.longitude });
-  }
-
-  return result;
-}
-
-/** Split route points into segments of approximately segmentLengthM */
-function segmentRoute(points: RoutePoint[], segmentLengthM: number): RoutePoint[][] {
-  if (points.length === 0) return [];
-
-  const segments: RoutePoint[][] = [];
-  let segStart = 0;
-  let segStartDist = points[0].distanceFromStartMeters;
-
-  for (let i = 1; i < points.length; i++) {
-    if (points[i].distanceFromStartMeters - segStartDist >= segmentLengthM) {
-      segments.push(points.slice(segStart, i + 1)); // overlap by 1 point
-      segStart = i;
-      segStartDist = points[i].distanceFromStartMeters;
-    }
-  }
-
-  // Remaining points
-  if (segStart < points.length - 1) {
-    segments.push(points.slice(segStart));
-  }
-
-  return segments;
+function sameQueryPoint(a: { lat: number; lon: number }, b: { lat: number; lon: number }): boolean {
+  return a.lat === b.lat && a.lon === b.lon;
 }
 
 // --- Overpass QL query building ---
@@ -186,7 +138,9 @@ export async function fetchAllPOIs(
   corridorWidthM: number,
   onProgress?: (done: number, total: number) => void,
 ): Promise<OverpassElement[]> {
-  const segments = segmentRoute(routePoints, OVERPASS_SEGMENT_LENGTH_M);
+  const segments = splitRoutePointsByDistance(routePoints, {
+    maxSegmentLengthMeters: OVERPASS_SEGMENT_LENGTH_M,
+  });
   const allElements: OverpassElement[] = [];
   const seen = new Set<number>(); // deduplicate by OSM id
 
@@ -194,7 +148,11 @@ export async function fetchAllPOIs(
     onProgress?.(i, segments.length);
 
     // Downsample segment points to ~1 per km for the query
-    const downsampled = downsampleByDistance(segments[i], 1000);
+    const downsampled = downsampleRoutePointsByDistance(segments[i], {
+      intervalMeters: QUERY_POINT_INTERVAL_M,
+      mapPoint: (point) => ({ lat: point.latitude, lon: point.longitude }),
+      isSameOutput: sameQueryPoint,
+    });
     const query = buildOverpassQuery(downsampled, corridorWidthM);
     const elements = await fetchOverpassSegment(query);
 
