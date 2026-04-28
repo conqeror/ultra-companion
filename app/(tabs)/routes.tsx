@@ -6,6 +6,7 @@ import {
   Alert,
   ActivityIndicator,
   StyleSheet,
+  type AlertButton,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Text } from "@/components/ui/text";
@@ -20,9 +21,45 @@ import { useOfflineStore } from "@/store/offlineStore";
 import { ACTIVE_ROUTE_COLOR, INACTIVE_ROUTE_COLOR } from "@/constants";
 import { formatDistance, formatElevation } from "@/utils/formatters";
 import { useThemeColors } from "@/theme";
-import type { Route, Collection } from "@/types";
+import type { Route, Collection, RouteImportSummary } from "@/types";
 
 type SectionItem = { type: "collection"; data: Collection } | { type: "route"; data: Route };
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === "string" && error.trim()) return error;
+  return fallback;
+}
+
+function routeLabel(count: number): string {
+  return count === 1 ? "route" : "routes";
+}
+
+function fileLabel(count: number): string {
+  return count === 1 ? "file" : "files";
+}
+
+function buildImportSummaryMessage(summary: RouteImportSummary): string {
+  const importedCount = summary.imported.length;
+  const failedCount = summary.failed.length;
+  const lines = [
+    `Imported ${importedCount} ${routeLabel(importedCount)} from ${summary.total} ${fileLabel(
+      summary.total,
+    )}.`,
+  ];
+
+  if (failedCount > 0) {
+    lines.push("", `Failed ${failedCount} ${fileLabel(failedCount)}:`);
+    for (const failure of summary.failed.slice(0, 3)) {
+      lines.push(`${failure.fileName}: ${failure.reason}`);
+    }
+    if (failedCount > 3) {
+      lines.push(`And ${failedCount - 3} more.`);
+    }
+  }
+
+  return lines.join("\n");
+}
 
 export default function RoutesScreen() {
   const router = useRouter();
@@ -31,6 +68,7 @@ export default function RoutesScreen() {
     routes,
     isLoading,
     error,
+    importProgress,
     loadRouteMetadata,
     importRoute,
     deleteRoute,
@@ -43,6 +81,7 @@ export default function RoutesScreen() {
   const loadCollections = useCollectionStore((s) => s.loadCollections);
   const createCollection = useCollectionStore((s) => s.createCollection);
   const deleteCollection = useCollectionStore((s) => s.deleteCollection);
+  const addSegment = useCollectionStore((s) => s.addSegment);
   const setActiveCollection = useCollectionStore((s) => s.setActiveCollection);
   const activeStitchedCollection = useCollectionStore((s) => s.activeStitchedCollection);
   const assignedRouteIds = useCollectionStore((s) => s.assignedRouteIds);
@@ -110,6 +149,67 @@ export default function RoutesScreen() {
       "plain-text",
     );
   }, [createCollection, router]);
+
+  const promptCreateCollectionFromRoutes = useCallback(
+    (importedRoutes: Route[]) => {
+      Alert.prompt(
+        "New Collection",
+        "Name this collection",
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Create",
+            onPress: async (name?: string) => {
+              const trimmed = name?.trim();
+              if (!trimmed) return;
+
+              try {
+                const id = await createCollection(trimmed);
+                for (const route of importedRoutes) {
+                  await addSegment(id, route.id);
+                }
+                await loadCollections();
+                router.push(`/collection/${id}` as any);
+              } catch (e: unknown) {
+                Alert.alert(
+                  "Collection Failed",
+                  getErrorMessage(e, "Could not create collection."),
+                );
+              }
+            },
+          },
+        ],
+        "plain-text",
+      );
+    },
+    [addSegment, createCollection, loadCollections, router],
+  );
+
+  const handleImportRoute = useCallback(async () => {
+    const summary = await importRoute();
+    if (!summary || summary.total === 0) return;
+
+    if (summary.total === 1 && summary.failed.length === 0) return;
+
+    if (summary.total === 1 && summary.failed.length === 1) {
+      Alert.alert("Import Failed", summary.failed[0].reason);
+      return;
+    }
+
+    const buttons: AlertButton[] = [{ text: "OK", style: "cancel" }];
+    if (summary.imported.length > 0) {
+      buttons.unshift({
+        text: "New Collection",
+        onPress: () => promptCreateCollectionFromRoutes(summary.imported),
+      });
+    }
+
+    Alert.alert(
+      summary.failed.length > 0 ? "Import Finished" : "Import Complete",
+      buildImportSummaryMessage(summary),
+      buttons,
+    );
+  }, [importRoute, promptCreateCollectionFromRoutes]);
 
   const borderColor = colors.border;
 
@@ -353,11 +453,20 @@ export default function RoutesScreen() {
         />
         <Button
           className="flex-1"
-          onPress={importRoute}
+          onPress={handleImportRoute}
           disabled={isLoading}
           label={isLoading ? undefined : "Import Route"}
         >
-          {isLoading && <ActivityIndicator color="#fff" />}
+          {isLoading && (
+            <View className="flex-row items-center justify-center gap-2">
+              <ActivityIndicator color="#fff" />
+              {importProgress && (
+                <Text className="text-primary-foreground text-[15px] font-barlow-semibold">
+                  {importProgress.current}/{importProgress.total}
+                </Text>
+              )}
+            </View>
+          )}
         </Button>
       </View>
     </View>

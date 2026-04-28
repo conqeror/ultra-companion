@@ -12,7 +12,7 @@ What's implemented. For the "why" behind these, see `usage-context.md`.
 
 ## Routes
 
-- Import GPX/KML via file picker, share sheet, or URL
+- Import GPX/KML via single or multi-select file picker, share sheet, or URL
 - Multiple routes with distinct colors
 - Route list with toggle visibility, set active, delete
 - Route metadata: total distance, ascent, descent

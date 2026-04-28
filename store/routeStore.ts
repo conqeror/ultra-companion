@@ -20,14 +20,27 @@ import type {
   RoutePoint,
   SnappedPosition,
   RouteSnapHistorySample,
+  RouteImportProgress,
+  RouteImportSummary,
 } from "@/types";
 
 const MAX_SNAP_HISTORY_SAMPLES = 5;
+
+interface ImportFromUriOptions {
+  createdAt?: string;
+}
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === "string" && error.trim()) return error;
+  return fallback;
+}
 
 interface RouteState {
   routes: Route[];
   isLoading: boolean;
   error: string | null;
+  importProgress: RouteImportProgress | null;
   // Lazily cached point arrays for routes that currently need full geometry.
   visibleRoutePoints: Record<string, RoutePoint[]>;
   // Snapped position on active route
@@ -46,8 +59,8 @@ interface RouteState {
   loadVisibleRoutePoints: () => Promise<void>;
   /** Load metadata, then visible points. Use when both are needed. */
   loadRoutesAndPoints: () => Promise<void>;
-  importRoute: () => Promise<void>;
-  importFromUri: (uri: string, fileName: string) => Promise<Route>;
+  importRoute: () => Promise<RouteImportSummary | null>;
+  importFromUri: (uri: string, fileName: string, options?: ImportFromUriOptions) => Promise<Route>;
   deleteRoute: (id: string) => Promise<void>;
   toggleVisibility: (id: string) => Promise<void>;
   setActiveRoute: (id: string) => Promise<void>;
@@ -62,6 +75,7 @@ export const useRouteStore = create<RouteState>((set, get) => ({
   routes: [],
   isLoading: false,
   error: null,
+  importProgress: null,
   visibleRoutePoints: {},
   snappedPosition: null,
   snapHistory: [],
@@ -113,7 +127,7 @@ export const useRouteStore = create<RouteState>((set, get) => ({
     set({ visibleRoutePoints: next });
   },
 
-  importFromUri: async (uri: string, fileName: string) => {
+  importFromUri: async (uri: string, fileName: string, options?: ImportFromUriOptions) => {
     const ext = fileName.toLowerCase().split(".").pop();
 
     if (!["gpx", "kml"].includes(ext || "")) {
@@ -146,7 +160,7 @@ export const useRouteStore = create<RouteState>((set, get) => ({
       totalAscentMeters: parsed.totalAscentMeters,
       totalDescentMeters: parsed.totalDescentMeters,
       pointCount: parsed.points.length,
-      createdAt: new Date().toISOString(),
+      createdAt: options?.createdAt ?? new Date().toISOString(),
     };
 
     await insertRoute(route, parsed.points);
@@ -161,25 +175,54 @@ export const useRouteStore = create<RouteState>((set, get) => ({
 
   importRoute: async () => {
     try {
-      set({ isLoading: true, error: null });
+      set({ isLoading: true, error: null, importProgress: null });
 
       const result = await DocumentPicker.getDocumentAsync({
         type: ["application/gpx+xml", "application/vnd.google-earth.kml+xml", "*/*"],
         copyToCacheDirectory: true,
+        multiple: true,
       });
 
-      if (result.canceled || !result.assets?.[0]) {
-        set({ isLoading: false });
-        return;
+      if (result.canceled || !result.assets?.length) {
+        set({ isLoading: false, importProgress: null });
+        return null;
       }
 
-      const asset = result.assets[0];
-      const fileName = asset.name || "route";
+      const imported: Route[] = [];
+      const failed: RouteImportSummary["failed"] = [];
+      const total = result.assets.length;
+      const batchCreatedAt = Date.now();
 
-      await get().importFromUri(asset.uri, fileName);
-      set({ isLoading: false });
+      for (let i = 0; i < result.assets.length; i++) {
+        const asset = result.assets[i];
+        const fileName =
+          asset.name || decodeURIComponent(asset.uri.split("/").pop() || "") || `route-${i + 1}`;
+
+        set({ importProgress: total > 1 ? { current: i + 1, total, fileName } : null });
+
+        try {
+          // The routes query sorts newest-first; stagger batch timestamps so
+          // selected-file order remains visible in the list and collection flow.
+          const createdAt = total > 1 ? new Date(batchCreatedAt - i).toISOString() : undefined;
+          const route = await get().importFromUri(asset.uri, fileName, { createdAt });
+          imported.push(route);
+        } catch (error) {
+          failed.push({
+            fileName,
+            reason: getErrorMessage(error, "Failed to import route"),
+          });
+        }
+      }
+
+      set({ isLoading: false, importProgress: null });
+      return { imported, failed, total };
     } catch (e: any) {
-      set({ isLoading: false, error: e.message || "Failed to import route" });
+      set({
+        isLoading: false,
+        importProgress: null,
+        error: getErrorMessage(e, "Failed to import route"),
+      });
+      return null;
     }
   },
 
