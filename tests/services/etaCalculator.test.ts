@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   computeRouteETA,
+  computeRouteTotalETA,
   getETABetweenIndices,
   getETAToDistance,
   getETAToDistanceFromDistance,
@@ -41,6 +42,23 @@ describe("etaCalculator", () => {
     expect(cumulative[2]).toBeGreaterThanOrEqual(cumulative[1]);
     expect(cumulative[3]).toBeGreaterThanOrEqual(cumulative[2]);
     expect(Number.isFinite(cumulative[3])).toBe(true);
+  });
+
+  it("computeRouteTotalETA matches the final cumulative ETA without allocating lookup data", () => {
+    const points = [
+      basePoint(0, 100, 0),
+      basePoint(500, 120, 1),
+      basePoint(1_000, 110, 2),
+      basePoint(1_500, null, 3),
+    ];
+
+    const cumulative = computeRouteETA(points, DEFAULT_POWER_CONFIG);
+
+    expect(computeRouteTotalETA([], DEFAULT_POWER_CONFIG)).toBeNull();
+    expect(computeRouteTotalETA([basePoint(0, 0, 0)], DEFAULT_POWER_CONFIG)).toBeNull();
+    expect(computeRouteTotalETA(points, DEFAULT_POWER_CONFIG)).toBe(
+      cumulative[cumulative.length - 1],
+    );
   });
 
   it("getETABetweenIndices returns 0 for invalid indexes and supports reverse subtraction", () => {

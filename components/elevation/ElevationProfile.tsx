@@ -1,11 +1,11 @@
-import React, { useMemo, useRef, useState, useEffect, useCallback } from "react";
-import {
-  View,
-  ScrollView,
-  PanResponder,
-  NativeScrollEvent,
-  NativeSyntheticEvent,
-} from "react-native";
+import React, { useMemo, useRef, useEffect, useCallback } from "react";
+import { View, PanResponder, type ScrollView } from "react-native";
+import Animated, {
+  createAnimatedComponent,
+  useAnimatedProps,
+  useAnimatedScrollHandler,
+  useSharedValue,
+} from "react-native-reanimated";
 import Svg, {
   Path,
   Circle,
@@ -75,6 +75,8 @@ const X_LABEL_WIDTH = 48;
 const X_LABEL_HALF_WIDTH = X_LABEL_WIDTH / 2;
 // Target ~one X-axis tick per this many pixels of scrollable content.
 const X_TICK_TARGET_PX = 120;
+
+const AnimatedRect = createAnimatedComponent(Rect);
 
 type Sample = { distance: number; elevation: number };
 
@@ -434,11 +436,16 @@ export default function ElevationProfile({
   }, [currentDistanceMeters, totalMeters, currentPointIndex, points, samples, xScale, yScale]);
 
   const scrollRef = useRef<ScrollView | null>(null);
-  const [scrollX, setScrollX] = useState(0);
+  const scrollX = useSharedValue(0);
 
-  const onScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    setScrollX(e.nativeEvent.contentOffset.x);
-  }, []);
+  const onScroll = useAnimatedScrollHandler(
+    {
+      onScroll: (event) => {
+        scrollX.value = event.contentOffset.x;
+      },
+    },
+    [],
+  );
 
   const didAutoScroll = useRef(false);
   useEffect(() => {
@@ -452,9 +459,9 @@ export default function ElevationProfile({
         Math.min(innerWidth - viewportWidth, currentPos.x - viewportWidth / 2),
       );
       scrollRef.current?.scrollTo({ x: target, animated: false });
-      setScrollX(target);
+      scrollX.value = target;
     }
-  }, [isScrollable, currentPos, innerWidth, viewportWidth]);
+  }, [isScrollable, currentPos, innerWidth, viewportWidth, scrollX]);
 
   const overviewWidth = width;
   const overviewInnerWidth = Math.max(0, overviewWidth - PADDING.left - PADDING.right);
@@ -498,28 +505,30 @@ export default function ElevationProfile({
         Math.min(innerWidth - viewportWidth, targetContentX - viewportWidth / 2),
       );
       scrollRef.current?.scrollTo({ x: target, animated: false });
-      setScrollX(target);
+      scrollX.value = target;
     },
-    [overviewShown, overviewInnerWidth, innerWidth, viewportWidth],
+    [overviewShown, overviewInnerWidth, innerWidth, viewportWidth, scrollX],
   );
 
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderGrant: (e) => seekFromOverviewX(e.nativeEvent.locationX),
-      onPanResponderMove: (e) => seekFromOverviewX(e.nativeEvent.locationX),
-    }),
-  ).current;
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: () => true,
+        onPanResponderGrant: (e) => seekFromOverviewX(e.nativeEvent.locationX),
+        onPanResponderMove: (e) => seekFromOverviewX(e.nativeEvent.locationX),
+      }),
+    [seekFromOverviewX],
+  );
 
-  const viewportIndicator = useMemo(() => {
-    if (!overviewShown || innerWidth === 0) return null;
-    const fracStart = scrollX / innerWidth;
-    const fracEnd = Math.min(1, (scrollX + viewportWidth) / innerWidth);
-    const x = PADDING.left + fracStart * overviewInnerWidth;
-    const w = Math.max(4, (fracEnd - fracStart) * overviewInnerWidth);
-    return { x, w };
-  }, [overviewShown, innerWidth, scrollX, viewportWidth, overviewInnerWidth]);
+  const viewportIndicatorAnimatedProps = useAnimatedProps(() => {
+    const fracStart = innerWidth > 0 ? scrollX.value / innerWidth : 0;
+    const fracEnd = innerWidth > 0 ? Math.min(1, (scrollX.value + viewportWidth) / innerWidth) : 1;
+    return {
+      x: PADDING.left + fracStart * overviewInnerWidth,
+      width: Math.max(4, (fracEnd - fracStart) * overviewInnerWidth),
+    };
+  }, [innerWidth, overviewInnerWidth, scrollX, viewportWidth]);
 
   const overviewCurrentX = useMemo(() => {
     if (!overviewShown || !currentPos || totalMeters === 0) return null;
@@ -736,11 +745,10 @@ export default function ElevationProfile({
             </Defs>
             <Path d={overviewFillPath} fill="url(#ovFill)" />
             <Path d={overviewLinePath} stroke={colors.textTertiary} strokeWidth={1} fill="none" />
-            {viewportIndicator && (
-              <Rect
-                x={viewportIndicator.x}
+            {overviewShown && (
+              <AnimatedRect
+                animatedProps={viewportIndicatorAnimatedProps}
                 y={OVERVIEW_PADDING_V - 2}
-                width={viewportIndicator.w}
                 height={overviewPlotHeight + 4}
                 fill={colors.accent}
                 fillOpacity={0.18}
@@ -792,7 +800,7 @@ export default function ElevationProfile({
         </View>
 
         {isScrollable ? (
-          <ScrollView
+          <Animated.ScrollView
             ref={scrollRef}
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -803,7 +811,7 @@ export default function ElevationProfile({
             style={{ width: viewportWidth }}
           >
             {detailBody}
-          </ScrollView>
+          </Animated.ScrollView>
         ) : (
           <View style={{ width: viewportWidth, height: mainChartHeight }}>{detailBody}</View>
         )}

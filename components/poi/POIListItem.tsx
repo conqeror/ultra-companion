@@ -5,9 +5,8 @@ import { Star } from "lucide-react-native";
 import { useThemeColors } from "@/theme";
 import { useSettingsStore } from "@/store/settingsStore";
 import { usePoiStore } from "@/store/poiStore";
-import { POI_CATEGORIES } from "@/constants";
 import { POI_ICON_MAP } from "@/constants/poiIcons";
-import { ohStatusColorKey } from "@/constants/poiHelpers";
+import { getCategoryMeta, ohStatusColorKey } from "@/constants/poiHelpers";
 import { formatDistance, formatDuration, formatETA } from "@/utils/formatters";
 import { getOpeningHoursStatus } from "@/services/openingHoursParser";
 import { useEtaStore } from "@/store/etaStore";
@@ -19,11 +18,11 @@ interface POIListItemProps {
   onPress: (poi: DisplayPOI) => void;
 }
 
-export default function POIListItem({ poi, currentDistAlongRoute, onPress }: POIListItemProps) {
+function POIListItem({ poi, currentDistAlongRoute, onPress }: POIListItemProps) {
   const colors = useThemeColors();
   const units = useSettingsStore((s) => s.units);
 
-  const catMeta = POI_CATEGORIES.find((c) => c.key === poi.category);
+  const catMeta = getCategoryMeta(poi.category);
   const IconComp = catMeta ? POI_ICON_MAP[catMeta.iconName] : null;
 
   const isStarred = usePoiStore((s) => s.starredPOIIds.has(poi.id));
@@ -32,7 +31,7 @@ export default function POIListItem({ poi, currentDistAlongRoute, onPress }: POI
   const distAhead =
     currentDistAlongRoute != null ? poi.effectiveDistanceMeters - currentDistAlongRoute : null;
 
-  const etaResult = useMemo(() => getETAToPOI(poi), [poi, getETAToPOI]);
+  const etaResult = getETAToPOI(poi);
 
   const ohStatus = useMemo(() => {
     const tag = poi.tags?.opening_hours;
@@ -118,3 +117,5 @@ export default function POIListItem({ poi, currentDistAlongRoute, onPress }: POI
     </TouchableOpacity>
   );
 }
+
+export default React.memo(POIListItem);

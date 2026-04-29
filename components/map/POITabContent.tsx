@@ -5,6 +5,7 @@ import {
   ScrollView,
   TouchableOpacity,
   TextInput as RNTextInput,
+  type ListRenderItem,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Text } from "@/components/ui/text";
@@ -17,7 +18,7 @@ import { usePanelStore } from "@/store/panelStore";
 import { useEtaStore } from "@/store/etaStore";
 import { POI_CATEGORIES, POI_BEHIND_THRESHOLD_M } from "@/constants";
 import { POI_ICON_MAP } from "@/constants/poiIcons";
-import { ohStatusColorKey } from "@/constants/poiHelpers";
+import { getCategoryMeta, ohStatusColorKey } from "@/constants/poiHelpers";
 import { formatDistance, formatDuration, formatETA } from "@/utils/formatters";
 import { getOpeningHoursStatus, isOpenAt, getDaySchedules } from "@/services/openingHoursParser";
 import { stitchPOIs } from "@/services/stitchingService";
@@ -30,6 +31,19 @@ import type { ActiveRouteData, DisplayPOI, POI, StitchedSegmentInfo } from "@/ty
 
 interface POITabContentProps {
   activeData: ActiveRouteData | null;
+}
+
+type StarredDisplayPOI = DisplayPOI & { ridingTimeSeconds: number | null };
+
+const EXPANDED_POI_INITIAL_RENDER_COUNT = 10;
+const COMPACT_POI_INITIAL_RENDER_COUNT = 6;
+const POI_LIST_MAX_BATCH = 8;
+const POI_LIST_WINDOW_SIZE = 5;
+const POI_LIST_BATCHING_PERIOD_MS = 50;
+const EXPANDED_POI_CONTENT_STYLE = { paddingBottom: 8 };
+
+function poiKeyExtractor(item: Pick<DisplayPOI, "id">): string {
+  return item.id;
 }
 
 export default function POITabContent({ activeData }: POITabContentProps) {
@@ -66,7 +80,7 @@ export default function POITabContent({ activeData }: POITabContentProps) {
     const displayed = segments
       ? stitchPOIs(segments, poisByRoute)
       : routeIds.flatMap((routeId) => toDisplayPOIs(poisByRoute[routeId] ?? []));
-    const allStarred: (DisplayPOI & { ridingTimeSeconds: number | null })[] = [];
+    const allStarred: StarredDisplayPOI[] = [];
     for (const poi of displayed) {
       const effectiveDist = poi.effectiveDistanceMeters;
       let ridingTime: number | null = null;
@@ -130,6 +144,25 @@ export default function POITabContent({ activeData }: POITabContentProps) {
     [setSelectedPOI],
   );
 
+  const renderExpandedPOI = useCallback<ListRenderItem<DisplayPOI>>(
+    ({ item }) => (
+      <POIListItem poi={item} currentDistAlongRoute={currentDist} onPress={handlePOIPress} />
+    ),
+    [currentDist, handlePOIPress],
+  );
+
+  const renderCompactPOI = useCallback<ListRenderItem<StarredDisplayPOI>>(
+    ({ item }) => (
+      <CompactPOIRow
+        poi={item}
+        currentDist={currentDist}
+        ridingTimeSeconds={item.ridingTimeSeconds}
+        onPress={handlePOIPress}
+      />
+    ),
+    [currentDist, handlePOIPress],
+  );
+
   // Show inline detail when a POI is selected
   if (selectedPOI) {
     return (
@@ -188,12 +221,17 @@ export default function POITabContent({ activeData }: POITabContentProps) {
         {/* Full POI list */}
         <FlatList
           data={filteredPOIs}
-          keyExtractor={(item) => item.id}
-          renderItem={({ item }) => (
-            <POIListItem poi={item} currentDistAlongRoute={currentDist} onPress={handlePOIPress} />
-          )}
-          contentContainerStyle={{ paddingBottom: 8 }}
+          keyExtractor={poiKeyExtractor}
+          renderItem={renderExpandedPOI}
+          contentContainerStyle={EXPANDED_POI_CONTENT_STYLE}
           showsVerticalScrollIndicator={false}
+          initialNumToRender={EXPANDED_POI_INITIAL_RENDER_COUNT}
+          maxToRenderPerBatch={POI_LIST_MAX_BATCH}
+          updateCellsBatchingPeriod={POI_LIST_BATCHING_PERIOD_MS}
+          windowSize={POI_LIST_WINDOW_SIZE}
+          removeClippedSubviews
+          keyboardShouldPersistTaps="handled"
+          extraData={currentDist}
         />
       </View>
     );
@@ -211,17 +249,16 @@ export default function POITabContent({ activeData }: POITabContentProps) {
           </View>
           <FlatList
             data={starredUpcoming}
-            keyExtractor={(item) => item.id}
-            renderItem={({ item }) => (
-              <CompactPOIRow
-                poi={item}
-                currentDist={currentDist}
-                ridingTimeSeconds={item.ridingTimeSeconds}
-                onPress={() => setSelectedPOI(item)}
-              />
-            )}
+            keyExtractor={poiKeyExtractor}
+            renderItem={renderCompactPOI}
             showsVerticalScrollIndicator={false}
             contentContainerStyle={{ paddingBottom: safeBottom }}
+            initialNumToRender={COMPACT_POI_INITIAL_RENDER_COUNT}
+            maxToRenderPerBatch={POI_LIST_MAX_BATCH}
+            updateCellsBatchingPeriod={POI_LIST_BATCHING_PERIOD_MS}
+            windowSize={POI_LIST_WINDOW_SIZE}
+            removeClippedSubviews
+            extraData={currentDist}
           />
         </>
       ) : (
@@ -236,7 +273,7 @@ export default function POITabContent({ activeData }: POITabContentProps) {
   );
 }
 
-function CompactPOIRow({
+const CompactPOIRow = React.memo(function CompactPOIRow({
   poi,
   currentDist,
   ridingTimeSeconds,
@@ -245,12 +282,12 @@ function CompactPOIRow({
   poi: DisplayPOI;
   currentDist: number | null;
   ridingTimeSeconds: number | null;
-  onPress: () => void;
+  onPress: (poi: DisplayPOI) => void;
 }) {
   const colors = useThemeColors();
   const units = useSettingsStore((s) => s.units);
 
-  const catMeta = POI_CATEGORIES.find((c) => c.key === poi.category);
+  const catMeta = getCategoryMeta(poi.category);
   const IconComp = catMeta ? POI_ICON_MAP[catMeta.iconName] : null;
   const distAhead = currentDist != null ? poi.effectiveDistanceMeters - currentDist : null;
 
@@ -267,7 +304,7 @@ function CompactPOIRow({
   return (
     <TouchableOpacity
       className="flex-row items-center px-3 py-2"
-      onPress={onPress}
+      onPress={() => onPress(poi)}
       accessibilityLabel={poi.name ?? catMeta?.label ?? "POI"}
     >
       <View
@@ -308,7 +345,7 @@ function CompactPOIRow({
       </View>
     </TouchableOpacity>
   );
-}
+});
 
 function InlinePOIDetail({
   poi,

@@ -27,6 +27,30 @@ export function computeRouteETA(points: RoutePoint[], config: PowerModelConfig):
 }
 
 /**
+ * Compute total riding time without allocating the full cumulative ETA array.
+ */
+export function computeRouteTotalETA(
+  points: RoutePoint[],
+  config: PowerModelConfig,
+): number | null {
+  if (points.length < 2) return null;
+
+  let totalSeconds = 0;
+  for (let i = 1; i < points.length; i++) {
+    const prev = points[i - 1];
+    const curr = points[i];
+
+    const dist = curr.distanceFromStartMeters - prev.distanceFromStartMeters;
+    const elevDiff = (curr.elevationMeters ?? 0) - (prev.elevationMeters ?? 0);
+    const gradient = dist > 0 ? elevDiff / dist : 0;
+
+    totalSeconds += computeSegmentTime(dist, gradient, config);
+  }
+
+  return totalSeconds;
+}
+
+/**
  * Get riding time in seconds between two point indices.
  */
 export function getETABetweenIndices(

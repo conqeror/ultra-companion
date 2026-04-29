@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { View, TouchableOpacity } from "react-native";
 import {
   NestableDraggableFlatList,
@@ -13,15 +13,33 @@ import { useThemeColors } from "@/theme";
 import { useRouter } from "expo-router";
 import { useSettingsStore } from "@/store/settingsStore";
 import { useEtaStore } from "@/store/etaStore";
-import { computeRouteETA } from "@/services/etaCalculator";
+import { computeRouteTotalETA } from "@/services/etaCalculator";
 import { formatDistance, formatElevation, formatDuration } from "@/utils/formatters";
-import type { CollectionSegmentWithRoute, RoutePoint } from "@/types";
+import type { CollectionSegmentWithRoute, PowerModelConfig, RoutePoint } from "@/types";
 
 /** A position slot: one or more variants grouped together */
 interface PositionGroup {
   key: string;
   position: number;
   variants: CollectionSegmentWithRoute[];
+}
+
+interface SegmentTimeCacheEntry {
+  points: RoutePoint[];
+  configKey: string;
+  ridingTime: number | null;
+}
+
+function powerConfigCacheKey(config: PowerModelConfig): string {
+  return [
+    config.powerWatts,
+    config.totalMassKg,
+    config.cda,
+    config.crr,
+    config.airDensity,
+    config.maxDescentSpeedKmh,
+    config.drivetrainEfficiency,
+  ].join(":");
 }
 
 interface SegmentListProps {
@@ -48,22 +66,13 @@ function groupByPosition(segments: CollectionSegmentWithRoute[]): PositionGroup[
     }));
 }
 
-function useSegmentTime(points: RoutePoint[] | undefined): number | null {
-  const powerConfig = useEtaStore((s) => s.powerConfig);
-  return useMemo(() => {
-    if (!points || points.length < 2) return null;
-    const cumulative = computeRouteETA(points, powerConfig);
-    return cumulative[cumulative.length - 1];
-  }, [points, powerConfig]);
-}
-
 /** Single segment row — shows name, stats, and riding time */
 function SegmentRow({
   sw,
   isSelected,
   hasVariants,
   posIdx,
-  points,
+  ridingTime,
   drag,
   onSelect,
   onRemove,
@@ -72,7 +81,7 @@ function SegmentRow({
   isSelected: boolean;
   hasVariants: boolean;
   posIdx: number;
-  points: RoutePoint[] | undefined;
+  ridingTime: number | null;
   drag?: () => void;
   onSelect: () => void;
   onRemove: () => void;
@@ -80,7 +89,6 @@ function SegmentRow({
   const colors = useThemeColors();
   const units = useSettingsStore((s) => s.units);
   const router = useRouter();
-  const ridingTime = useSegmentTime(points);
 
   return (
     <View
@@ -174,11 +182,48 @@ export default function SegmentList({
   onRemove,
 }: SegmentListProps) {
   const colors = useThemeColors();
+  const powerConfig = useEtaStore((s) => s.powerConfig);
+  const segmentTimeCacheRef = useRef(new Map<string, SegmentTimeCacheEntry>());
 
   // Local order state for drag reordering
   const serverGroups = useMemo(() => groupByPosition(segmentsWithRoutes), [segmentsWithRoutes]);
   const [localGroups, setLocalGroups] = useState<PositionGroup[]>(serverGroups);
   const [isSaving, setIsSaving] = useState(false);
+
+  const powerConfigKey = useMemo(() => powerConfigCacheKey(powerConfig), [powerConfig]);
+  const ridingTimesByRouteId = useMemo(() => {
+    const cache = segmentTimeCacheRef.current;
+    const activeRouteIds = new Set<string>();
+    const times: Record<string, number | null> = {};
+
+    for (const sw of segmentsWithRoutes) {
+      const routeId = sw.route.id;
+      if (routeId in times) continue;
+      activeRouteIds.add(routeId);
+
+      const points = pointsByRouteId[routeId];
+      if (!points || points.length < 2) {
+        times[routeId] = null;
+        continue;
+      }
+
+      const cached = cache.get(routeId);
+      if (cached?.points === points && cached.configKey === powerConfigKey) {
+        times[routeId] = cached.ridingTime;
+        continue;
+      }
+
+      const ridingTime = computeRouteTotalETA(points, powerConfig);
+      cache.set(routeId, { points, configKey: powerConfigKey, ridingTime });
+      times[routeId] = ridingTime;
+    }
+
+    for (const routeId of cache.keys()) {
+      if (!activeRouteIds.has(routeId)) cache.delete(routeId);
+    }
+
+    return times;
+  }, [segmentsWithRoutes, pointsByRouteId, powerConfig, powerConfigKey]);
 
   useEffect(() => {
     setLocalGroups(serverGroups);
@@ -243,7 +288,7 @@ export default function SegmentList({
                         isSelected={isSelected}
                         hasVariants
                         posIdx={posIdx}
-                        points={pointsByRouteId[sw.route.id]}
+                        ridingTime={ridingTimesByRouteId[sw.route.id] ?? null}
                         onSelect={() => onSelectVariant(sw.route.id)}
                         onRemove={() => onRemove(sw.route.id)}
                       />
@@ -259,7 +304,7 @@ export default function SegmentList({
                   isSelected={sw.segment.isSelected}
                   hasVariants={false}
                   posIdx={posIdx}
-                  points={pointsByRouteId[sw.route.id]}
+                  ridingTime={ridingTimesByRouteId[sw.route.id] ?? null}
                   drag={drag}
                   onSelect={() => {}}
                   onRemove={() => onRemove(sw.route.id)}
@@ -270,7 +315,7 @@ export default function SegmentList({
         </ScaleDecorator>
       );
     },
-    [localGroups, colors, pointsByRouteId, onSelectVariant, onRemove],
+    [localGroups, colors, ridingTimesByRouteId, onSelectVariant, onRemove],
   );
 
   if (localGroups.length === 0) {
