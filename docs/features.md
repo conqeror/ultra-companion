@@ -8,7 +8,8 @@ What's implemented. For the "why" behind these, see `usage-context.md`.
 - On-demand GPS — position refreshes on app focus (if stale >10 min) or manual tap, no background polling
 - Position age indicator when stale
 - Heading-up / north-up toggle
-- Floating map controls (center-on-user, panel mode)
+- Floating map controls (center-on-user)
+- Global riding horizon selector: 10km / 25km / 50km / 100km / 200km
 
 ## Routes
 
@@ -30,7 +31,7 @@ What's implemented. For the "why" behind these, see `usage-context.md`.
 - Interactive chart with gradient color coding (green through red by steepness)
 - Current position marker
 - Pinch-to-zoom, tap to highlight on map
-- Bottom panel modes: 10km / 25km / 50km / 100km / 200km upcoming
+- Elevation profile follows the global riding horizon
 - Segment boundary markers for stitched collections
 
 ## Climb Detection
@@ -39,6 +40,7 @@ What's implemented. For the "why" behind these, see `usage-context.md`.
 - Smoothing, dip absorption, qualification (50m+ gain, 2.5%+ avg gradient)
 - Difficulty scoring (Climbbybike method — gradient squared times length)
 - Upcoming climbs list with distance, ETA, stats
+- Climb tab defaults to climbs inside the selected riding horizon
 - Current climb mode — auto-zooms elevation chart, shows progress to top
 - Climb shading on elevation profile (colored by difficulty)
 
@@ -48,7 +50,9 @@ What's implemented. For the "why" behind these, see `usage-context.md`.
 - Categories: water, groceries, gas stations, bakery, toilets/showers, shelter
 - Two data sources: Overpass/OSM for most categories, Google Places for gas stations and groceries (better opening hours)
 - POI markers on map and elevation profile
-- POI list sortable by distance along route
+- Riding view POI markers and lists are scoped to the selected riding horizon by default
+- Expanded POI list can explicitly switch to full-route planning
+- POI list sorted by distance along route
 - POI text search (filter by name)
 - Starred POIs
 - Saved custom POIs from iOS share sheet or manual coordinates, route-scoped and starred by default
@@ -67,7 +71,7 @@ What's implemented. For the "why" behind these, see `usage-context.md`.
 
 - Current weather at position
 - Forecast at waypoints along route (~50km spacing)
-- Weather timeline — conditions at estimated future positions (uses ETA calculator)
+- Weather timeline — conditions at estimated future positions within the selected riding horizon (uses ETA calculator)
 - Wind indicator: headwind/tailwind/crosswind relative to route direction
 - Cached when online, shows "last updated" timestamp
 

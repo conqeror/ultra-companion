@@ -37,6 +37,12 @@ import { stitchPOIs } from "@/services/stitchingService";
 import { toDisplayPOIForSegments, toDisplayPOIs } from "@/services/displayDistance";
 import { getETAToDistanceFromDistance as resolveETAToDistance } from "@/services/etaCalculator";
 import { resolveActiveRouteProgress } from "@/utils/routeProgress";
+import {
+  createRidingHorizonWindow,
+  isDistanceInWindow,
+  ridingHorizonKmLabelForMode,
+  ridingHorizonMetersForMode,
+} from "@/utils/ridingHorizon";
 import POIFilterBar from "@/components/map/POIFilterBar";
 import POIListItem from "@/components/poi/POIListItem";
 import AddSavedPOISheet from "@/components/poi/AddSavedPOISheet";
@@ -76,21 +82,39 @@ export default function POITabContent({ activeData }: POITabContentProps) {
   const getVisiblePOIs = usePoiStore((s) => s.getVisiblePOIs);
   const allPois = usePoiStore((s) => s.pois);
   const enabledCategories = usePoiStore((s) => s.enabledCategories);
+  const showOpenOnly = usePoiStore((s) => s.showOpenOnly);
   const cumulativeTime = useEtaStore((s) => s.cumulativeTime);
   const isExpanded = usePanelStore((s) => s.isExpanded);
+  const panelMode = usePanelStore((s) => s.panelMode);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [showAddPOI, setShowAddPOI] = useState(false);
   const [loadedSavedPOITargets, setLoadedSavedPOITargets] = useState<SavedPOITarget[] | null>(null);
+  const [showFullRoutePOIs, setShowFullRoutePOIs] = useState(false);
 
   const routeIds = useMemo(() => activeData?.routeIds ?? [], [activeData?.routeIds]);
   const routePoints = activeData?.points ?? null;
   const segments = activeData?.segments ?? null;
+  const activeTotalDistance = activeData?.totalDistanceMeters;
   const activeRouteProgress = useMemo(
     () => resolveActiveRouteProgress(activeData, snappedPosition),
     [activeData, snappedPosition],
   );
   const currentDist = activeRouteProgress?.distanceAlongRouteMeters ?? null;
+  const ridingHorizonMeters = ridingHorizonMetersForMode(panelMode);
+  const horizonWindow = useMemo(
+    () =>
+      createRidingHorizonWindow(currentDist, ridingHorizonMeters, {
+        behindMeters: POI_BEHIND_THRESHOLD_M,
+        totalDistanceMeters: activeTotalDistance,
+      }),
+    [currentDist, ridingHorizonMeters, activeTotalDistance],
+  );
+  const horizonLabel = `${ridingHorizonKmLabelForMode(panelMode)} km`;
+
+  useEffect(() => {
+    setShowFullRoutePOIs(false);
+  }, [activeData?.id, panelMode, isExpanded]);
 
   const savedPOITargets = useMemo<SavedPOITarget[]>(() => {
     if (!activeData) return [];
@@ -120,8 +144,14 @@ export default function POITabContent({ activeData }: POITabContentProps) {
       poisByRoute[routeId] = getStarredPOIs(routeId);
     }
     const displayed = segments
-      ? stitchPOIs(segments, poisByRoute)
-      : routeIds.flatMap((routeId) => toDisplayPOIs(poisByRoute[routeId] ?? []));
+      ? stitchPOIs(segments, poisByRoute, horizonWindow)
+      : routeIds.flatMap((routeId) =>
+          toDisplayPOIs(
+            (poisByRoute[routeId] ?? []).filter((poi) =>
+              isDistanceInWindow(poi.distanceAlongRouteMeters, horizonWindow),
+            ),
+          ),
+        );
     const allStarred: StarredDisplayPOI[] = [];
     for (const poi of displayed) {
       const effectiveDist = poi.effectiveDistanceMeters;
@@ -133,13 +163,19 @@ export default function POITabContent({ activeData }: POITabContentProps) {
       allStarred.push({ ...poi, ridingTimeSeconds: ridingTime });
     }
     allStarred.sort((a, b) => a.effectiveDistanceMeters - b.effectiveDistanceMeters);
-    if (currentDist == null) return allStarred;
-    return allStarred.filter(
-      (p) => p.effectiveDistanceMeters >= currentDist - POI_BEHIND_THRESHOLD_M,
-    );
+    return allStarred;
     // starredPOIIds is a reactivity trigger: getStarredPOIs reads from store via get() and is not itself reactive
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [routeIds, segments, getStarredPOIs, starredPOIIds, currentDist, cumulativeTime, routePoints]);
+  }, [
+    routeIds,
+    segments,
+    getStarredPOIs,
+    starredPOIIds,
+    currentDist,
+    cumulativeTime,
+    routePoints,
+    horizonWindow,
+  ]);
 
   const totalPOICount = usePoiStore((s) => {
     let count = 0;
@@ -152,26 +188,38 @@ export default function POITabContent({ activeData }: POITabContentProps) {
   // --- Expanded: full POI list with search + filters ---
   const visiblePOIs = useMemo(() => {
     if (!isExpanded) return [];
+    const distanceWindow = showFullRoutePOIs ? undefined : horizonWindow;
     if (segments) {
       const poisByRoute: Record<string, POI[]> = {};
       for (const routeId of routeIds) {
         poisByRoute[routeId] = getVisiblePOIs(routeId);
       }
-      return stitchPOIs(segments, poisByRoute);
+      return stitchPOIs(segments, poisByRoute, distanceWindow);
     }
-    return routeIds.length > 0 ? toDisplayPOIs(getVisiblePOIs(routeIds[0])) : [];
+    return routeIds.flatMap((routeId) =>
+      toDisplayPOIs(
+        getVisiblePOIs(routeId).filter((poi) =>
+          isDistanceInWindow(poi.distanceAlongRouteMeters, distanceWindow),
+        ),
+      ),
+    );
     // allPois/enabledCategories/starredPOIIds are reactivity triggers: getVisiblePOIs reads store via get() and is not itself reactive
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isExpanded, routeIds, segments, allPois, enabledCategories, starredPOIIds]);
+  }, [
+    isExpanded,
+    routeIds,
+    segments,
+    allPois,
+    enabledCategories,
+    starredPOIIds,
+    showOpenOnly,
+    horizonWindow,
+    showFullRoutePOIs,
+  ]);
 
   const sortedAllPOIs = useMemo(() => {
-    if (currentDist == null) {
-      return [...visiblePOIs].sort((a, b) => a.effectiveDistanceMeters - b.effectiveDistanceMeters);
-    }
-    return visiblePOIs
-      .filter((p) => p.effectiveDistanceMeters >= currentDist - POI_BEHIND_THRESHOLD_M)
-      .sort((a, b) => a.effectiveDistanceMeters - b.effectiveDistanceMeters);
-  }, [visiblePOIs, currentDist]);
+    return [...visiblePOIs].sort((a, b) => a.effectiveDistanceMeters - b.effectiveDistanceMeters);
+  }, [visiblePOIs]);
 
   const filteredPOIs = useMemo(() => {
     if (!searchQuery.trim()) return sortedAllPOIs;
@@ -289,6 +337,16 @@ export default function POITabContent({ activeData }: POITabContentProps) {
 
   // --- Expanded mode: full POI list with search + filters ---
   if (isExpanded) {
+    const scopeLabel = showFullRoutePOIs ? "full route" : `next ${horizonLabel}`;
+    const emptyTitle = searchQuery.trim()
+      ? "No POIs match this search"
+      : showFullRoutePOIs
+        ? "No POIs match active filters"
+        : `No POIs in the next ${horizonLabel}`;
+    const emptyDetail = showFullRoutePOIs
+      ? "Category filters may still be hiding route POIs."
+      : "Use full-route planning to inspect POIs outside this riding horizon.";
+
     return (
       <View className="flex-1">
         {/* Search */}
@@ -323,7 +381,32 @@ export default function POITabContent({ activeData }: POITabContentProps) {
           <POIFilterBar routeIds={routeIds} />
         </View>
 
-        {/* Full POI list */}
+        <View
+          className="flex-row items-center justify-between px-3"
+          style={{
+            height: 52,
+            borderBottomWidth: 1,
+            borderBottomColor: colors.borderSubtle,
+          }}
+        >
+          <Text className="text-[11px] font-barlow-semibold text-muted-foreground">
+            {filteredPOIs.length} POIs · {scopeLabel}
+          </Text>
+          <TouchableOpacity
+            className="h-[44px] min-w-[104px] items-center justify-center rounded-full border border-border px-3"
+            onPress={() => setShowFullRoutePOIs((value) => !value)}
+            accessibilityRole="button"
+            accessibilityLabel={
+              showFullRoutePOIs ? "Use riding horizon for POIs" : "Show full route POIs"
+            }
+          >
+            <Text className="text-[12px] font-barlow-semibold text-foreground">
+              {showFullRoutePOIs ? "Use horizon" : "Full route"}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* POI list */}
         <FlatList
           data={filteredPOIs}
           keyExtractor={poiKeyExtractor}
@@ -336,7 +419,30 @@ export default function POITabContent({ activeData }: POITabContentProps) {
           windowSize={POI_LIST_WINDOW_SIZE}
           removeClippedSubviews
           keyboardShouldPersistTaps="handled"
-          extraData={currentDist}
+          extraData={`${currentDist ?? "none"}:${showFullRoutePOIs}`}
+          ListEmptyComponent={
+            <View className="items-center justify-center px-5 py-10">
+              <MapPin size={24} color={colors.textTertiary} />
+              <Text className="text-[13px] text-muted-foreground font-barlow-medium mt-2 text-center">
+                {emptyTitle}
+              </Text>
+              <Text className="text-[11px] text-muted-foreground mt-1 text-center">
+                {emptyDetail}
+              </Text>
+              {!showFullRoutePOIs && (
+                <TouchableOpacity
+                  className="mt-3 h-[44px] min-w-[140px] items-center justify-center rounded-full border border-border px-4"
+                  onPress={() => setShowFullRoutePOIs(true)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Show full route POIs"
+                >
+                  <Text className="text-[12px] font-barlow-semibold text-foreground">
+                    Full route POIs
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          }
         />
         <AddSavedPOISheet
           visible={showAddPOI}
@@ -356,7 +462,7 @@ export default function POITabContent({ activeData }: POITabContentProps) {
           <>
             <View className="flex-row items-center justify-between px-3 py-1.5">
               <Text className="text-[11px] font-barlow-semibold text-muted-foreground">
-                {starredUpcoming.length} starred ahead
+                {starredUpcoming.length} starred · next {horizonLabel}
               </Text>
             </View>
             <FlatList
@@ -377,7 +483,10 @@ export default function POITabContent({ activeData }: POITabContentProps) {
           <View className="flex-1 items-center justify-center">
             <Star size={20} color={colors.textTertiary} />
             <Text className="text-[12px] text-muted-foreground font-barlow-medium mt-2">
-              No starred POIs ahead
+              No starred POIs in the next {horizonLabel}
+            </Text>
+            <Text className="text-[11px] text-muted-foreground mt-1 text-center px-5">
+              Starred places outside the riding horizon are available in full-route planning.
             </Text>
           </View>
         )}
