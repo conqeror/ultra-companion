@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { createMMKV, type MMKV } from "react-native-mmkv";
 import { addNetworkStateListener, getNetworkStateAsync } from "expo-network";
 import type { OfflineRouteInfo, RoutePoint } from "@/types";
+import { poiDiscoveryCategoriesForSource } from "@/constants";
 import { getPOICountsBySource } from "@/db/database";
 import {
   downloadRouteTiles,
@@ -174,6 +175,9 @@ export const useOfflineStore = create<OfflineState>((set, get) => ({
     }
 
     const fetchIfMissing = async (source: "google" | "osm", count: number) => {
+      if (poiDiscoveryCategoriesForSource(poiStore.discoveryCategories, source).length === 0) {
+        return;
+      }
       if (count > 0) return;
       try {
         await poiStore.fetchSource(routeId, source, points);

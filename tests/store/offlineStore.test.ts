@@ -5,12 +5,14 @@ import { offlineTilesMocks } from "@/tests/mocks/offlineTiles";
 
 const mocks = vi.hoisted(() => ({
   fetchSource: vi.fn(),
+  discoveryCategories: ["gas_station", "water"],
 }));
 
 vi.mock("@/store/poiStore", () => ({
   usePoiStore: {
     getState: () => ({
       fetchSource: mocks.fetchSource,
+      discoveryCategories: mocks.discoveryCategories,
     }),
   },
 }));
@@ -23,6 +25,7 @@ describe("offlineStore offline preparation", () => {
   beforeEach(() => {
     useOfflineStore.setState({ routeInfo: {}, isConnected: true });
     mocks.fetchSource.mockResolvedValue(undefined);
+    mocks.discoveryCategories = ["gas_station", "water"];
     offlineTilesMocks.estimateDownloadSize.mockReturnValue(1234);
   });
 
@@ -90,6 +93,21 @@ describe("offlineStore offline preparation", () => {
 
     resolveDownload?.();
     await tileDownload;
+  });
+
+  it("skips disabled POI sources while preparing offline data", async () => {
+    mocks.discoveryCategories = ["water"];
+    databaseMocks.getPOICountsBySource.mockResolvedValue({ google: 0, osm: 0 });
+    offlineTilesMocks.downloadRouteTiles.mockImplementation(
+      async (_routeId, _points, _onProgress, onComplete) => {
+        onComplete();
+      },
+    );
+
+    await useOfflineStore.getState().prepareRouteOffline("r1", points);
+
+    expect(mocks.fetchSource.mock.calls.map(([, source]) => source)).toEqual(["osm"]);
+    expect(offlineTilesMocks.downloadRouteTiles).toHaveBeenCalledOnce();
   });
 
   it("cancel resets visible tile state and ignores late native errors", async () => {

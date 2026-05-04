@@ -122,8 +122,36 @@ export type POICategory =
   | "groceries"
   | "gas_station"
   | "bakery"
+  | "coffee"
+  | "restaurant"
+  | "bar_pub"
   | "toilet_shower"
   | "shelter"
+  | "bus_stop"
+  | "camp_site"
+  | "pharmacy"
+  | "hospital_er"
+  | "defibrillator"
+  | "emergency_phone"
+  | "ambulance_station"
+  | "bike_shop"
+  | "repair_station"
+  | "pump_air"
+  | "train_station"
+  | "sports"
+  | "cemetery"
+  | "school"
+  | "other";
+
+export type POICategoryGroup =
+  | "water"
+  | "food"
+  | "eat_drink"
+  | "wc"
+  | "rest"
+  | "help"
+  | "repair"
+  | "escape"
   | "other";
 
 export type POIFetchedSource = "osm" | "google";
@@ -150,8 +178,19 @@ export interface DisplayPOI extends POI {
 export interface POICategoryMeta {
   key: POICategory;
   label: string;
+  group: POICategoryGroup;
   color: string;
   iconName: string;
+}
+
+export type POIDiscoverySource = POIFetchedSource;
+
+export interface POIDiscoveryGroupMeta {
+  key: string;
+  label: string;
+  detail: string;
+  categories: POICategory[];
+  defaultEnabled: boolean;
 }
 
 export type POIFetchStatus = "idle" | "fetching" | "done" | "error";

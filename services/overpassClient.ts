@@ -1,5 +1,11 @@
-import type { RoutePoint } from "@/types";
-import { OVERPASS_API_URLS, OVERPASS_SEGMENT_LENGTH_M, OVERPASS_RETRY_DELAYS } from "@/constants";
+import type { POICategory, RoutePoint } from "@/types";
+import {
+  OSM_POI_DISCOVERY_CATEGORIES,
+  getPoiCategoryCorridorWidthM,
+  OVERPASS_API_URLS,
+  OVERPASS_SEGMENT_LENGTH_M,
+  OVERPASS_RETRY_DELAYS,
+} from "@/constants";
 import { downsampleRoutePointsByDistance, splitRoutePointsByDistance } from "@/utils/geo";
 
 let _nextServerIndex = 0;
@@ -19,6 +25,7 @@ export interface OverpassElement {
   lat?: number;
   lon?: number;
   center?: { lat: number; lon: number };
+  geometry?: { lat: number; lon: number }[];
   tags?: Record<string, string>;
 }
 
@@ -43,23 +50,75 @@ function coordString(pts: { lat: number; lon: number }[]): string {
 export function buildOverpassQuery(
   points: { lat: number; lon: number }[],
   corridorWidthM: number,
-): string {
+  discoveryCategories: POICategory[] = OSM_POI_DISCOVERY_CATEGORIES,
+): string | null {
   const coords = coordString(points);
-  const r = corridorWidthM;
+  const enabled = new Set(discoveryCategories);
+  const q = (category: POICategory, selector: string) => {
+    if (!enabled.has(category)) return null;
+    const radius = getPoiCategoryCorridorWidthM(category, corridorWidthM);
+    return `  ${selector}(around:${radius},${coords});`;
+  };
 
-  // Each line queries one OSM tag pattern using the around filter
+  const clauses = [
+    q("water", 'node["amenity"="drinking_water"]'),
+    q("water", 'node["natural"="spring"]'),
+    q("water", 'node["man_made"="water_tap"]'),
+    q("toilet_shower", 'node["amenity"~"^(toilets|shower)$"]'),
+    q("shelter", 'node["amenity"="shelter"]["shelter_type"!="public_transport"]'),
+    q("shelter", 'way["amenity"="shelter"]["shelter_type"!="public_transport"]'),
+    q("bus_stop", 'node["amenity"="shelter"]["shelter_type"="public_transport"]'),
+    q("bus_stop", 'way["amenity"="shelter"]["shelter_type"="public_transport"]'),
+    q("shelter", 'node["tourism"="wilderness_hut"]'),
+    q("shelter", 'way["tourism"="wilderness_hut"]'),
+    q("shelter", 'node["tourism"="alpine_hut"]'),
+    q("shelter", 'way["tourism"="alpine_hut"]'),
+    q("bus_stop", 'node["highway"="bus_stop"]["shelter"="yes"]'),
+    q(
+      "bus_stop",
+      'node["public_transport"~"^(platform|stop_position)$"]["bus"="yes"]["shelter"="yes"]',
+    ),
+    q("camp_site", 'node["tourism"="camp_site"]'),
+    q("camp_site", 'way["tourism"="camp_site"]'),
+    q("pharmacy", 'node["amenity"="pharmacy"]'),
+    q("pharmacy", 'way["amenity"="pharmacy"]'),
+    q("pharmacy", 'node["healthcare"="pharmacy"]'),
+    q("pharmacy", 'way["healthcare"="pharmacy"]'),
+    q("hospital_er", 'node["amenity"="hospital"]'),
+    q("hospital_er", 'way["amenity"="hospital"]'),
+    q("hospital_er", 'node["healthcare"="hospital"]'),
+    q("hospital_er", 'way["healthcare"="hospital"]'),
+    q("defibrillator", 'node["emergency"="defibrillator"]'),
+    q("emergency_phone", 'node["emergency"="phone"]'),
+    q("ambulance_station", 'node["emergency"="ambulance_station"]'),
+    q("ambulance_station", 'way["emergency"="ambulance_station"]'),
+    q("bike_shop", 'node["shop"="bicycle"]'),
+    q("bike_shop", 'way["shop"="bicycle"]'),
+    q("repair_station", 'node["amenity"="bicycle_repair_station"]'),
+    q("pump_air", 'node["amenity"="compressed_air"]'),
+    q("pump_air", 'node["service:bicycle:pump"="yes"]'),
+    q("pump_air", 'way["service:bicycle:pump"="yes"]'),
+    q("train_station", 'node["railway"~"^(station|halt)$"]'),
+    q("train_station", 'way["railway"~"^(station|halt)$"]'),
+    q("train_station", 'node["public_transport"="station"]["train"="yes"]'),
+    q("train_station", 'way["public_transport"="station"]["train"="yes"]'),
+    q("sports", 'node["leisure"="pitch"]["sport"="soccer"]'),
+    q("sports", 'way["leisure"="pitch"]["sport"="soccer"]'),
+    q("sports", 'node["leisure"="sports_centre"]'),
+    q("sports", 'way["leisure"="sports_centre"]'),
+    q("cemetery", 'node["amenity"="grave_yard"]'),
+    q("cemetery", 'way["amenity"="grave_yard"]'),
+    q("cemetery", 'node["landuse"="cemetery"]'),
+    q("cemetery", 'way["landuse"="cemetery"]'),
+    q("school", 'node["amenity"="school"]'),
+    q("school", 'way["amenity"="school"]'),
+  ].filter((clause): clause is string => clause != null);
+
+  if (clauses.length === 0) return null;
+
   return `[out:json][timeout:30];
 (
-  node["amenity"="drinking_water"](around:${r},${coords});
-  node["natural"="spring"](around:${r},${coords});
-  node["man_made"="water_tap"](around:${r},${coords});
-  node["amenity"~"^(toilets|shower)$"](around:${r},${coords});
-  node["amenity"="shelter"]["shelter_type"!="public_transport"](around:${r},${coords});
-  way["amenity"="shelter"]["shelter_type"!="public_transport"](around:${r},${coords});
-  node["tourism"="wilderness_hut"](around:${r},${coords});
-  way["tourism"="wilderness_hut"](around:${r},${coords});
-  node["tourism"="alpine_hut"](around:${r},${coords});
-  way["tourism"="alpine_hut"](around:${r},${coords});
+${clauses.join("\n")}
 );
 out center body;`;
 }
@@ -136,13 +195,21 @@ function delay(ms: number): Promise<void> {
 export async function fetchAllPOIs(
   routePoints: RoutePoint[],
   corridorWidthM: number,
+  discoveryCategories: POICategory[] = OSM_POI_DISCOVERY_CATEGORIES,
   onProgress?: (done: number, total: number) => void,
 ): Promise<OverpassElement[]> {
+  if (routePoints.length === 0) return [];
+  if (discoveryCategories.length === 0) {
+    onProgress?.(0, 0);
+    return [];
+  }
+
   const segments = splitRoutePointsByDistance(routePoints, {
     maxSegmentLengthMeters: OVERPASS_SEGMENT_LENGTH_M,
+    includeShortRoute: true,
   });
   const allElements: OverpassElement[] = [];
-  const seen = new Set<number>(); // deduplicate by OSM id
+  const seen = new Set<string>(); // deduplicate by OSM type/id
 
   for (let i = 0; i < segments.length; i++) {
     onProgress?.(i, segments.length);
@@ -153,12 +220,14 @@ export async function fetchAllPOIs(
       mapPoint: (point) => ({ lat: point.latitude, lon: point.longitude }),
       isSameOutput: sameQueryPoint,
     });
-    const query = buildOverpassQuery(downsampled, corridorWidthM);
+    const query = buildOverpassQuery(downsampled, corridorWidthM, discoveryCategories);
+    if (!query) continue;
     const elements = await fetchOverpassSegment(query);
 
     for (const el of elements) {
-      if (!seen.has(el.id)) {
-        seen.add(el.id);
+      const key = `${el.type}/${el.id}`;
+      if (!seen.has(key)) {
+        seen.add(key);
         allElements.push(el);
       }
     }

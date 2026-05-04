@@ -13,6 +13,48 @@ interface POIFilterBarProps {
   routeIds: string[];
 }
 
+const CATEGORY_GROUPS: Array<{
+  label: string;
+  categories: POICategory[];
+  iconCategory: POICategory;
+}> = [
+  { label: "Water", categories: ["water", "cemetery"], iconCategory: "water" },
+  {
+    label: "Food",
+    categories: ["groceries", "gas_station", "bakery"],
+    iconCategory: "groceries",
+  },
+  {
+    label: "Eat",
+    categories: ["coffee", "restaurant", "bar_pub"],
+    iconCategory: "coffee",
+  },
+  {
+    label: "Rest",
+    categories: ["shelter", "bus_stop", "camp_site", "sports", "school"],
+    iconCategory: "shelter",
+  },
+  { label: "WC", categories: ["toilet_shower"], iconCategory: "toilet_shower" },
+  {
+    label: "Help",
+    categories: [
+      "pharmacy",
+      "hospital_er",
+      "defibrillator",
+      "emergency_phone",
+      "ambulance_station",
+    ],
+    iconCategory: "pharmacy",
+  },
+  {
+    label: "Repair",
+    categories: ["bike_shop", "repair_station", "pump_air"],
+    iconCategory: "bike_shop",
+  },
+  { label: "Escape", categories: ["train_station"], iconCategory: "train_station" },
+  { label: "Other", categories: ["other"], iconCategory: "other" },
+];
+
 /** Inline horizontal filter chip row — meant to be embedded in panels/lists, not floating on the map */
 export default function POIFilterBar({ routeIds }: POIFilterBarProps) {
   const colors = useThemeColors();
@@ -26,11 +68,13 @@ export default function POIFilterBar({ routeIds }: POIFilterBarProps) {
     return combined.length > 0 ? combined : undefined;
   }, [routeIds, allPois]);
   const enabledCategories = usePoiStore((s) => s.enabledCategories);
-  const toggleCategory = usePoiStore((s) => s.toggleCategory);
+  const setEnabledCategories = usePoiStore((s) => s.setEnabledCategories);
+  const setAllCategories = usePoiStore((s) => s.setAllCategories);
   const showOpenOnly = usePoiStore((s) => s.showOpenOnly);
   const toggleShowOpenOnly = usePoiStore((s) => s.toggleShowOpenOnly);
 
   const enabledSet = useMemo(() => new Set(enabledCategories), [enabledCategories]);
+  const isCategoryFilterActive = enabledCategories.length < POI_CATEGORIES.length;
 
   const categoryCounts = useMemo(() => {
     if (!pois) return {};
@@ -42,6 +86,30 @@ export default function POIFilterBar({ routeIds }: POIFilterBarProps) {
   }, [pois]);
 
   if (!pois || pois.length === 0) return null;
+
+  const handleToggleGroup = (categories: POICategory[]) => {
+    if (!isCategoryFilterActive) {
+      setEnabledCategories(categories);
+      return;
+    }
+
+    const isGroupActive = categories.some((category) => enabledSet.has(category));
+    if (isGroupActive) {
+      const target = new Set(categories);
+      const next = enabledCategories.filter((category) => !target.has(category));
+      if (next.length === 0) setAllCategories(true);
+      else setEnabledCategories(next);
+      return;
+    }
+
+    setEnabledCategories([...new Set([...enabledCategories, ...categories])]);
+  };
+
+  const getGroupAccessibilityLabel = (label: string, isActive: boolean) => {
+    if (!isCategoryFilterActive) return `Show ${label} POIs`;
+    if (isActive) return `Clear ${label} filter`;
+    return `Add ${label} filter`;
+  };
 
   return (
     <ScrollView
@@ -69,29 +137,36 @@ export default function POIFilterBar({ routeIds }: POIFilterBarProps) {
         </Text>
       </TouchableOpacity>
 
-      {POI_CATEGORIES.map((cat) => {
-        const isEnabled = enabledSet.has(cat.key);
-        const count = categoryCounts[cat.key] ?? 0;
-        const IconComp = POI_ICON_MAP[cat.iconName];
+      {CATEGORY_GROUPS.map((group) => {
+        const isEnabled =
+          isCategoryFilterActive && group.categories.some((category) => enabledSet.has(category));
+        const count = group.categories.reduce(
+          (sum, category) => sum + (categoryCounts[category] ?? 0),
+          0,
+        );
+        const meta = POI_CATEGORIES.find((cat) => cat.key === group.iconCategory);
+        const IconComp = meta ? POI_ICON_MAP[meta.iconName] : null;
 
         return (
           <TouchableOpacity
-            key={cat.key}
+            key={group.label}
             className={cn(
               "flex-row items-center px-3 min-h-[48px] rounded-full",
               isEnabled ? "bg-muted border border-border" : "border border-transparent",
             )}
-            onPress={() => toggleCategory(cat.key)}
-            accessibilityLabel={`${isEnabled ? "Hide" : "Show"} ${cat.label}`}
+            onPress={() => handleToggleGroup(group.categories)}
+            accessibilityLabel={getGroupAccessibilityLabel(group.label, isEnabled)}
           >
-            {IconComp && <IconComp size={13} color={isEnabled ? cat.color : colors.textTertiary} />}
+            {IconComp && (
+              <IconComp size={13} color={isEnabled && meta ? meta.color : colors.textTertiary} />
+            )}
             <Text
               className={cn(
                 "ml-1 text-[12px] font-barlow-medium",
                 isEnabled ? "text-foreground" : "text-muted-foreground",
               )}
             >
-              {cat.label}
+              {group.label}
             </Text>
             {count > 0 && (
               <Text

@@ -4,11 +4,18 @@ import type {
   DisplayPOI,
   POI,
   POICategory,
+  POIDiscoverySource,
   POIFetchStatus,
   POIFetchedSource,
   RoutePoint,
 } from "@/types";
-import { DEFAULT_CORRIDOR_WIDTH_M, POI_CATEGORIES } from "@/constants";
+import {
+  DEFAULT_CORRIDOR_WIDTH_M,
+  DEFAULT_POI_DISCOVERY_CATEGORIES,
+  POI_CATEGORIES,
+  normalizePoiCategories as normalizeKnownPoiCategories,
+  poiDiscoveryCategoriesForSource,
+} from "@/constants";
 import {
   getPOIsForRoute,
   deletePOIsBySource,
@@ -47,14 +54,43 @@ function parseStarredIds(raw: string | undefined): Set<string> {
 }
 
 const allPoiCategories = (): POICategory[] => POI_CATEGORIES.map((c) => c.key);
+const LEGACY_DEFAULT_CATEGORIES: POICategory[] = [
+  "water",
+  "groceries",
+  "gas_station",
+  "bakery",
+  "toilet_shower",
+  "shelter",
+  "other",
+];
 
 function parseCategories(raw: string | undefined): POICategory[] {
   if (raw === undefined) return allPoiCategories();
   try {
     const valid = new Set<string>(POI_CATEGORIES.map((c) => c.key));
-    return (JSON.parse(raw) as string[]).filter((c) => valid.has(c)) as POICategory[];
+    const parsed = (JSON.parse(raw) as string[]).filter((c) => valid.has(c)) as POICategory[];
+    const parsedSet = new Set(parsed);
+    if (LEGACY_DEFAULT_CATEGORIES.every((category) => parsedSet.has(category))) {
+      return allPoiCategories();
+    }
+    return parsed;
   } catch {
     return allPoiCategories();
+  }
+}
+
+function normalizeCategories(categories: POICategory[]): POICategory[] {
+  const valid = new Set<string>(POI_CATEGORIES.map((c) => c.key));
+  return Array.from(new Set(categories)).filter((c) => valid.has(c)) as POICategory[];
+}
+
+function parseDiscoveryCategories(raw: string | undefined): POICategory[] {
+  if (raw === undefined) return DEFAULT_POI_DISCOVERY_CATEGORIES;
+  try {
+    const parsed = JSON.parse(raw) as POICategory[];
+    return normalizeKnownPoiCategories(parsed);
+  } catch {
+    return DEFAULT_POI_DISCOVERY_CATEGORIES;
   }
 }
 
@@ -214,6 +250,7 @@ interface POIState {
 
   // Filter state (persisted)
   enabledCategories: POICategory[];
+  discoveryCategories: POICategory[];
   corridorWidthM: number;
   showOpenOnly: boolean;
   starredPOIIds: Set<string>;
@@ -236,6 +273,11 @@ interface POIState {
   updatePOINotes: (routeId: string, poiId: string, notes: string) => Promise<void>;
   deleteCustomPOI: (routeId: string, poiId: string) => Promise<void>;
   toggleCategory: (category: POICategory) => void;
+  setEnabledCategories: (categories: POICategory[]) => void;
+  setDiscoveryCategories: (categories: POICategory[]) => void;
+  setDiscoveryGroupEnabled: (categories: POICategory[], enabled: boolean) => void;
+  resetDiscoveryCategories: () => void;
+  hasDiscoveryCategoriesForSource: (source: POIDiscoverySource) => boolean;
   setCorridorWidth: (widthM: number) => void;
   setAllCategories: (enabled: boolean) => void;
   toggleShowOpenOnly: () => void;
@@ -257,6 +299,7 @@ interface POIState {
 export const usePoiStore = create<POIState>((set, get) => ({
   pois: {},
   enabledCategories: parseCategories(readString("enabledCategories")),
+  discoveryCategories: parseDiscoveryCategories(readString("discoveryCategories")),
   corridorWidthM: Number(readString("corridorWidthM")) || DEFAULT_CORRIDOR_WIDTH_M,
   showOpenOnly: readString("showOpenOnly") === "true",
   starredPOIIds: parseStarredIds(readString("starredPOIIds")),
@@ -320,11 +363,18 @@ export const usePoiStore = create<POIState>((set, get) => ({
 
     try {
       const corridorWidthM = get().corridorWidthM;
+      const discoveryCategories = get().discoveryCategories;
       const fetchFn = source === "osm" ? fetchOsmPOIs : fetchGooglePOIs;
-      const count = await fetchFn(routeId, routePoints, corridorWidthM, (phase, done, total) => {
-        // progress is ephemeral — skip MMKV write, it'd churn on every tick
-        updateSourceInfo({ progress: { phase, done, total } }, { persist: false });
-      });
+      const count = await fetchFn(
+        routeId,
+        routePoints,
+        corridorWidthM,
+        (phase, done, total) => {
+          // progress is ephemeral — skip MMKV write, it'd churn on every tick
+          updateSourceInfo({ progress: { phase, done, total } }, { persist: false });
+        },
+        discoveryCategories,
+      );
       updateSourceInfo({
         status: "done",
         count,
@@ -432,6 +482,38 @@ export const usePoiStore = create<POIState>((set, get) => ({
     } catch {}
     set({ enabledCategories: next });
   },
+
+  setEnabledCategories: (categories) => {
+    const next = normalizeCategories(categories);
+    try {
+      getStorage().set("enabledCategories", JSON.stringify(next));
+    } catch {}
+    set({ enabledCategories: next });
+  },
+
+  setDiscoveryCategories: (categories) => {
+    const next = normalizeKnownPoiCategories(categories);
+    try {
+      getStorage().set("discoveryCategories", JSON.stringify(next));
+    } catch {}
+    set({ discoveryCategories: next });
+  },
+
+  setDiscoveryGroupEnabled: (categories, enabled) => {
+    const current = new Set(get().discoveryCategories);
+    for (const category of categories) {
+      if (enabled) current.add(category);
+      else current.delete(category);
+    }
+    get().setDiscoveryCategories([...current]);
+  },
+
+  resetDiscoveryCategories: () => {
+    get().setDiscoveryCategories(DEFAULT_POI_DISCOVERY_CATEGORIES);
+  },
+
+  hasDiscoveryCategoriesForSource: (source) =>
+    poiDiscoveryCategoriesForSource(get().discoveryCategories, source).length > 0,
 
   setCorridorWidth: (widthM) => {
     try {

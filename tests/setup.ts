@@ -10,6 +10,15 @@ vi.mock("expo-network", async () => {
   return expoNetworkMocks;
 });
 
+vi.mock("expo-constants", () => ({
+  default: {
+    expoConfig: {
+      extra: {},
+      ios: { bundleIdentifier: "com.ultra.test" },
+    },
+  },
+}));
+
 vi.mock("@/db/database", async () => {
   const { databaseMocks } = await import("@/tests/mocks/database");
   return databaseMocks;
