@@ -1,26 +1,11 @@
 import { getRouteWithPoints, getCollectionSegments } from "@/db/database";
 import { toDisplayPOI } from "@/services/displayDistance";
+import { isDistanceInWindow, type DistanceWindow } from "@/utils/ridingHorizon";
 import type { StitchedCollection, StitchedSegmentInfo, RoutePoint, POI, DisplayPOI } from "@/types";
 
 interface StitchCollectionOptions {
   /** Keep raw per-segment point arrays in the returned view model. */
   includePointsByRouteId?: boolean;
-}
-
-interface DistanceWindow {
-  startDistanceMeters?: number;
-  endDistanceMeters?: number;
-}
-
-function isInDistanceWindow(distanceMeters: number, window?: DistanceWindow): boolean {
-  if (!window) return true;
-  if (window.startDistanceMeters != null && distanceMeters < window.startDistanceMeters) {
-    return false;
-  }
-  if (window.endDistanceMeters != null && distanceMeters > window.endDistanceMeters) {
-    return false;
-  }
-  return true;
 }
 
 export async function stitchCollection(
@@ -103,7 +88,7 @@ export function stitchPOIs(
 
     for (const poi of pois) {
       const effectiveDistanceMeters = poi.distanceAlongRouteMeters + seg.distanceOffsetMeters;
-      if (!isInDistanceWindow(effectiveDistanceMeters, window)) continue;
+      if (!isDistanceInWindow(effectiveDistanceMeters, window)) continue;
       combined.push(toDisplayPOI(poi, seg.distanceOffsetMeters));
     }
   }

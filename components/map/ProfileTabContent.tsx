@@ -8,7 +8,6 @@ import { useRouteStore } from "@/store/routeStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import { usePoiStore } from "@/store/poiStore";
 import { useClimbStore } from "@/store/climbStore";
-import { PANEL_MODES } from "@/constants";
 import {
   computeSliceAscentFromDistance,
   computeSliceElevationTotalsFromDistance,
@@ -21,24 +20,15 @@ import { formatDistance, formatElevation } from "@/utils/formatters";
 import { climbDifficultyColor } from "@/constants/climbHelpers";
 import { stitchPOIs } from "@/services/stitchingService";
 import { toDisplayPOIs } from "@/services/displayDistance";
+import { ridingHorizonMetersForMode } from "@/utils/ridingHorizon";
 import UpcomingElevation from "./UpcomingElevation";
 import ElevationProfile from "@/components/elevation/ElevationProfile";
-import type { PanelMode, POI, ActiveRouteData, DisplayClimb } from "@/types";
+import type { POI, ActiveRouteData, DisplayClimb } from "@/types";
 
-const HEADER_HEIGHT = 44;
 const STATS_HEIGHT = 28;
 const CLIMB_ROW_HEIGHT = 36;
 const MAX_CLIMBS_AHEAD = 4;
 const HORIZONTAL_PADDING = 8;
-
-function lookAheadForMode(mode: PanelMode): number {
-  const match = mode.match(/^upcoming-(\d+)$/);
-  return match ? parseInt(match[1], 10) * 1_000 : 50_000;
-}
-
-function kmLabelForMode(mode: PanelMode): string {
-  return mode.replace("upcoming-", "");
-}
 
 interface ProfileTabContentProps {
   activeData: ActiveRouteData | null;
@@ -56,7 +46,6 @@ export default function ProfileTabContent({ activeData, width, height }: Profile
   const activeTotalDistance = activeData?.totalDistanceMeters ?? 0;
 
   const panelMode = usePanelStore((s) => s.panelMode);
-  const setPanelMode = usePanelStore((s) => s.setPanelMode);
   const setPanelTab = usePanelStore((s) => s.setPanelTab);
   const isExpanded = usePanelStore((s) => s.isExpanded);
   const snappedPosition = useRouteStore((s) => s.snappedPosition);
@@ -157,7 +146,8 @@ export default function ProfileTabContent({ activeData, width, height }: Profile
       return { windowStartDist: 0, windowEndDist: 0 };
     }
     const distDone = currentDistanceMeters;
-    const la = lookAheadForMode(panelMode);
+    const la = ridingHorizonMetersForMode(panelMode);
+    if (la == null) return { windowStartDist: distDone, windowEndDist: activeTotalDistance };
     const endDist = Math.min(distDone + la, activeTotalDistance);
     return { windowStartDist: distDone, windowEndDist: endDist };
   }, [currentDistanceMeters, activeRoutePoints, panelMode, activeTotalDistance]);
@@ -192,9 +182,8 @@ export default function ProfileTabContent({ activeData, width, height }: Profile
     );
   }
 
-  const lookAhead = lookAheadForMode(panelMode);
+  const lookAhead = ridingHorizonMetersForMode(panelMode) ?? activeTotalDistance;
 
-  const showHeader = !showClimbZoom;
   const showClimbBar = isExpanded && showClimbZoom && !!climbProgressText;
   const showStats = isExpanded && !showClimbZoom && !!statsText;
   const showClimbsAhead = isExpanded && !showClimbZoom && climbsAhead.length > 0;
@@ -204,10 +193,7 @@ export default function ProfileTabContent({ activeData, width, height }: Profile
     : 0;
 
   const headerBlockHeight =
-    (showHeader ? HEADER_HEIGHT : 0) +
-    (showStats ? STATS_HEIGHT : 0) +
-    (showClimbBar ? STATS_HEIGHT : 0) +
-    climbsAheadHeight;
+    (showStats ? STATS_HEIGHT : 0) + (showClimbBar ? STATS_HEIGHT : 0) + climbsAheadHeight;
 
   const chartHeight = height - headerBlockHeight - safeBottom;
   const chartWidth = width - HORIZONTAL_PADDING * 2;
@@ -228,18 +214,6 @@ export default function ProfileTabContent({ activeData, width, height }: Profile
             {climbProgressText}
           </Text>
         </TouchableOpacity>
-      )}
-
-      {showHeader && (
-        <View
-          style={{
-            height: HEADER_HEIGHT,
-            paddingHorizontal: HORIZONTAL_PADDING,
-            justifyContent: "center",
-          }}
-        >
-          <RangePills current={panelMode} onChange={setPanelMode} />
-        </View>
       )}
 
       {showStats && (
@@ -303,59 +277,6 @@ export default function ProfileTabContent({ activeData, width, height }: Profile
           />
         )}
       </View>
-    </View>
-  );
-}
-
-function RangePills({
-  current,
-  onChange,
-}: {
-  current: PanelMode;
-  onChange: (mode: PanelMode) => void;
-}) {
-  const colors = useThemeColors();
-  return (
-    <View
-      className="flex-row items-center rounded-full self-center"
-      style={{ backgroundColor: colors.surfaceRaised, padding: 2 }}
-    >
-      {PANEL_MODES.map((mode) => {
-        const isActive = mode === current;
-        return (
-          <TouchableOpacity
-            key={mode}
-            onPress={() => onChange(mode)}
-            accessibilityLabel={`Set range to ${kmLabelForMode(mode)} km`}
-            accessibilityRole="button"
-            accessibilityState={{ selected: isActive }}
-            className="rounded-full items-center justify-center"
-            style={{
-              minWidth: 44,
-              height: 32,
-              paddingHorizontal: 10,
-              backgroundColor: isActive ? colors.accent : "transparent",
-            }}
-          >
-            <Text
-              className="font-barlow-sc-semibold text-[13px]"
-              style={{
-                color: isActive ? colors.accentForeground : colors.textSecondary,
-              }}
-            >
-              {kmLabelForMode(mode)}
-              <Text
-                className="font-barlow-sc-medium text-[10px]"
-                style={{
-                  color: isActive ? colors.accentForeground : colors.textTertiary,
-                }}
-              >
-                {" km"}
-              </Text>
-            </Text>
-          </TouchableOpacity>
-        );
-      })}
     </View>
   );
 }

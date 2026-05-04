@@ -21,6 +21,7 @@ import { useThemeColors } from "@/theme";
 import { useWeatherStore } from "@/store/weatherStore";
 import { usePanelStore } from "@/store/panelStore";
 import { formatTimeAgo } from "@/utils/formatters";
+import { ridingHorizonMetersForMode } from "@/utils/ridingHorizon";
 import { getWeatherInfo } from "@/utils/weatherCodes";
 import { classifyWind } from "@/services/weatherService";
 import type { WeatherPoint, WindRelative } from "@/types";
@@ -202,8 +203,17 @@ export default function WeatherPanel() {
   const fetchedAt = useWeatherStore((s) => s.fetchedAt);
   const fetchStatus = useWeatherStore((s) => s.fetchStatus);
   const isExpanded = usePanelStore((s) => s.isExpanded);
+  const panelMode = usePanelStore((s) => s.panelMode);
+  const ridingHorizonMeters = ridingHorizonMetersForMode(panelMode);
+  const horizonTimeline = useMemo(
+    () =>
+      ridingHorizonMeters == null
+        ? timeline
+        : timeline.filter((point) => point.distanceAlongRouteM <= ridingHorizonMeters),
+    [timeline, ridingHorizonMeters],
+  );
 
-  const current = timeline.length > 0 ? timeline[0] : null;
+  const current = horizonTimeline.length > 0 ? horizonTimeline[0] : null;
 
   if (fetchStatus === "fetching") {
     return (
@@ -224,6 +234,17 @@ export default function WeatherPanel() {
         </Text>
         <Text className="text-[11px] text-muted-foreground mt-1">
           Weather requires internet connectivity
+        </Text>
+      </View>
+    );
+  }
+
+  if (horizonTimeline.length === 0) {
+    return (
+      <View className="items-center justify-center py-6">
+        <Wind size={24} color={colors.textTertiary} />
+        <Text className="text-[13px] text-muted-foreground font-barlow-medium mt-2">
+          No weather inside this horizon
         </Text>
       </View>
     );
@@ -270,7 +291,7 @@ export default function WeatherPanel() {
       )}
 
       {/* Hourly timeline — vertical rows */}
-      <TimelineList timeline={timeline.slice(1)} colors={colors} isExpanded={isExpanded} />
+      <TimelineList timeline={horizonTimeline.slice(1)} colors={colors} isExpanded={isExpanded} />
     </View>
   );
 }

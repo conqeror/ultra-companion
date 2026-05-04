@@ -30,6 +30,7 @@ export const PANEL_MODES = [
   "upcoming-50",
   "upcoming-100",
   "upcoming-200",
+  "full-route",
 ] as const;
 
 // --- Phase 3: POI constants ---
@@ -48,8 +49,6 @@ export const POI_CATEGORIES: POICategoryMeta[] = [
 
 /** How far behind the rider a POI remains visible in the list */
 export const POI_BEHIND_THRESHOLD_M = 1000;
-/** Ordinary riding map view keeps POIs route-windowed to avoid rendering full collections. */
-export const POI_MAP_LOOKAHEAD_M = 100_000;
 
 export const DEFAULT_CORRIDOR_WIDTH_M = 1000;
 export const MAX_CORRIDOR_WIDTH_M = 10000;

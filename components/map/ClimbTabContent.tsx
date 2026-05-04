@@ -25,6 +25,12 @@ import {
 import { extractRouteSlice, findNearestPointIndexAtDistance } from "@/utils/geo";
 import { resolveActiveRouteProgress } from "@/utils/routeProgress";
 import { formatDistance, formatElevation } from "@/utils/formatters";
+import {
+  createRidingHorizonWindow,
+  filterClimbsToRidingHorizon,
+  ridingHorizonMetersForMode,
+  ridingHorizonScopeLabelForMode,
+} from "@/utils/ridingHorizon";
 import ElevationProfile from "@/components/elevation/ElevationProfile";
 import ClimbListItem from "@/components/climb/ClimbListItem";
 import { resolveActiveClimb } from "@/utils/climbSelect";
@@ -74,6 +80,7 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
   const setMinimumDifficulty = useClimbStore((s) => s.setMinimumDifficulty);
   const renameClimb = useClimbStore((s) => s.renameClimb);
   const isExpanded = usePanelStore((s) => s.isExpanded);
+  const panelMode = usePanelStore((s) => s.panelMode);
   // Reset to current/upcoming climb when tab mounts
   useEffect(() => {
     setSelectedClimb(null);
@@ -86,11 +93,21 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
 
   const routeIds = useMemo(() => activeData?.routeIds ?? [], [activeData?.routeIds]);
   const segments = activeData?.segments ?? null;
+  const activeTotalDistance = activeData?.totalDistanceMeters;
   const activeRouteProgress = useMemo(
     () => resolveActiveRouteProgress(activeData, snappedPosition),
     [activeData, snappedPosition],
   );
   const currentDist = activeRouteProgress?.distanceAlongRouteMeters ?? null;
+  const ridingHorizonMeters = ridingHorizonMetersForMode(panelMode);
+  const horizonWindow = useMemo(
+    () =>
+      createRidingHorizonWindow(currentDist, ridingHorizonMeters, {
+        totalDistanceMeters: activeTotalDistance,
+      }),
+    [currentDist, ridingHorizonMeters, activeTotalDistance],
+  );
+  const horizonScopeLabel = ridingHorizonScopeLabelForMode(panelMode);
 
   const displayedClimbs = useMemo(
     () => getClimbsForDisplay(routeIds, segments),
@@ -101,10 +118,10 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
 
   const sortedClimbs = useMemo(
     () =>
-      [...displayedClimbs].sort(
+      filterClimbsToRidingHorizon(displayedClimbs, horizonWindow).sort(
         (a, b) => a.effectiveStartDistanceMeters - b.effectiveStartDistanceMeters,
       ),
-    [displayedClimbs],
+    [displayedClimbs, horizonWindow],
   );
 
   const filteredClimbs = useMemo(
@@ -124,9 +141,7 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
   }, [sortedClimbs]);
 
   const selectedClimbForFilter =
-    selectedClimb && isClimbAtLeastDifficulty(selectedClimb.difficultyScore, minimumDifficulty)
-      ? selectedClimb
-      : null;
+    selectedClimb && filteredClimbs.some((c) => c.id === selectedClimb.id) ? selectedClimb : null;
 
   const climb = useMemo(() => {
     if (editingClimb) return editingClimb;
@@ -246,7 +261,9 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
         <View className="flex-1 items-center justify-center px-4">
           <Mountain size={24} color={colors.textTertiary} />
           <Text className="text-[13px] text-muted-foreground font-barlow-medium mt-2 text-center">
-            No climbs match this filter
+            {sortedClimbs.length === 0
+              ? `No climbs in ${horizonScopeLabel}`
+              : `No climbs match this filter in ${horizonScopeLabel}`}
           </Text>
         </View>
       </View>
@@ -404,7 +421,7 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
             ListEmptyComponent={
               <View className="items-center justify-center py-8 px-4">
                 <Text className="text-[13px] text-muted-foreground font-barlow-medium">
-                  No climbs match this difficulty
+                  No climbs match this difficulty in {horizonScopeLabel}
                 </Text>
               </View>
             }

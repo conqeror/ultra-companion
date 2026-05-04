@@ -21,6 +21,11 @@ import { resolveActiveClimb } from "@/utils/climbSelect";
 import { getClimbMapBounds, getZoomLevelToFitBounds } from "@/utils/climbGeometry";
 import { isClimbAtLeastDifficulty } from "@/constants/climbHelpers";
 import { resolveActiveRouteProgress } from "@/utils/routeProgress";
+import {
+  createRidingHorizonWindow,
+  filterClimbsToRidingHorizon,
+  ridingHorizonMetersForMode,
+} from "@/utils/ridingHorizon";
 import { snapToRouteDetailed } from "@/services/routeSnapping";
 import { useActiveRouteData, getActiveRouteDataImperative } from "@/hooks/useActiveRouteData";
 import { usePoiStore } from "@/store/poiStore";
@@ -68,6 +73,7 @@ export default function MapScreen() {
     initialCamera.current.zoom,
   );
   const panelTab = usePanelStore((s) => s.panelTab);
+  const panelMode = usePanelStore((s) => s.panelMode);
   const isPanelExpanded = usePanelStore((s) => s.isExpanded);
   const { bottom: safeBottom } = useSafeAreaInsets();
   const compactPanelHeight = Math.round(screenHeight * SHEET_COMPACT_RATIO) + safeBottom;
@@ -99,6 +105,15 @@ export default function MapScreen() {
     [activeData, snappedPosition],
   );
   const activeProgressDistanceMeters = activeRouteProgress?.distanceAlongRouteMeters ?? null;
+  const climbHorizonWindow = useMemo(
+    () =>
+      createRidingHorizonWindow(
+        activeProgressDistanceMeters,
+        ridingHorizonMetersForMode(panelMode),
+        { totalDistanceMeters: activeData?.totalDistanceMeters },
+      ),
+    [activeProgressDistanceMeters, panelMode, activeData?.totalDistanceMeters],
+  );
 
   useEffect(() => {
     loadRouteMetadata();
@@ -389,13 +404,12 @@ export default function MapScreen() {
   // Climb to highlight on the map — active when Climbs tab is selected
   const highlightedClimb = useMemo(() => {
     if (panelTab !== "climbs") return null;
-    const displayed = getClimbsForDisplay(activeRouteIds, activeData?.segments ?? null).filter(
-      (c) => isClimbAtLeastDifficulty(c.difficultyScore, minimumDifficulty),
-    );
+    const displayed = filterClimbsToRidingHorizon(
+      getClimbsForDisplay(activeRouteIds, activeData?.segments ?? null),
+      climbHorizonWindow,
+    ).filter((c) => isClimbAtLeastDifficulty(c.difficultyScore, minimumDifficulty));
     const selected =
-      selectedClimb && isClimbAtLeastDifficulty(selectedClimb.difficultyScore, minimumDifficulty)
-        ? selectedClimb
-        : null;
+      selectedClimb && displayed.some((c) => c.id === selectedClimb.id) ? selectedClimb : null;
     return resolveActiveClimb(displayed, activeProgressDistanceMeters, selected);
     // allClimbData is a reactivity trigger: getClimbsForDisplay reads store via get() and is not itself reactive
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -406,6 +420,7 @@ export default function MapScreen() {
     activeData?.segments,
     activeProgressDistanceMeters,
     minimumDifficulty,
+    climbHorizonWindow,
     allClimbData,
   ]);
 

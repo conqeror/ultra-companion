@@ -250,13 +250,16 @@ border-t border-border
 px-3 pt-3
 ```
 
-The panel mode indicator (5km / 10km / 20km / remaining / full) is a tappable pill in the panel header:
+The riding horizon selector floats above the bottom sheet and scopes all riding bottom-sheet content. Default state shows only the selected value (`50 km` or `FULL`); tapping it animates open to the full `10 / 25 / 50 / 100 / 200 / FULL` range row.
 
 ```
-bg-accent/10 (accentSubtle)
-text-accent
+collapsed height: 48dp
+expanded row height: 48dp
+position: just above sheet top edge; right aligned when collapsed, full width when expanded
+min touch target: 48dp
+active: bg-accent, text-accentForeground
+inactive: text-secondary
 rounded-full (pill)
-px-3 py-1
 font: label
 ```
 
@@ -325,10 +328,10 @@ bg-accent/10 text-accent rounded-full px-2 py-0.5 font-labelSmall
 
 The map takes 100% of the screen. Everything else floats.
 
-- **Floating controls**: top-right corner, vertically stacked (center-on-user, panel mode toggle)
-- **Bottom panel**: always visible, showing either elevation profile or weather. Tap buttons to switch; tap elevation button again to cycle distance
+- **Floating controls**: top-right corner, vertically stacked (center-on-user)
+- **Bottom panel**: always visible, with tabs for Profile, Weather, Climbs, and POIs; the shared riding horizon selector floats just above it
 - **No persistent HUD on map** — keep map clean. Data lives in the panel
-- **Panel closed state**: just the map + floating buttons + tab bar
+- **Panel closed state**: map + floating buttons + bottom sheet tabs + collapsed horizon chip
 - **Panel open state**: map compresses upward, panel takes bottom ~25% with route stats + elevation profile
 
 ### Route List Screen
@@ -361,8 +364,8 @@ The map takes 100% of the screen. Everything else floats.
 
 ### Phase 3: POI Search Along Route
 
-- **POI markers on map**: Small, category-colored icons. Tap to expand detail.
-- **POI list**: Slide-up bottom sheet (same treatment as elevation panel). List items show: category icon + name + distance along route + ETA.
+- **POI markers on map**: Small, category-colored icons limited to the active riding horizon. Tap to expand detail.
+- **POI list**: Bottom-sheet tab. Follows the active riding horizon; `FULL` is the planning mode for route-wide browsing. List items show: category icon + name + distance along route + ETA.
 - **Category filter**: Horizontal scrollable chip row at top of POI panel. Chips use `label` style, accent when selected.
 - **Quick summary on map**: Nearest POI of each critical category (water, food) shown as small floating tags near the route line.
 
@@ -374,7 +377,7 @@ The map takes 100% of the screen. Everything else floats.
 
 ### Phase 5: Weather
 
-- **Weather strip**: Horizontal timeline at top of bottom panel (above elevation profile when both are shown). Shows hourly icons + temp for next 6–12 hours at estimated route positions.
+- **Weather timeline**: Bottom-sheet tab scoped to the active riding horizon. Shows hourly rows with icon, temp, precipitation, and wind at estimated route positions.
 - **Wind indicator**: Directional arrow icon near current position on map, colored by intensity (green = light, yellow = moderate, red = strong). Arrow shows direction relative to route heading (headwind/tailwind/crosswind).
 - **Severe weather alert**: Full-width banner at top of screen in `warning` or `destructive` color. Persistent until dismissed. RNR `Alert` component.
 - **"Last updated" badge**: Small timestamp near weather data since it requires connectivity. Uses `text-tertiary` / `labelSmall`.
