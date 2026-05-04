@@ -3,7 +3,17 @@ import type { RoutePoint } from "@/types";
 const EARTH_RADIUS_M = 6_371_000;
 const METERS_PER_LAT_DEGREE = 111_320;
 const MAP_SIMPLIFY_TOLERANCE_M = 20;
-const mapGeoJSONCache = new WeakMap<RoutePoint[], GeoJSON.Feature<GeoJSON.LineString>>();
+const MAP_SIMPLIFY_TOLERANCE_BY_ZOOM = [
+  { minZoom: 15, toleranceMeters: 3 },
+  { minZoom: 13, toleranceMeters: 8 },
+  { minZoom: 11, toleranceMeters: MAP_SIMPLIFY_TOLERANCE_M },
+  { minZoom: 9, toleranceMeters: 60 },
+  { minZoom: 0, toleranceMeters: 180 },
+] as const;
+const mapGeoJSONCache = new WeakMap<
+  RoutePoint[],
+  Map<number, GeoJSON.Feature<GeoJSON.LineString>>
+>();
 
 export function toRad(deg: number): number {
   return (deg * Math.PI) / 180;
@@ -869,6 +879,16 @@ export function routeToGeoJSON(points: RoutePoint[]): GeoJSON.Feature<GeoJSON.Li
   };
 }
 
+export function getMapSimplifyToleranceForZoom(zoomLevel?: number): number {
+  if (zoomLevel == null || !Number.isFinite(zoomLevel)) return MAP_SIMPLIFY_TOLERANCE_M;
+
+  for (const bucket of MAP_SIMPLIFY_TOLERANCE_BY_ZOOM) {
+    if (zoomLevel >= bucket.minZoom) return bucket.toleranceMeters;
+  }
+
+  return MAP_SIMPLIFY_TOLERANCE_M;
+}
+
 function projectedPoint(point: RoutePoint, origin: RoutePoint): { x: number; y: number } {
   const cosLat = Math.cos(toRad(origin.latitude));
   return {
@@ -936,12 +956,23 @@ export function simplifyRoutePointsForMap(
   return simplified;
 }
 
-/** Convert route points to simplified, cached GeoJSON for Mapbox rendering. */
-export function routeToMapGeoJSON(points: RoutePoint[]): GeoJSON.Feature<GeoJSON.LineString> {
-  const cached = mapGeoJSONCache.get(points);
+/** Convert route points to zoom-sensitive, simplified, cached GeoJSON for Mapbox rendering. */
+export function routeToMapGeoJSON(
+  points: RoutePoint[],
+  zoomLevel?: number,
+): GeoJSON.Feature<GeoJSON.LineString> {
+  const toleranceMeters = getMapSimplifyToleranceForZoom(zoomLevel);
+  let cachedByTolerance = mapGeoJSONCache.get(points);
+  if (!cachedByTolerance) {
+    cachedByTolerance = new Map();
+    mapGeoJSONCache.set(points, cachedByTolerance);
+  }
+
+  const cached = cachedByTolerance.get(toleranceMeters);
   if (cached) return cached;
-  const simplified = simplifyRoutePointsForMap(points);
+
+  const simplified = simplifyRoutePointsForMap(points, toleranceMeters);
   const geoJSON = routeToGeoJSON(simplified);
-  mapGeoJSONCache.set(points, geoJSON);
+  cachedByTolerance.set(toleranceMeters, geoJSON);
   return geoJSON;
 }

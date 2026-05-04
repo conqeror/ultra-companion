@@ -30,6 +30,6 @@ Representative 3 × 100k-point collection:
 - ETA-to-distance lookup now uses binary search over cumulative route distance instead of scanning forward from the current point.
 - Upcoming elevation and climb slice boundaries use binary distance lookups before slicing.
 - Snapping first checks a local window around the previous snapped index and falls back to a full-route scan only when the position jumps or the local result is too far from the route.
-- Mapbox route layers receive cached, Ramer-Douglas-Peucker simplified geometry with a 20 m tolerance instead of full GPX/KML precision.
+- Mapbox route layers receive cached, zoom-sensitive Ramer-Douglas-Peucker simplified geometry: coarser at overview zooms, the previous 20 m tolerance around normal riding zoom, and finer detail when zoomed in.
 - POI map rendering is route-distance windowed during ordinary riding, while the expanded POI list preserves full-list behavior.
 - Offline POI association builds a route-segment grid once per fetch so each candidate POI checks nearby route segments first, with full-route fallback for sparse/out-of-window cases.

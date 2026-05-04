@@ -9,6 +9,7 @@ import {
   findFirstPointAtOrAfterDistance,
   findLastPointAtOrBeforeDistance,
   findNearestPointIndexAtDistance,
+  getMapSimplifyToleranceForZoom,
   interpolateRoutePointAtDistance,
   routeToMapGeoJSON,
   simplifyRoutePointsForMap,
@@ -182,6 +183,41 @@ describe("geo route performance helpers", () => {
     const points = [point(0, 0), point(1, 100), point(2, 200)];
 
     expect(routeToMapGeoJSON(points)).toBe(routeToMapGeoJSON(points));
+  });
+
+  it("chooses map simplification tolerance from zoom buckets", () => {
+    expect(getMapSimplifyToleranceForZoom()).toBe(20);
+    expect(getMapSimplifyToleranceForZoom(8)).toBe(180);
+    expect(getMapSimplifyToleranceForZoom(10)).toBe(60);
+    expect(getMapSimplifyToleranceForZoom(12)).toBe(20);
+    expect(getMapSimplifyToleranceForZoom(14)).toBe(8);
+    expect(getMapSimplifyToleranceForZoom(16)).toBe(3);
+  });
+
+  it("returns more detailed route geometry at high map zoom", () => {
+    const points = [
+      point(0, 0, 0),
+      point(1, 100, 0),
+      point(2, 200, 0),
+      point(3, 300, 0.0001),
+      point(4, 400, 0),
+      point(5, 500, 0),
+    ];
+
+    const midZoom = routeToMapGeoJSON(points, 12);
+    const highZoom = routeToMapGeoJSON(points, 14);
+
+    expect(highZoom.geometry.coordinates.length).toBeGreaterThan(
+      midZoom.geometry.coordinates.length,
+    );
+    expect(highZoom.geometry.coordinates).toContainEqual([points[3].longitude, points[3].latitude]);
+  });
+
+  it("caches map GeoJSON per route point reference and zoom bucket", () => {
+    const points = [point(0, 0), point(1, 100), point(2, 200)];
+
+    expect(routeToMapGeoJSON(points, 12)).toBe(routeToMapGeoJSON(points, 12.5));
+    expect(routeToMapGeoJSON(points, 12)).not.toBe(routeToMapGeoJSON(points, 14));
   });
 
   it("matches full POI route association when using a segment spatial index", () => {
