@@ -27,6 +27,7 @@ import { useSettingsStore } from "@/store/settingsStore";
 import { useRouteStore } from "@/store/routeStore";
 import { usePoiStore } from "@/store/poiStore";
 import { usePanelStore } from "@/store/panelStore";
+import { useSharedPOIStore } from "@/store/sharedPOIStore";
 import { useEtaStore } from "@/store/etaStore";
 import { POI_CATEGORIES, POI_BEHIND_THRESHOLD_M } from "@/constants";
 import { POI_ICON_MAP } from "@/constants/poiIcons";
@@ -41,6 +42,7 @@ import POIFilterBar from "@/components/map/POIFilterBar";
 import POIListItem from "@/components/poi/POIListItem";
 import AddSavedPOISheet from "@/components/poi/AddSavedPOISheet";
 import type { ActiveRouteData, DisplayPOI, POI, StitchedSegmentInfo } from "@/types";
+import type { SharedPOIInput } from "@/services/sharedPOIService";
 import {
   getGoogleMapsUrlForPOI,
   getPOINotes,
@@ -78,10 +80,13 @@ export default function POITabContent({ activeData }: POITabContentProps) {
   const enabledCategories = usePoiStore((s) => s.enabledCategories);
   const cumulativeTime = useEtaStore((s) => s.cumulativeTime);
   const isExpanded = usePanelStore((s) => s.isExpanded);
+  const pendingSharedPOI = useSharedPOIStore((s) => s.pendingSharedPOI);
+  const consumePendingSharedPOI = useSharedPOIStore((s) => s.consumePendingSharedPOI);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [showAddPOI, setShowAddPOI] = useState(false);
   const [loadedSavedPOITargets, setLoadedSavedPOITargets] = useState<SavedPOITarget[] | null>(null);
+  const [activeSharedPOI, setActiveSharedPOI] = useState<SharedPOIInput | null>(null);
 
   const routeIds = useMemo(() => activeData?.routeIds ?? [], [activeData?.routeIds]);
   const routePoints = activeData?.points ?? null;
@@ -186,24 +191,50 @@ export default function POITabContent({ activeData }: POITabContentProps) {
     [setSelectedPOI],
   );
 
-  const handleOpenAddPOI = useCallback(async () => {
-    if (!activeData?.segments || savedPOITargets.length > 0) {
-      setLoadedSavedPOITargets(null);
-      setShowAddPOI(true);
-      return;
-    }
+  const openAddPOISheet = useCallback(
+    async (sharedPOI: SharedPOIInput | null = null) => {
+      if (!activeData) {
+        Alert.alert("No Active Route", "Set an active route or collection before saving a POI.");
+        return;
+      }
 
-    const { getRoutePoints } = await import("@/db/database");
-    const targets = await Promise.all(
-      activeData.segments.map(async (seg) => ({
-        routeId: seg.routeId,
-        routeName: seg.routeName,
-        points: await getRoutePoints(seg.routeId),
-      })),
-    );
-    setLoadedSavedPOITargets(targets.filter((target) => target.points.length > 0));
-    setShowAddPOI(true);
-  }, [activeData?.segments, savedPOITargets.length]);
+      setSelectedPOI(null);
+      setActiveSharedPOI(sharedPOI);
+
+      if (!activeData?.segments || savedPOITargets.length > 0) {
+        setLoadedSavedPOITargets(null);
+        setShowAddPOI(true);
+        return;
+      }
+
+      const { getRoutePoints } = await import("@/db/database");
+      const targets = await Promise.all(
+        activeData.segments.map(async (seg) => ({
+          routeId: seg.routeId,
+          routeName: seg.routeName,
+          points: await getRoutePoints(seg.routeId),
+        })),
+      );
+      setLoadedSavedPOITargets(targets.filter((target) => target.points.length > 0));
+      setShowAddPOI(true);
+    },
+    [activeData, savedPOITargets.length, setSelectedPOI],
+  );
+
+  const handleOpenAddPOI = useCallback(() => {
+    openAddPOISheet(null);
+  }, [openAddPOISheet]);
+
+  const handleCloseAddPOI = useCallback(() => {
+    setShowAddPOI(false);
+    setActiveSharedPOI(null);
+  }, []);
+
+  useEffect(() => {
+    if (!pendingSharedPOI || !activeData) return;
+    openAddPOISheet(pendingSharedPOI);
+    consumePendingSharedPOI(pendingSharedPOI.id);
+  }, [activeData, consumePendingSharedPOI, openAddPOISheet, pendingSharedPOI]);
 
   const handleSavedPOI = useCallback(
     (poi: POI) => {
@@ -265,7 +296,8 @@ export default function POITabContent({ activeData }: POITabContentProps) {
         <AddSavedPOISheet
           visible={showAddPOI}
           targets={effectiveSavedPOITargets}
-          onClose={() => setShowAddPOI(false)}
+          sharedPOI={activeSharedPOI}
+          onClose={handleCloseAddPOI}
           onSaved={handleSavedPOI}
         />
       </>
@@ -326,7 +358,8 @@ export default function POITabContent({ activeData }: POITabContentProps) {
         <AddSavedPOISheet
           visible={showAddPOI}
           targets={effectiveSavedPOITargets}
-          onClose={() => setShowAddPOI(false)}
+          sharedPOI={activeSharedPOI}
+          onClose={handleCloseAddPOI}
           onSaved={handleSavedPOI}
         />
       </View>
@@ -370,7 +403,8 @@ export default function POITabContent({ activeData }: POITabContentProps) {
       <AddSavedPOISheet
         visible={showAddPOI}
         targets={effectiveSavedPOITargets}
-        onClose={() => setShowAddPOI(false)}
+        sharedPOI={activeSharedPOI}
+        onClose={handleCloseAddPOI}
         onSaved={handleSavedPOI}
       />
     </>

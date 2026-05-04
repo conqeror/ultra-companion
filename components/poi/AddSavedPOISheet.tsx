@@ -24,12 +24,18 @@ import {
   resolveGoogleMapsLink,
   type SavedPOITarget,
 } from "@/services/savedPOIService";
+import {
+  getSharedPOIDisplayName,
+  getSharedPOIRawText,
+  type SharedPOIInput,
+} from "@/services/sharedPOIService";
 import type { POI, POICategory } from "@/types";
 
 interface AddSavedPOISheetProps {
   visible: boolean;
   title?: string;
   targets: SavedPOITarget[];
+  sharedPOI?: SharedPOIInput | null;
   onClose: () => void;
   onSaved?: (poi: POI) => void;
 }
@@ -57,13 +63,13 @@ export default function AddSavedPOISheet({
   visible,
   title = "Add POI",
   targets,
+  sharedPOI,
   onClose,
   onSaved,
 }: AddSavedPOISheetProps) {
   const colors = useThemeColors();
   const addCustomPOI = usePoiStore((s) => s.addCustomPOI);
 
-  const [mapsUrl, setMapsUrl] = useState("");
   const [name, setName] = useState("");
   const [category, setCategory] = useState<POICategory>(DEFAULT_CATEGORY);
   const [latitude, setLatitude] = useState("");
@@ -71,20 +77,27 @@ export default function AddSavedPOISheet({
   const [notes, setNotes] = useState("");
   const [tags, setTags] = useState<Record<string, string>>({});
   const [sourceId, setSourceId] = useState<string | undefined>();
+  const [sharedMapsUrl, setSharedMapsUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [isResolving, setIsResolving] = useState(false);
+  const [isResolvingSharedPOI, setIsResolvingSharedPOI] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [resolvedSharedPOIId, setResolvedSharedPOIId] = useState<string | null>(null);
 
   const apiKey = Constants.expoConfig?.extra?.googlePlacesApiKey as string | undefined;
   const canSave = useMemo(() => {
     const lat = parseCoordinate(latitude);
     const lon = parseCoordinate(longitude);
-    return isValidLatitude(lat) && isValidLongitude(lon) && targets.length > 0 && !isSaving;
-  }, [latitude, longitude, targets.length, isSaving]);
+    return (
+      isValidLatitude(lat) &&
+      isValidLongitude(lon) &&
+      targets.length > 0 &&
+      !isSaving &&
+      !isResolvingSharedPOI
+    );
+  }, [latitude, longitude, targets.length, isSaving, isResolvingSharedPOI]);
 
   useEffect(() => {
     if (!visible) return;
-    setMapsUrl("");
     setName("");
     setCategory(DEFAULT_CATEGORY);
     setLatitude("");
@@ -92,36 +105,61 @@ export default function AddSavedPOISheet({
     setNotes("");
     setTags({});
     setSourceId(undefined);
+    setSharedMapsUrl(null);
     setError(null);
-    setIsResolving(false);
+    setIsResolvingSharedPOI(false);
     setIsSaving(false);
+    setResolvedSharedPOIId(null);
   }, [visible]);
 
-  const handleResolve = useCallback(async () => {
-    if (!mapsUrl.trim()) {
-      setError("Paste a Google Maps link first.");
+  useEffect(() => {
+    if (!visible || !sharedPOI || resolvedSharedPOIId === sharedPOI.id) return;
+
+    const rawSharedText = getSharedPOIRawText(sharedPOI);
+    if (!rawSharedText.trim()) return;
+
+    const fallbackName = getSharedPOIDisplayName(sharedPOI);
+    const fallbackUrl = sharedPOI.url;
+    setResolvedSharedPOIId(sharedPOI.id);
+    if (fallbackName) setName(fallbackName);
+    if (fallbackUrl) setSharedMapsUrl(fallbackUrl);
+
+    let cancelled = false;
+    setIsResolvingSharedPOI(true);
+    setError(null);
+
+    resolveGoogleMapsLink(rawSharedText, apiKey)
+      .then((resolved) => {
+        if (cancelled) return;
+        setSharedMapsUrl(resolved.resolvedUrl);
+        setTags(resolved.tags);
+        setSourceId(resolved.sourceId);
+        setCategory(resolved.category);
+        if (resolved.name) setName(resolved.name);
+        if (resolved.latitude != null) setLatitude(formatCoordinate(resolved.latitude));
+        if (resolved.longitude != null) setLongitude(formatCoordinate(resolved.longitude));
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setError(
+          e instanceof Error ? e.message : "Could not resolve shared place. Enter coordinates.",
+        );
+      })
+      .finally(() => {
+        if (!cancelled) setIsResolvingSharedPOI(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [apiKey, resolvedSharedPOIId, sharedPOI, visible]);
+
+  const handleSave = useCallback(async () => {
+    if (isResolvingSharedPOI) {
+      setError("Wait for the shared place to finish resolving.");
       return;
     }
 
-    setIsResolving(true);
-    setError(null);
-    try {
-      const resolved = await resolveGoogleMapsLink(mapsUrl, apiKey);
-      setMapsUrl(resolved.resolvedUrl);
-      setTags(resolved.tags);
-      setSourceId(resolved.sourceId);
-      setCategory(resolved.category);
-      if (resolved.name) setName(resolved.name);
-      if (resolved.latitude != null) setLatitude(formatCoordinate(resolved.latitude));
-      if (resolved.longitude != null) setLongitude(formatCoordinate(resolved.longitude));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not resolve this link.");
-    } finally {
-      setIsResolving(false);
-    }
-  }, [apiKey, mapsUrl]);
-
-  const handleSave = useCallback(async () => {
     const lat = parseCoordinate(latitude);
     const lon = parseCoordinate(longitude);
     if (!isValidLatitude(lat) || !isValidLongitude(lon)) {
@@ -147,7 +185,7 @@ export default function AddSavedPOISheet({
           notes,
           tags: {
             ...tags,
-            ...(mapsUrl.trim() ? { google_maps_url: mapsUrl.trim() } : {}),
+            ...(sharedMapsUrl ? { google_maps_url: sharedMapsUrl } : {}),
           },
           sourceId,
         },
@@ -164,13 +202,14 @@ export default function AddSavedPOISheet({
   }, [
     addCustomPOI,
     category,
+    isResolvingSharedPOI,
     latitude,
     longitude,
-    mapsUrl,
     name,
     notes,
     onClose,
     onSaved,
+    sharedMapsUrl,
     sourceId,
     tags,
     targets,
@@ -206,30 +245,14 @@ export default function AddSavedPOISheet({
           contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 28 }}
           keyboardShouldPersistTaps="handled"
         >
-          <InputLabel label="Google Maps link" />
-          <View className="flex-row gap-2 mb-4">
-            <TextInput
-              className="flex-1 min-h-[52px] px-3 rounded-xl border border-border bg-card text-foreground font-barlow text-[15px]"
-              placeholder="https://maps.app.goo.gl/..."
-              placeholderTextColor={colors.textTertiary}
-              value={mapsUrl}
-              onChangeText={setMapsUrl}
-              autoCapitalize="none"
-              autoCorrect={false}
-              keyboardType="url"
-              accessibilityLabel="Google Maps link"
-            />
-            <Button
-              size="sm"
-              variant="secondary"
-              className="min-h-[52px]"
-              disabled={isResolving}
-              onPress={handleResolve}
-              label={isResolving ? undefined : "Resolve"}
-            >
-              {isResolving && <ActivityIndicator color={colors.accent} />}
-            </Button>
-          </View>
+          {sharedPOI && (
+            <View className="flex-row items-center min-h-[48px] px-3 rounded-xl bg-muted mb-4">
+              {isResolvingSharedPOI && <ActivityIndicator size="small" color={colors.accent} />}
+              <Text className="flex-1 ml-2 text-[13px] font-barlow-medium text-muted-foreground">
+                {isResolvingSharedPOI ? "Reading shared place..." : "Shared place received"}
+              </Text>
+            </View>
+          )}
 
           <InputLabel label="Name" />
           <TextInput

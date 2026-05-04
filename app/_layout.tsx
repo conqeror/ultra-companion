@@ -12,6 +12,9 @@ import "../global.css";
 import { useOfflineStore } from "@/store/offlineStore";
 import { useRouteStore } from "@/store/routeStore";
 import { useCollectionStore } from "@/store/collectionStore";
+import { usePanelStore } from "@/store/panelStore";
+import { useSharedPOIStore } from "@/store/sharedPOIStore";
+import { parseSharedPOIDeepLink } from "@/services/sharedPOIService";
 import { COLORS } from "@/theme";
 
 export { ErrorBoundary } from "expo-router";
@@ -86,12 +89,20 @@ export default function RootLayout() {
     });
   }, []);
 
-  // Handle incoming GPX/KML files from share sheet / "Open with"
+  // Handle incoming GPX/KML files and shared POIs.
   const handledUrls = useRef(new Set<string>());
 
   const handleIncomingUrl = useCallback(async (url: string) => {
     if (handledUrls.current.has(url)) return;
     handledUrls.current.add(url);
+
+    const sharedPOI = parseSharedPOIDeepLink(url);
+    if (sharedPOI) {
+      useSharedPOIStore.getState().setPendingSharedPOI(sharedPOI);
+      usePanelStore.getState().setPanelTab("pois");
+      router.replace("/");
+      return;
+    }
 
     const fileName = decodeURIComponent(url.split("/").pop() || "route");
     const ext = fileName.toLowerCase().split(".").pop();

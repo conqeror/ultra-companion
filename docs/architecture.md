@@ -91,7 +91,7 @@ ETA computation: for each route segment, solve `P = (Crr × m × g × cos(θ) + 
 - Route split into ~50km segments for Overpass queries, ~8km sampling for Google
 - Stored in SQLite with spatial indexing
 - ~1–5 MB per 1000 km route corridor
-- Saved custom POIs use `source: "custom"` and store notes, Google place IDs, and Google Maps links in `tags`. They are not removed by clearing or refetching fetched OSM/Google data.
+- Saved custom POIs use `source: "custom"` and store notes, Google place IDs, and Google Maps links in `tags`. They can be created from the iOS share sheet or manual coordinates, and are not removed by clearing or refetching fetched OSM/Google data.
 
 ### Elevation Data
 
