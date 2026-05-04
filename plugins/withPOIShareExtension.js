@@ -14,6 +14,7 @@ import UniformTypeIdentifiers
 final class ShareViewController: UIViewController {
   private let statusLabel = UILabel()
   private let activityIndicator = UIActivityIndicatorView(style: .medium)
+  private var didFinishOpenAttempt = false
 
   override func viewDidLoad() {
     super.viewDidLoad()
@@ -59,11 +60,51 @@ final class ShareViewController: UIViewController {
           return
         }
 
-        extensionContext?.open(deepLink) { [weak self] _ in
-          self?.extensionContext?.completeRequest(returningItems: nil)
-        }
+        openDeepLink(deepLink)
       }
     }
+  }
+
+  private func openDeepLink(_ deepLink: URL) {
+    extensionContext?.open(deepLink) { [weak self] success in
+      DispatchQueue.main.async {
+        self?.finishOpenAttempt(deepLink, success: success)
+      }
+    }
+
+    DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
+      guard let self, !self.didFinishOpenAttempt else { return }
+      self.finishOpenAttempt(deepLink, success: false)
+    }
+  }
+
+  private func finishOpenAttempt(_ deepLink: URL, success: Bool) {
+    guard !didFinishOpenAttempt else { return }
+
+    if success || openViaResponderChain(deepLink) {
+      didFinishOpenAttempt = true
+      extensionContext?.completeRequest(returningItems: nil)
+      return
+    }
+
+    activityIndicator.stopAnimating()
+    statusLabel.text = "Could not open Ultra Companion."
+  }
+
+  @discardableResult
+  private func openViaResponderChain(_ url: URL) -> Bool {
+    let selector = NSSelectorFromString("openURL:")
+    var responder: UIResponder? = self
+
+    while let currentResponder = responder {
+      if currentResponder.responds(to: selector) {
+        currentResponder.perform(selector, with: url)
+        return true
+      }
+      responder = currentResponder.next
+    }
+
+    return false
   }
 
   private func loadPayload() async -> SharePayload {
@@ -75,6 +116,9 @@ final class ShareViewController: UIViewController {
     for item in extensionItems {
       if payload.title == nil {
         payload.title = item.attributedTitle?.string
+      }
+      if payload.text == nil {
+        payload.text = item.attributedContentText?.string
       }
 
       for provider in item.attachments ?? [] {
@@ -178,7 +222,7 @@ const INFO_PLIST_SOURCE = `<?xml version="1.0" encoding="UTF-8"?>
 <plist version="1.0">
 <dict>
 \t<key>CFBundleDisplayName</key>
-\t<string>Ultra Companion</string>
+\t<string>Save POI</string>
 \t<key>CFBundleExecutable</key>
 \t<string>$(EXECUTABLE_NAME)</string>
 \t<key>CFBundleIdentifier</key>
@@ -201,6 +245,8 @@ const INFO_PLIST_SOURCE = `<?xml version="1.0" encoding="UTF-8"?>
 \t\t\t<dict>
 \t\t\t\t<key>NSExtensionActivationSupportsText</key>
 \t\t\t\t<true/>
+\t\t\t\t<key>NSExtensionActivationSupportsWebPageWithMaxCount</key>
+\t\t\t\t<integer>1</integer>
 \t\t\t\t<key>NSExtensionActivationSupportsWebURLWithMaxCount</key>
 \t\t\t\t<integer>1</integer>
 \t\t\t</dict>
