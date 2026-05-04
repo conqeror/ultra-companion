@@ -49,6 +49,10 @@ function sanitizeSourcePart(value: string): string {
   return value.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 96);
 }
 
+function namespaceCustomSourceId(sourceId: string): string {
+  return sourceId.startsWith("custom:") ? sourceId : `custom:${sourceId}`;
+}
+
 export function extractFirstUrl(text: string): string | null {
   const match = text.match(URL_RE);
   return match?.[0] ?? null;
@@ -204,7 +208,7 @@ export function findNearestSavedPOITarget(
 
 export function buildSavedPOI(input: SavedPOIInput, target: SavedPOITarget): POI {
   const association = computePOIRouteAssociation(input.latitude, input.longitude, target.points);
-  const sourceId = input.sourceId ?? `manual:${generateId()}`;
+  const sourceId = namespaceCustomSourceId(input.sourceId ?? `manual:${generateId()}`);
   const tags: Record<string, string> = {
     ...input.tags,
     custom_created_at: new Date().toISOString(),

@@ -68,7 +68,8 @@ describe("savedPOIService", () => {
       northSouthTarget,
     );
 
-    expect(poi.id).toContain("route-a_custom_google_place-123");
+    expect(poi.id).toContain("route-a_custom_custom_google_place-123");
+    expect(poi.sourceId).toBe("custom:google:place-123");
     expect(poi.source).toBe("custom");
     expect(poi.routeId).toBe("route-a");
     expect(poi.tags.notes).toBe("24/7");
