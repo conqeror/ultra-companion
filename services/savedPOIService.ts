@@ -41,6 +41,11 @@ interface ParsedGoogleMapsLink {
   longitude: number | null;
 }
 
+interface ExpandedGoogleMapsUrl {
+  url: string;
+  body: string | null;
+}
+
 const URL_RE = /https?:\/\/[^\s]+/i;
 const PLACE_ID_RE = /(?:place_id|query_place_id)=([^&#]+)/i;
 const COORD_RE = /(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)/;
@@ -64,14 +69,26 @@ function parseNumber(value: string | null | undefined): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+function buildValidCoordinate(
+  latitude: number | null,
+  longitude: number | null,
+): { latitude: number; longitude: number } | null {
+  if (latitude == null || longitude == null) return null;
+  if (Math.abs(latitude) > 90 || Math.abs(longitude) > 180) return null;
+  return { latitude, longitude };
+}
+
 function parseCoordinatesFromText(text: string): { latitude: number; longitude: number } | null {
   const match = text.match(COORD_RE);
   if (!match) return null;
   const latitude = parseNumber(match[1]);
   const longitude = parseNumber(match[2]);
-  if (latitude == null || longitude == null) return null;
-  if (Math.abs(latitude) > 90 || Math.abs(longitude) > 180) return null;
-  return { latitude, longitude };
+  return buildValidCoordinate(latitude, longitude);
+}
+
+function parseGoogleMapsLinkParam(url: URL): ParsedGoogleMapsLink | null {
+  const nestedUrl = url.searchParams.get("link") ?? url.searchParams.get("url");
+  return nestedUrl ? parseGoogleMapsLink(nestedUrl) : null;
 }
 
 function parseGoogleMapsLink(rawText: string): ParsedGoogleMapsLink | null {
@@ -84,6 +101,9 @@ function parseGoogleMapsLink(rawText: string): ParsedGoogleMapsLink | null {
   } catch {
     return null;
   }
+
+  const nested = parseGoogleMapsLinkParam(url);
+  if (nested) return nested;
 
   const placeId = urlText.match(PLACE_ID_RE)?.[1];
   const atCoords = urlText.match(/@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/);
@@ -115,15 +135,54 @@ function parseGoogleMapsLink(rawText: string): ParsedGoogleMapsLink | null {
   };
 }
 
-async function expandGoogleMapsUrl(rawText: string): Promise<string> {
+function parseCoordinatesFromGoogleMapsHtml(html: string): {
+  latitude: number;
+  longitude: number;
+} | null {
+  const normalized = html.replace(/&amp;/g, "&").replace(/\\u003d/g, "=");
+
+  const staticMapCenter = normalized.match(
+    /[?&]center=(-?\d+(?:\.\d+)?)(?:%2C|,)(-?\d+(?:\.\d+)?)/i,
+  );
+  if (staticMapCenter) {
+    const latitude = parseNumber(staticMapCenter[1]);
+    const longitude = parseNumber(staticMapCenter[2]);
+    const coords = buildValidCoordinate(latitude, longitude);
+    if (coords) return coords;
+  }
+
+  const decoded = safeDecodeURIComponent(normalized);
+  const pbCenter = decoded.match(/!2d(-?\d+(?:\.\d+)?)!3d(-?\d+(?:\.\d+)?)/);
+  if (pbCenter) {
+    const longitude = parseNumber(pbCenter[1]);
+    const latitude = parseNumber(pbCenter[2]);
+    const coords = buildValidCoordinate(latitude, longitude);
+    if (coords) return coords;
+  }
+
+  return null;
+}
+
+function safeDecodeURIComponent(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+async function expandGoogleMapsUrl(rawText: string): Promise<ExpandedGoogleMapsUrl> {
   const url = extractFirstUrl(rawText.trim()) ?? rawText.trim();
-  if (!url) return rawText;
+  if (!url) return { url: rawText, body: null };
 
   try {
     const response = await fetch(url, { method: "GET" });
-    return response.url || url;
+    return {
+      url: response.url || url,
+      body: await response.text().catch(() => null),
+    };
   } catch {
-    return url;
+    return { url, body: null };
   }
 }
 
@@ -146,8 +205,12 @@ export async function resolveGoogleMapsLink(
   rawText: string,
   apiKey?: string,
 ): Promise<ResolvedGoogleMapsLink> {
-  const expandedUrl = await expandGoogleMapsUrl(rawText);
-  const parsed = parseGoogleMapsLink(expandedUrl) ?? parseGoogleMapsLink(rawText);
+  const rawParsed = parseGoogleMapsLink(rawText);
+  const shouldExpand =
+    !rawParsed ||
+    (rawParsed.latitude == null && rawParsed.longitude == null && (!rawParsed.placeId || !apiKey));
+  const expanded = shouldExpand ? await expandGoogleMapsUrl(rawText) : null;
+  const parsed = (expanded ? parseGoogleMapsLink(expanded.url) : null) ?? rawParsed;
   if (!parsed) {
     throw new Error("Paste a Google Maps link or coordinates.");
   }
@@ -157,7 +220,11 @@ export async function resolveGoogleMapsLink(
     return resolvedFromPlace(place, parsed.url);
   }
 
-  if (parsed.latitude == null || parsed.longitude == null) {
+  const htmlCoords = expanded?.body ? parseCoordinatesFromGoogleMapsHtml(expanded.body) : null;
+  const latitude = parsed.latitude ?? htmlCoords?.latitude ?? null;
+  const longitude = parsed.longitude ?? htmlCoords?.longitude ?? null;
+
+  if (latitude == null || longitude == null) {
     throw new Error(
       parsed.placeId
         ? "Google Places API key is not configured. Enter coordinates manually."
@@ -168,8 +235,8 @@ export async function resolveGoogleMapsLink(
   return {
     name: null,
     category: "other",
-    latitude: parsed.latitude,
-    longitude: parsed.longitude,
+    latitude,
+    longitude,
     tags: {
       google_maps_url: parsed.url,
       ...(parsed.placeId ? { google_place_id: parsed.placeId } : {}),

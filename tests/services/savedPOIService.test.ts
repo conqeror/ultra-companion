@@ -47,6 +47,40 @@ describe("savedPOIService", () => {
     expect(result.tags.google_maps_url).toContain("google.com/maps");
   });
 
+  it("resolves coordinates from nested Google Maps link params without fetching", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const nestedUrl = encodeURIComponent(
+      "https://www.google.com/maps/place/Test/@48.1234567,17.7654321,17z",
+    );
+    const result = await resolveGoogleMapsLink(`https://maps.app.goo.gl/?link=${nestedUrl}`);
+
+    expect(result.latitude).toBeCloseTo(48.1234567);
+    expect(result.longitude).toBeCloseTo(17.7654321);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("resolves coordinates from expanded short link HTML when the final URL omits them", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        url: "https://www.google.com/maps/place//data=!4m2!3m1!1s0x476c895170197e7d:0x5049eb7d4047ad4f",
+        text: vi
+          .fn()
+          .mockResolvedValue(
+            '<meta content="https://maps.google.com/maps/api/staticmap?center=48.152576%2C17.1245568&amp;zoom=10">',
+          ),
+      }),
+    );
+
+    const result = await resolveGoogleMapsLink("https://maps.app.goo.gl/eEhh3");
+
+    expect(result.latitude).toBeCloseTo(48.152576);
+    expect(result.longitude).toBeCloseTo(17.1245568);
+    expect(result.tags.google_maps_url).toContain("google.com/maps/place");
+  });
+
   it("chooses the nearest selected route target for collection saves", () => {
     const nearest = findNearestSavedPOITarget(48.15, 17.101, [eastTarget, northSouthTarget]);
 
