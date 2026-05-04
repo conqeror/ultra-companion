@@ -17,7 +17,7 @@ import ProfileTabContent from "./ProfileTabContent";
 import WeatherPanel from "./WeatherPanel";
 import ClimbTabContent from "./ClimbTabContent";
 import POITabContent from "./POITabContent";
-import RidingHorizonSelector from "./RidingHorizonSelector";
+import RidingHorizonSelector, { RIDING_HORIZON_SELECTOR_OFFSET } from "./RidingHorizonSelector";
 import type { ActiveRouteData, PanelTab } from "@/types";
 
 /** Combined handle + tabs height */
@@ -113,78 +113,84 @@ export default function TabbedBottomPanel({ activeData }: TabbedBottomPanelProps
 
   return (
     <Animated.View
-      className="absolute bottom-0 left-0 right-0 rounded-t-2xl shadow-lg border-t border-border"
-      style={[{ height: expandedHeight, backgroundColor: colors.surface }, animatedSheetStyle]}
+      pointerEvents="box-none"
+      className="absolute bottom-0 left-0 right-0"
+      style={[{ height: expandedHeight + RIDING_HORIZON_SELECTOR_OFFSET }, animatedSheetStyle]}
     >
-      {/* Handle + tabs — single compact gesture target */}
-      <GestureDetector gesture={panGesture}>
-        <Animated.View>
-          <View
-            className="px-2"
-            style={{
-              height: HEADER_HEIGHT,
-              borderBottomWidth: 1,
-              borderBottomColor: colors.borderSubtle,
-            }}
-          >
-            {/* Drag handle pill */}
-            <View className="items-center pt-1.5 pb-0.5">
-              <View
-                className="rounded-full"
-                style={{
-                  width: 32,
-                  height: 4,
-                  backgroundColor: colors.textTertiary,
-                  opacity: 0.5,
-                }}
-              />
-            </View>
-
-            {/* Tab buttons */}
-            <View className="flex-row flex-1 items-center">
-              {ALL_TABS.map((tab) => {
-                const isActive = panelTab === tab.key;
-                return (
-                  <TouchableOpacity
-                    key={tab.key}
-                    className="flex-1 items-center justify-center h-full"
-                    onPress={() => setPanelTab(tab.key)}
-                    accessibilityLabel={`${tab.label} tab`}
-                  >
-                    <Text
-                      className="text-[13px] font-barlow-semibold"
-                      style={{ color: isActive ? colors.accent : colors.textTertiary }}
-                    >
-                      {tab.label}
-                    </Text>
-                    {isActive && (
-                      <View
-                        className="absolute bottom-0 left-3 right-3 rounded-t-sm"
-                        style={{ height: 2, backgroundColor: colors.accent }}
-                      />
-                    )}
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-          </View>
-        </Animated.View>
-      </GestureDetector>
-
       <RidingHorizonSelector />
 
-      {/* Content — clips to available height */}
-      <View style={{ height: effectiveContentHeight, overflow: "hidden" }}>
-        {panelTab === "profile" && (
-          <ProfileTabContent
-            activeData={activeData}
-            width={screenWidth}
-            height={effectiveContentHeight}
-          />
-        )}
-        {panelTab === "weather" && <WeatherPanel />}
-        {panelTab === "climbs" && <ClimbTabContent activeData={activeData} />}
-        {panelTab === "pois" && <POITabContent activeData={activeData} />}
+      <View
+        className="absolute bottom-0 left-0 right-0 rounded-t-2xl shadow-lg border-t border-border"
+        style={{ height: expandedHeight, backgroundColor: colors.surface }}
+      >
+        {/* Handle + tabs — single compact gesture target */}
+        <GestureDetector gesture={panGesture}>
+          <Animated.View>
+            <View
+              className="px-2"
+              style={{
+                height: HEADER_HEIGHT,
+                borderBottomWidth: 1,
+                borderBottomColor: colors.borderSubtle,
+              }}
+            >
+              {/* Drag handle pill */}
+              <View className="items-center pt-1.5 pb-0.5">
+                <View
+                  className="rounded-full"
+                  style={{
+                    width: 32,
+                    height: 4,
+                    backgroundColor: colors.textTertiary,
+                    opacity: 0.5,
+                  }}
+                />
+              </View>
+
+              {/* Tab buttons */}
+              <View className="flex-row flex-1 items-center">
+                {ALL_TABS.map((tab) => {
+                  const isActive = panelTab === tab.key;
+                  return (
+                    <TouchableOpacity
+                      key={tab.key}
+                      className="flex-1 items-center justify-center h-full"
+                      onPress={() => setPanelTab(tab.key)}
+                      accessibilityLabel={`${tab.label} tab`}
+                    >
+                      <Text
+                        className="text-[13px] font-barlow-semibold"
+                        style={{ color: isActive ? colors.accent : colors.textTertiary }}
+                      >
+                        {tab.label}
+                      </Text>
+                      {isActive && (
+                        <View
+                          className="absolute bottom-0 left-3 right-3 rounded-t-sm"
+                          style={{ height: 2, backgroundColor: colors.accent }}
+                        />
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+          </Animated.View>
+        </GestureDetector>
+
+        {/* Content — clips to available height */}
+        <View style={{ height: effectiveContentHeight, overflow: "hidden" }}>
+          {panelTab === "profile" && (
+            <ProfileTabContent
+              activeData={activeData}
+              width={screenWidth}
+              height={effectiveContentHeight}
+            />
+          )}
+          {panelTab === "weather" && <WeatherPanel />}
+          {panelTab === "climbs" && <ClimbTabContent activeData={activeData} />}
+          {panelTab === "pois" && <POITabContent activeData={activeData} />}
+        </View>
       </View>
     </Animated.View>
   );

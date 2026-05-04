@@ -147,7 +147,7 @@ export default function ProfileTabContent({ activeData, width, height }: Profile
     }
     const distDone = currentDistanceMeters;
     const la = ridingHorizonMetersForMode(panelMode);
-    if (la == null) return { windowStartDist: 0, windowEndDist: activeTotalDistance };
+    if (la == null) return { windowStartDist: distDone, windowEndDist: activeTotalDistance };
     const endDist = Math.min(distDone + la, activeTotalDistance);
     return { windowStartDist: distDone, windowEndDist: endDist };
   }, [currentDistanceMeters, activeRoutePoints, panelMode, activeTotalDistance]);

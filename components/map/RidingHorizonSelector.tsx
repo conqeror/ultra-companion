@@ -12,8 +12,11 @@ import { useThemeColors } from "@/theme";
 import { PANEL_MODES } from "@/constants";
 import { ridingHorizonKmLabelForMode, ridingHorizonLabelForMode } from "@/utils/ridingHorizon";
 
-const SELECTOR_HEIGHT = 48;
-const SHEET_GAP = 8;
+export const RIDING_HORIZON_SELECTOR_HEIGHT = 48;
+export const RIDING_HORIZON_SELECTOR_GAP = 8;
+export const RIDING_HORIZON_SELECTOR_OFFSET =
+  RIDING_HORIZON_SELECTOR_HEIGHT + RIDING_HORIZON_SELECTOR_GAP;
+
 const HORIZONTAL_MARGIN = 12;
 const COLLAPSED_WIDTH = 88;
 const SURFACE_ALPHA = 0.96;
@@ -80,7 +83,7 @@ export default function RidingHorizonSelector() {
       style={{
         position: "absolute",
         right: HORIZONTAL_MARGIN,
-        top: -SELECTOR_HEIGHT - SHEET_GAP,
+        top: 0,
         zIndex: 20,
       }}
     >
@@ -90,7 +93,7 @@ export default function RidingHorizonSelector() {
           {
             backgroundColor: withAlpha(colors.surface, SURFACE_ALPHA),
             borderColor: withAlpha(colors.borderSubtle, 0.95),
-            height: SELECTOR_HEIGHT,
+            height: RIDING_HORIZON_SELECTOR_HEIGHT,
             overflow: "hidden",
             ...FLOATING_SURFACE_STYLE,
           },
