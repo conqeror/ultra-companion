@@ -2,10 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const { withDangerousMod, withXcodeProject } = require("expo/config-plugins");
 
-const APP_TARGET_NAME = "UltraCompanion";
 const EXTENSION_TARGET_NAME = "UltraCompanionShareExtension";
-const EXTENSION_BUNDLE_ID = "com.conqeror.ultracompanion.share";
-const DEVELOPMENT_TEAM = "C7BE2RKA4K";
 const EXTENSION_DIR = "UltraCompanionShareExtension";
 const SHARE_VIEW_CONTROLLER_FILE = "ShareViewController.swift";
 const INFO_PLIST_FILE = "Info.plist";
@@ -223,13 +220,16 @@ function ensureTargetAttributes(project, targetUuid) {
   firstProject.attributes.TargetAttributes ||= {};
   firstProject.attributes.TargetAttributes[targetUuid] = {
     ...firstProject.attributes.TargetAttributes[targetUuid],
-    DevelopmentTeam: DEVELOPMENT_TEAM,
     ProvisioningStyle: "Automatic",
   };
+  delete firstProject.attributes.TargetAttributes[targetUuid].DevelopmentTeam;
 }
 
 function ensureGroup(project) {
-  let groupKey = project.findPBXGroupKey({ name: EXTENSION_TARGET_NAME });
+  let groupKey = project.findPBXGroupKey({ path: EXTENSION_DIR });
+  if (groupKey) return groupKey;
+
+  groupKey = project.findPBXGroupKey({ name: EXTENSION_TARGET_NAME });
   if (groupKey) return groupKey;
 
   groupKey = project.pbxCreateGroup(EXTENSION_TARGET_NAME, EXTENSION_DIR);
@@ -243,6 +243,14 @@ function targetBuildConfigurations(project, targetName) {
   const configList = project.pbxXCConfigurationList()[target.buildConfigurationList];
   const configs = project.pbxXCBuildConfigurationSection();
   return configList.buildConfigurations.map((config) => configs[config.value]);
+}
+
+function getExtensionBundleIdentifier(config) {
+  const appBundleIdentifier = config.ios?.bundleIdentifier;
+  if (!appBundleIdentifier) {
+    throw new Error("withPOIShareExtension requires ios.bundleIdentifier in app config.");
+  }
+  return `${appBundleIdentifier}.share`;
 }
 
 function repairExtensionFileReferences(project) {
@@ -260,7 +268,7 @@ function repairExtensionFileReferences(project) {
   }
 }
 
-function updateExtensionBuildSettings(project) {
+function updateExtensionBuildSettings(project, extensionBundleIdentifier) {
   for (const config of targetBuildConfigurations(project, EXTENSION_TARGET_NAME)) {
     config.buildSettings = {
       ...config.buildSettings,
@@ -268,7 +276,6 @@ function updateExtensionBuildSettings(project) {
       CODE_SIGN_IDENTITY: '"Apple Development"',
       CODE_SIGN_STYLE: "Automatic",
       CURRENT_PROJECT_VERSION: 1,
-      DEVELOPMENT_TEAM,
       GENERATE_INFOPLIST_FILE: "NO",
       INFOPLIST_FILE: INFO_PLIST,
       IPHONEOS_DEPLOYMENT_TARGET: "15.1",
@@ -278,13 +285,27 @@ function updateExtensionBuildSettings(project) {
         '"@executable_path/../../Frameworks"',
       ],
       MARKETING_VERSION: "1.0",
-      PRODUCT_BUNDLE_IDENTIFIER: EXTENSION_BUNDLE_ID,
+      PRODUCT_BUNDLE_IDENTIFIER: extensionBundleIdentifier,
       PRODUCT_NAME: EXTENSION_TARGET_NAME,
       SKIP_INSTALL: "YES",
       SWIFT_VERSION: "5.0",
       TARGETED_DEVICE_FAMILY: 1,
     };
+    delete config.buildSettings.DEVELOPMENT_TEAM;
+    delete config.buildSettings.PROVISIONING_PROFILE;
+    delete config.buildSettings.PROVISIONING_PROFILE_SPECIFIER;
   }
+}
+
+function hasTargetDependency(project, fromTargetUuid, toTargetUuid) {
+  const fromTarget = project.pbxNativeTargetSection()[fromTargetUuid];
+  const dependencies = fromTarget?.dependencies ?? [];
+  const targetDependencies = project.hash.project.objects.PBXTargetDependency ?? {};
+
+  return dependencies.some((dependency) => {
+    const targetDependency = targetDependencies[dependency.value];
+    return targetDependency?.target === toTargetUuid;
+  });
 }
 
 function ensureSourceFile(project, targetUuid, groupKey) {
@@ -302,6 +323,8 @@ function ensureSourceFile(project, targetUuid, groupKey) {
 }
 
 function withPOIShareExtension(config) {
+  const extensionBundleIdentifier = getExtensionBundleIdentifier(config);
+
   config = withDangerousMod(config, [
     "ios",
     async (mod) => {
@@ -318,6 +341,7 @@ function withPOIShareExtension(config) {
 
   return withXcodeProject(config, (mod) => {
     const project = mod.modResults;
+    const appTargetUuid = project.getFirstTarget().uuid;
     const groupKey = ensureGroup(project);
     let targetUuid = project.findTargetKey(EXTENSION_TARGET_NAME);
 
@@ -326,7 +350,7 @@ function withPOIShareExtension(config) {
         EXTENSION_TARGET_NAME,
         "app_extension",
         EXTENSION_DIR,
-        EXTENSION_BUNDLE_ID,
+        extensionBundleIdentifier,
       );
       targetUuid = target.uuid;
     }
@@ -334,14 +358,9 @@ function withPOIShareExtension(config) {
     ensureTargetAttributes(project, targetUuid);
     repairExtensionFileReferences(project);
     ensureSourceFile(project, targetUuid, groupKey);
-    updateExtensionBuildSettings(project);
+    updateExtensionBuildSettings(project, extensionBundleIdentifier);
 
-    const appTargetUuid = project.findTargetKey(APP_TARGET_NAME);
-    const appTarget = project.pbxTargetByName(APP_TARGET_NAME);
-    const hasDependency = appTarget.dependencies?.some(
-      (dependency) => dependency.comment === "PBXTargetDependency",
-    );
-    if (appTargetUuid && !hasDependency) {
+    if (!hasTargetDependency(project, appTargetUuid, targetUuid)) {
       project.addTargetDependency(appTargetUuid, [targetUuid]);
     }
 
