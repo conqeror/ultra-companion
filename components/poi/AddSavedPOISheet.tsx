@@ -41,7 +41,9 @@ function formatCoordinate(value: number | null): string {
 }
 
 function parseCoordinate(value: string): number | null {
-  const n = Number(value.trim());
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const n = Number(trimmed);
   return Number.isFinite(n) ? n : null;
 }
 
@@ -72,6 +74,7 @@ export default function AddSavedPOISheet({
   const [sourceId, setSourceId] = useState<string | undefined>();
   const [googleMapsInput, setGoogleMapsInput] = useState("");
   const [googleMapsUrl, setGoogleMapsUrl] = useState<string | null>(null);
+  const [hasResolvedGoogleMapsPlace, setHasResolvedGoogleMapsPlace] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isResolvingGoogleMapsUrl, setIsResolvingGoogleMapsUrl] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -100,6 +103,7 @@ export default function AddSavedPOISheet({
     setSourceId(undefined);
     setGoogleMapsInput("");
     setGoogleMapsUrl(null);
+    setHasResolvedGoogleMapsPlace(false);
     setError(null);
     setIsResolvingGoogleMapsUrl(false);
     setIsSaving(false);
@@ -119,6 +123,7 @@ export default function AddSavedPOISheet({
       const resolved = await resolveGoogleMapsLink(rawUrl, apiKey);
       setGoogleMapsInput(resolved.resolvedUrl);
       setGoogleMapsUrl(resolved.resolvedUrl);
+      setHasResolvedGoogleMapsPlace(true);
       setTags(resolved.tags);
       setSourceId(resolved.sourceId);
       setCategory(resolved.category);
@@ -127,6 +132,7 @@ export default function AddSavedPOISheet({
       if (resolved.longitude != null) setLongitude(formatCoordinate(resolved.longitude));
     } catch (e) {
       setGoogleMapsUrl(rawUrl);
+      setHasResolvedGoogleMapsPlace(false);
       setError(e instanceof Error ? e.message : "Could not resolve this link. Enter coordinates.");
     } finally {
       setIsResolvingGoogleMapsUrl(false);
@@ -235,10 +241,18 @@ export default function AddSavedPOISheet({
               placeholderTextColor={colors.textTertiary}
               value={googleMapsInput}
               onChangeText={(value) => {
+                const shouldClearResolvedFields = hasResolvedGoogleMapsPlace;
                 setGoogleMapsInput(value);
                 setGoogleMapsUrl(null);
+                setHasResolvedGoogleMapsPlace(false);
                 setTags({});
                 setSourceId(undefined);
+                if (shouldClearResolvedFields) {
+                  setName("");
+                  setCategory(DEFAULT_CATEGORY);
+                  setLatitude("");
+                  setLongitude("");
+                }
               }}
               autoCapitalize="none"
               autoCorrect={false}

@@ -338,6 +338,25 @@ function resolvedFromPlace(place: GooglePlace, fallbackUrl: string): ResolvedGoo
   };
 }
 
+function resolvedFromCoordinates(
+  parsed: ParsedGoogleMapsLink,
+  latitude: number,
+  longitude: number,
+): ResolvedGoogleMapsLink {
+  return {
+    name: null,
+    category: "other",
+    latitude,
+    longitude,
+    tags: {
+      google_maps_url: parsed.url,
+      ...(parsed.placeId ? { google_place_id: parsed.placeId } : {}),
+    },
+    sourceId: parsed.placeId ? `google:${parsed.placeId}` : undefined,
+    resolvedUrl: parsed.url,
+  };
+}
+
 export async function resolveGoogleMapsLink(
   rawText: string,
   apiKey?: string,
@@ -352,14 +371,24 @@ export async function resolveGoogleMapsLink(
     throw new Error("Paste a Google Maps link or coordinates.");
   }
 
-  if (parsed.placeId && apiKey) {
-    const place = await withGoogleMapsReadTimeout(fetchGooglePlaceDetails(parsed.placeId, apiKey));
-    return resolvedFromPlace(place, parsed.url);
-  }
-
   const htmlCoords = expanded?.body ? parseCoordinatesFromGoogleMapsHtml(expanded.body) : null;
   const latitude = parsed.latitude ?? htmlCoords?.latitude ?? null;
   const longitude = parsed.longitude ?? htmlCoords?.longitude ?? null;
+
+  if (parsed.placeId && apiKey) {
+    try {
+      const place = await withGoogleMapsReadTimeout(
+        fetchGooglePlaceDetails(parsed.placeId, apiKey),
+      );
+      return resolvedFromPlace(place, parsed.url);
+    } catch (error) {
+      const coords = buildValidCoordinate(latitude, longitude);
+      if (coords) {
+        return resolvedFromCoordinates(parsed, coords.latitude, coords.longitude);
+      }
+      throw error;
+    }
+  }
 
   if (latitude == null || longitude == null) {
     const placeQuery = parsed.placeQuery ?? extractPlaceQueryFromText(rawText);
@@ -377,18 +406,7 @@ export async function resolveGoogleMapsLink(
     );
   }
 
-  return {
-    name: null,
-    category: "other",
-    latitude,
-    longitude,
-    tags: {
-      google_maps_url: parsed.url,
-      ...(parsed.placeId ? { google_place_id: parsed.placeId } : {}),
-    },
-    sourceId: parsed.placeId ? `google:${parsed.placeId}` : undefined,
-    resolvedUrl: parsed.url,
-  };
+  return resolvedFromCoordinates(parsed, latitude, longitude);
 }
 
 export function findNearestSavedPOITarget(

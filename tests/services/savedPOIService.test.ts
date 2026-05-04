@@ -62,6 +62,26 @@ describe("savedPOIService", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("falls back to parsed coordinates when Google Place Details fails", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 503,
+      text: vi.fn().mockResolvedValue("Service unavailable"),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await resolveGoogleMapsLink(
+      "https://www.google.com/maps/search/?api=1&query=48.1234567,17.7654321&query_place_id=place-123",
+      "api-key",
+    );
+
+    expect(result.latitude).toBeCloseTo(48.1234567);
+    expect(result.longitude).toBeCloseTo(17.7654321);
+    expect(result.tags.google_place_id).toBe("place-123");
+    expect(result.sourceId).toBe("google:place-123");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("resolves coordinates from expanded short link HTML when the final URL omits them", async () => {
     vi.stubGlobal(
       "fetch",
