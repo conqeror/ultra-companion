@@ -1,14 +1,39 @@
 import React, { useState } from "react";
-import { View, TouchableOpacity } from "react-native";
+import { LayoutAnimation, TouchableOpacity, View } from "react-native";
 import { Text } from "@/components/ui/text";
 import { usePanelStore } from "@/store/panelStore";
 import { useThemeColors } from "@/theme";
 import { PANEL_MODES } from "@/constants";
-import { ChevronDown } from "lucide-react-native";
-import { ridingHorizonKmLabelForMode } from "@/utils/ridingHorizon";
+import { ridingHorizonKmLabelForMode, ridingHorizonLabelForMode } from "@/utils/ridingHorizon";
 
 const SELECTOR_HEIGHT = 48;
 const SHEET_GAP = 8;
+const FLOATING_SURFACE_STYLE = {
+  shadowColor: "#000000",
+  shadowOffset: { width: 0, height: 6 },
+  shadowOpacity: 0.18,
+  shadowRadius: 12,
+  elevation: 6,
+};
+const ANIMATION = {
+  duration: 180,
+  update: {
+    type: LayoutAnimation.Types.easeInEaseOut,
+    property: LayoutAnimation.Properties.opacity,
+  },
+  create: {
+    type: LayoutAnimation.Types.easeInEaseOut,
+    property: LayoutAnimation.Properties.opacity,
+  },
+  delete: {
+    type: LayoutAnimation.Types.easeInEaseOut,
+    property: LayoutAnimation.Properties.opacity,
+  },
+};
+
+function animateNextLayout() {
+  LayoutAnimation.configureNext(ANIMATION);
+}
 
 export default function RidingHorizonSelector() {
   const colors = useThemeColors();
@@ -16,7 +41,17 @@ export default function RidingHorizonSelector() {
   const setPanelMode = usePanelStore((s) => s.setPanelMode);
   const [isOpen, setIsOpen] = useState(false);
 
-  const selectedKm = ridingHorizonKmLabelForMode(panelMode);
+  const selectedLabel = ridingHorizonLabelForMode(panelMode);
+
+  const open = () => {
+    animateNextLayout();
+    setIsOpen(true);
+  };
+
+  const close = () => {
+    animateNextLayout();
+    setIsOpen(false);
+  };
 
   return (
     <View
@@ -35,6 +70,7 @@ export default function RidingHorizonSelector() {
             padding: 2,
             gap: 4,
             height: SELECTOR_HEIGHT,
+            ...FLOATING_SURFACE_STYLE,
           }}
         >
           {PANEL_MODES.map((mode) => {
@@ -45,10 +81,10 @@ export default function RidingHorizonSelector() {
                 key={mode}
                 onPress={() => {
                   setPanelMode(mode);
-                  setIsOpen(false);
+                  close();
                 }}
                 hitSlop={{ left: 2, right: 2 }}
-                accessibilityLabel={`Set riding horizon to ${km} km`}
+                accessibilityLabel={`Set riding horizon to ${ridingHorizonLabelForMode(mode)}`}
                 accessibilityRole="button"
                 accessibilityState={{ selected: isActive }}
                 className="flex-1 rounded-full items-center justify-center"
@@ -75,18 +111,18 @@ export default function RidingHorizonSelector() {
           className="self-end flex-row items-center justify-center rounded-full border border-border px-4"
           style={{
             height: SELECTOR_HEIGHT,
-            minWidth: 92,
+            minWidth: 88,
             backgroundColor: colors.surfaceRaised,
+            ...FLOATING_SURFACE_STYLE,
           }}
-          onPress={() => setIsOpen(true)}
-          accessibilityLabel={`Riding horizon ${selectedKm} km`}
+          onPress={open}
+          accessibilityLabel={`Riding horizon ${selectedLabel}`}
           accessibilityRole="button"
           accessibilityState={{ expanded: false }}
         >
           <Text className="font-barlow-sc-semibold text-[15px]" style={{ color: colors.accent }}>
-            {selectedKm} km
+            {selectedLabel}
           </Text>
-          <ChevronDown size={16} color={colors.accent} style={{ marginLeft: 6 }} />
         </TouchableOpacity>
       )}
     </View>

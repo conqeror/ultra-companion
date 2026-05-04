@@ -4,7 +4,9 @@ import {
   filterClimbsToRidingHorizon,
   isDistanceInWindow,
   ridingHorizonKmLabelForMode,
+  ridingHorizonLabelForMode,
   ridingHorizonMetersForMode,
+  ridingHorizonScopeLabelForMode,
 } from "@/utils/ridingHorizon";
 import { toDisplayClimb } from "@/services/displayDistance";
 import type { Climb, PanelMode } from "@/types";
@@ -25,19 +27,34 @@ const climb = (id: string, startDistanceMeters: number, endDistanceMeters: numbe
 });
 
 describe("ridingHorizon", () => {
-  it("maps panel modes to finite riding horizons", () => {
+  it("maps panel modes to riding horizons", () => {
     const modes: PanelMode[] = [
       "upcoming-10",
       "upcoming-25",
       "upcoming-50",
       "upcoming-100",
       "upcoming-200",
+      "full-route",
     ];
 
     expect(modes.map(ridingHorizonMetersForMode)).toEqual([
-      10_000, 25_000, 50_000, 100_000, 200_000,
+      10_000,
+      25_000,
+      50_000,
+      100_000,
+      200_000,
+      null,
     ]);
-    expect(modes.map(ridingHorizonKmLabelForMode)).toEqual(["10", "25", "50", "100", "200"]);
+    expect(modes.map(ridingHorizonKmLabelForMode)).toEqual([
+      "10",
+      "25",
+      "50",
+      "100",
+      "200",
+      "FULL",
+    ]);
+    expect(ridingHorizonLabelForMode("full-route")).toBe("FULL");
+    expect(ridingHorizonScopeLabelForMode("full-route")).toBe("the full route");
   });
 
   it("anchors the horizon at snapped progress and preserves the behind buffer", () => {
@@ -58,6 +75,11 @@ describe("ridingHorizon", () => {
       startDistanceMeters: 0,
       endDistanceMeters: 25_000,
     });
+  });
+
+  it("returns no distance window for full-route mode", () => {
+    expect(createRidingHorizonWindow(12_000, null, { behindMeters: 1_000 })).toBeUndefined();
+    expect(isDistanceInWindow(500_000, undefined)).toBe(true);
   });
 
   it("keeps climbs that overlap the horizon and drops distant climbs", () => {

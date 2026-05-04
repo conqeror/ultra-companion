@@ -110,7 +110,8 @@ export type PanelMode =
   | "upcoming-25"
   | "upcoming-50"
   | "upcoming-100"
-  | "upcoming-200";
+  | "upcoming-200"
+  | "full-route";
 
 export type PanelTab = "profile" | "weather" | "climbs" | "pois";
 

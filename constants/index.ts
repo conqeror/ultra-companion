@@ -30,6 +30,7 @@ export const PANEL_MODES = [
   "upcoming-50",
   "upcoming-100",
   "upcoming-200",
+  "full-route",
 ] as const;
 
 // --- Phase 3: POI constants ---

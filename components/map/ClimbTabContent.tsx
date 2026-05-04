@@ -28,8 +28,8 @@ import { formatDistance, formatElevation } from "@/utils/formatters";
 import {
   createRidingHorizonWindow,
   filterClimbsToRidingHorizon,
-  ridingHorizonKmLabelForMode,
   ridingHorizonMetersForMode,
+  ridingHorizonScopeLabelForMode,
 } from "@/utils/ridingHorizon";
 import ElevationProfile from "@/components/elevation/ElevationProfile";
 import ClimbListItem from "@/components/climb/ClimbListItem";
@@ -107,7 +107,7 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
       }),
     [currentDist, ridingHorizonMeters, activeTotalDistance],
   );
-  const horizonLabel = `${ridingHorizonKmLabelForMode(panelMode)} km`;
+  const horizonScopeLabel = ridingHorizonScopeLabelForMode(panelMode);
 
   const displayedClimbs = useMemo(
     () => getClimbsForDisplay(routeIds, segments),
@@ -262,8 +262,8 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
           <Mountain size={24} color={colors.textTertiary} />
           <Text className="text-[13px] text-muted-foreground font-barlow-medium mt-2 text-center">
             {sortedClimbs.length === 0
-              ? `No climbs in the next ${horizonLabel}`
-              : `No climbs match this filter in the next ${horizonLabel}`}
+              ? `No climbs in ${horizonScopeLabel}`
+              : `No climbs match this filter in ${horizonScopeLabel}`}
           </Text>
         </View>
       </View>
@@ -421,7 +421,7 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
             ListEmptyComponent={
               <View className="items-center justify-center py-8 px-4">
                 <Text className="text-[13px] text-muted-foreground font-barlow-medium">
-                  No climbs match this difficulty in the next {horizonLabel}
+                  No climbs match this difficulty in {horizonScopeLabel}
                 </Text>
               </View>
             }

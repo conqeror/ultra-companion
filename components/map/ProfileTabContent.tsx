@@ -147,6 +147,7 @@ export default function ProfileTabContent({ activeData, width, height }: Profile
     }
     const distDone = currentDistanceMeters;
     const la = ridingHorizonMetersForMode(panelMode);
+    if (la == null) return { windowStartDist: 0, windowEndDist: activeTotalDistance };
     const endDist = Math.min(distDone + la, activeTotalDistance);
     return { windowStartDist: distDone, windowEndDist: endDist };
   }, [currentDistanceMeters, activeRoutePoints, panelMode, activeTotalDistance]);
@@ -181,7 +182,7 @@ export default function ProfileTabContent({ activeData, width, height }: Profile
     );
   }
 
-  const lookAhead = ridingHorizonMetersForMode(panelMode);
+  const lookAhead = ridingHorizonMetersForMode(panelMode) ?? activeTotalDistance;
 
   const showClimbBar = isExpanded && showClimbZoom && !!climbProgressText;
   const showStats = isExpanded && !showClimbZoom && !!statsText;

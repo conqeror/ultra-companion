@@ -250,7 +250,7 @@ border-t border-border
 px-3 pt-3
 ```
 
-The riding horizon selector floats above the bottom sheet and scopes all riding bottom-sheet content. Default state shows only the selected value (`50 km`); tapping it expands the full `10 / 25 / 50 / 100 / 200 km` range row.
+The riding horizon selector floats above the bottom sheet and scopes all riding bottom-sheet content. Default state shows only the selected value (`50 km` or `FULL`); tapping it animates open to the full `10 / 25 / 50 / 100 / 200 / FULL` range row.
 
 ```
 collapsed height: 48dp
@@ -365,7 +365,7 @@ The map takes 100% of the screen. Everything else floats.
 ### Phase 3: POI Search Along Route
 
 - **POI markers on map**: Small, category-colored icons limited to the active riding horizon. Tap to expand detail.
-- **POI list**: Bottom-sheet tab. Defaults to the active riding horizon and can explicitly switch to full-route planning. List items show: category icon + name + distance along route + ETA.
+- **POI list**: Bottom-sheet tab. Follows the active riding horizon; `FULL` is the planning mode for route-wide browsing. List items show: category icon + name + distance along route + ETA.
 - **Category filter**: Horizontal scrollable chip row at top of POI panel. Chips use `label` style, accent when selected.
 - **Quick summary on map**: Nearest POI of each critical category (water, food) shown as small floating tags near the route line.
 

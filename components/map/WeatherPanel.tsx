@@ -206,7 +206,10 @@ export default function WeatherPanel() {
   const panelMode = usePanelStore((s) => s.panelMode);
   const ridingHorizonMeters = ridingHorizonMetersForMode(panelMode);
   const horizonTimeline = useMemo(
-    () => timeline.filter((point) => point.distanceAlongRouteM <= ridingHorizonMeters),
+    () =>
+      ridingHorizonMeters == null
+        ? timeline
+        : timeline.filter((point) => point.distanceAlongRouteM <= ridingHorizonMeters),
     [timeline, ridingHorizonMeters],
   );
 

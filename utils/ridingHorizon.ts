@@ -5,7 +5,7 @@ export interface DistanceWindow {
   endDistanceMeters?: number;
 }
 
-export function ridingHorizonMetersForMode(mode: PanelMode): number {
+export function ridingHorizonMetersForMode(mode: PanelMode): number | null {
   switch (mode) {
     case "upcoming-10":
       return 10_000;
@@ -17,21 +17,36 @@ export function ridingHorizonMetersForMode(mode: PanelMode): number {
       return 100_000;
     case "upcoming-200":
       return 200_000;
+    case "full-route":
+      return null;
   }
 }
 
 export function ridingHorizonKmLabelForMode(mode: PanelMode): string {
-  return String(ridingHorizonMetersForMode(mode) / 1_000);
+  const meters = ridingHorizonMetersForMode(mode);
+  return meters == null ? "FULL" : String(meters / 1_000);
+}
+
+export function ridingHorizonLabelForMode(mode: PanelMode): string {
+  const meters = ridingHorizonMetersForMode(mode);
+  return meters == null ? "FULL" : `${meters / 1_000} km`;
+}
+
+export function ridingHorizonScopeLabelForMode(mode: PanelMode): string {
+  const meters = ridingHorizonMetersForMode(mode);
+  return meters == null ? "the full route" : `the next ${meters / 1_000} km`;
 }
 
 export function createRidingHorizonWindow(
   currentDistanceMeters: number | null,
-  horizonMeters: number,
+  horizonMeters: number | null,
   options: {
     behindMeters?: number;
     totalDistanceMeters?: number;
   } = {},
-): DistanceWindow {
+): DistanceWindow | undefined {
+  if (horizonMeters == null) return undefined;
+
   const anchor = Math.max(0, currentDistanceMeters ?? 0);
   const startDistanceMeters = Math.max(0, anchor - (options.behindMeters ?? 0));
   const rawEndDistanceMeters = anchor + horizonMeters;

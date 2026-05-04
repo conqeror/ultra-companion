@@ -9,7 +9,7 @@ What's implemented. For the "why" behind these, see `usage-context.md`.
 - Position age indicator when stale
 - Heading-up / north-up toggle
 - Floating map controls (center-on-user)
-- Global riding horizon selector: 10km / 25km / 50km / 100km / 200km
+- Global riding horizon selector: 10km / 25km / 50km / 100km / 200km / FULL
 
 ## Routes
 
@@ -51,7 +51,7 @@ What's implemented. For the "why" behind these, see `usage-context.md`.
 - Two data sources: Overpass/OSM for most categories, Google Places for gas stations and groceries (better opening hours)
 - POI markers on map and elevation profile
 - Riding view POI markers and lists are scoped to the selected riding horizon by default
-- Expanded POI list can explicitly switch to full-route planning
+- FULL horizon switches riding POI views to full-route planning
 - POI list sorted by distance along route
 - POI text search (filter by name)
 - Starred POIs
