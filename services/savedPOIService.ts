@@ -8,10 +8,6 @@ import {
 } from "@/services/googlePlacesClient";
 import { computePOIRouteAssociation, haversineDistance } from "@/utils/geo";
 import { generateId } from "@/utils/generateId";
-import {
-  describeDiagnosticText,
-  describeHtmlForDiagnostics,
-} from "@/services/sharedPOIDiagnostics";
 
 export interface SavedPOITarget {
   routeId: string;
@@ -52,8 +48,6 @@ interface ExpandedGoogleMapsUrl {
   url: string;
   body: string | null;
 }
-
-export type GoogleMapsResolverTrace = (event: string, data?: Record<string, unknown>) => void;
 
 const URL_RE = /https?:\/\/[^\s]+/i;
 const PLACE_ID_RE = /(?:place_id|query_place_id)=([^&#]+)/i;
@@ -99,7 +93,7 @@ function parseCoordinatesFromText(text: string): { latitude: number; longitude: 
   return buildValidCoordinate(latitude, longitude);
 }
 
-function extractPlaceQueryFromSharedText(text: string): string | null {
+function extractPlaceQueryFromText(text: string): string | null {
   for (const line of text.split(/\r?\n/)) {
     const trimmed = line.trim();
     if (!trimmed || URL_RE.test(trimmed)) continue;
@@ -123,19 +117,6 @@ function parseGoogleMapsLinkParam(url: URL): ParsedGoogleMapsLink | null {
   const nestedUrl =
     url.searchParams.get("link") ?? url.searchParams.get("url") ?? url.searchParams.get("continue");
   return nestedUrl ? parseGoogleMapsLink(nestedUrl) : null;
-}
-
-function describeParsedLink(parsed: ParsedGoogleMapsLink | null): Record<string, unknown> {
-  return parsed
-    ? {
-        url: parsed.url,
-        placeId: parsed.placeId,
-        placeQuery: parsed.placeQuery,
-        featureId: parsed.featureId,
-        latitude: parsed.latitude,
-        longitude: parsed.longitude,
-      }
-    : { parsed: null };
 }
 
 function parseGoogleMapsLink(rawText: string): ParsedGoogleMapsLink | null {
@@ -290,45 +271,22 @@ async function withGoogleMapsReadTimeout<T>(task: Promise<T>): Promise<T> {
   }
 }
 
-async function expandGoogleMapsUrl(
-  rawText: string,
-  trace?: GoogleMapsResolverTrace,
-): Promise<ExpandedGoogleMapsUrl> {
+async function expandGoogleMapsUrl(rawText: string): Promise<ExpandedGoogleMapsUrl> {
   let url = extractFirstUrl(rawText.trim()) ?? rawText.trim();
   if (!url) return { url: rawText, body: null };
   let latest: ExpandedGoogleMapsUrl = { url, body: null };
-  trace?.("expand.start", { initialUrl: url });
 
   for (let i = 0; i < MAX_GOOGLE_MAPS_REDIRECTS; i++) {
     try {
-      trace?.("expand.fetch.start", { attempt: i + 1, url });
       const response = await withGoogleMapsReadTimeout(fetch(url, { method: "GET" }));
-      const body = await withGoogleMapsReadTimeout(response.text()).catch((error) => {
-        trace?.("expand.body.readFailed", {
-          attempt: i + 1,
-          error: error instanceof Error ? error.message : String(error),
-        });
-        return null;
-      });
+      const body = await withGoogleMapsReadTimeout(response.text()).catch(() => null);
       latest = {
         url: response.url || url,
         body,
       };
-      trace?.("expand.fetch.done", {
-        attempt: i + 1,
-        status: response.status,
-        responseUrl: latest.url,
-        location: getResponseHeader(response, "location"),
-        contentType: getResponseHeader(response, "content-type"),
-        body: latest.body ? describeHtmlForDiagnostics(latest.body) : null,
-      });
 
       const redirectUrl = resolveRedirectUrl(getResponseHeader(response, "location"), latest.url);
       if (response.status >= 300 && response.status < 400 && redirectUrl) {
-        trace?.("expand.redirect", {
-          attempt: i + 1,
-          redirectUrl,
-        });
         url = redirectUrl;
         latest = { url, body: null };
         continue;
@@ -338,26 +296,12 @@ async function expandGoogleMapsUrl(
 
       const responseParsed = parseGoogleMapsLink(latest.url);
       if (responseParsed?.placeId || responseParsed?.placeQuery || responseParsed?.featureId) {
-        trace?.("expand.responseUrlUsable", {
-          attempt: i + 1,
-          parsed: describeParsedLink(responseParsed),
-        });
         return latest;
       }
 
-      const htmlUrlCandidates = extractGoogleMapsUrlCandidatesFromHtml(latest.body);
-      trace?.("expand.htmlUrlCandidates", {
-        attempt: i + 1,
-        candidates: htmlUrlCandidates.slice(0, 8),
-      });
       const htmlUrl = extractGoogleMapsUrlFromHtml(latest.body);
       if (htmlUrl && htmlUrl !== latest.url && htmlUrl !== url) {
         const htmlParsed = parseGoogleMapsLink(htmlUrl);
-        trace?.("expand.htmlUrlSelected", {
-          attempt: i + 1,
-          htmlUrl,
-          parsed: describeParsedLink(htmlParsed),
-        });
         if (htmlParsed?.latitude != null && htmlParsed.longitude != null) {
           return { url: htmlUrl, body: latest.body };
         }
@@ -371,12 +315,7 @@ async function expandGoogleMapsUrl(
       }
 
       return latest;
-    } catch (error) {
-      trace?.("expand.fetch.failed", {
-        attempt: i + 1,
-        url,
-        error: error instanceof Error ? error.message : String(error),
-      });
+    } catch {
       return latest;
     }
   }
@@ -402,104 +341,35 @@ function resolvedFromPlace(place: GooglePlace, fallbackUrl: string): ResolvedGoo
 export async function resolveGoogleMapsLink(
   rawText: string,
   apiKey?: string,
-  trace?: GoogleMapsResolverTrace,
 ): Promise<ResolvedGoogleMapsLink> {
-  trace?.("start", {
-    rawText: describeDiagnosticText(rawText),
-    firstUrl: extractFirstUrl(rawText),
-    apiKeyPresent: Boolean(apiKey),
-  });
   const rawParsed = parseGoogleMapsLink(rawText);
-  trace?.("parse.raw", describeParsedLink(rawParsed));
   const shouldExpand =
     !rawParsed ||
     (rawParsed.latitude == null && rawParsed.longitude == null && (!rawParsed.placeId || !apiKey));
-  trace?.("expand.decision", { shouldExpand });
-  const expanded = shouldExpand ? await expandGoogleMapsUrl(rawText, trace) : null;
+  const expanded = shouldExpand ? await expandGoogleMapsUrl(rawText) : null;
   const parsed = (expanded ? parseGoogleMapsLink(expanded.url) : null) ?? rawParsed;
-  trace?.("parse.expanded", {
-    expandedUrl: expanded?.url ?? null,
-    parsed: describeParsedLink(parsed),
-  });
   if (!parsed) {
-    trace?.("failed.noParsedLink");
     throw new Error("Paste a Google Maps link or coordinates.");
   }
 
   if (parsed.placeId && apiKey) {
-    trace?.("places.details.start", { placeId: parsed.placeId });
-    let place: GooglePlace;
-    try {
-      place = await withGoogleMapsReadTimeout(fetchGooglePlaceDetails(parsed.placeId, apiKey));
-    } catch (error) {
-      trace?.("places.details.failed", {
-        placeId: parsed.placeId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      throw error;
-    }
-    trace?.("places.details.success", {
-      placeId: place.id,
-      name: place.displayName?.text ?? null,
-      latitude: place.location.latitude,
-      longitude: place.location.longitude,
-      types: place.types,
-      googleMapsUri: place.googleMapsUri ?? null,
-    });
+    const place = await withGoogleMapsReadTimeout(fetchGooglePlaceDetails(parsed.placeId, apiKey));
     return resolvedFromPlace(place, parsed.url);
   }
 
   const htmlCoords = expanded?.body ? parseCoordinatesFromGoogleMapsHtml(expanded.body) : null;
   const latitude = parsed.latitude ?? htmlCoords?.latitude ?? null;
   const longitude = parsed.longitude ?? htmlCoords?.longitude ?? null;
-  trace?.("coordinates.result", {
-    parsedLatitude: parsed.latitude,
-    parsedLongitude: parsed.longitude,
-    htmlLatitude: htmlCoords?.latitude ?? null,
-    htmlLongitude: htmlCoords?.longitude ?? null,
-    latitude,
-    longitude,
-  });
 
   if (latitude == null || longitude == null) {
-    const placeQuery = parsed.placeQuery ?? extractPlaceQueryFromSharedText(rawText);
-    trace?.("places.textSearch.decision", {
-      placeQuery,
-      featureId: parsed.featureId,
-      apiKeyPresent: Boolean(apiKey),
-    });
+    const placeQuery = parsed.placeQuery ?? extractPlaceQueryFromText(rawText);
     if (placeQuery && apiKey) {
-      trace?.("places.textSearch.start", { placeQuery });
-      let place: GooglePlace | null;
-      try {
-        place = await withGoogleMapsReadTimeout(fetchGooglePlaceTextSearch(placeQuery, apiKey));
-      } catch (error) {
-        trace?.("places.textSearch.failed", {
-          placeQuery,
-          error: error instanceof Error ? error.message : String(error),
-        });
-        throw error;
-      }
-      trace?.("places.textSearch.done", {
-        found: Boolean(place),
-        placeId: place?.id ?? null,
-        name: place?.displayName?.text ?? null,
-        latitude: place?.location.latitude ?? null,
-        longitude: place?.location.longitude ?? null,
-        types: place?.types ?? null,
-        googleMapsUri: place?.googleMapsUri ?? null,
-      });
+      const place = await withGoogleMapsReadTimeout(fetchGooglePlaceTextSearch(placeQuery, apiKey));
       if (place) {
         return resolvedFromPlace(place, parsed.url || buildGoogleMapsSearchUrl(placeQuery));
       }
     }
 
-    trace?.("failed.noCoordinates", {
-      hasPlaceId: Boolean(parsed.placeId),
-      apiKeyPresent: Boolean(apiKey),
-      placeQuery,
-      featureId: parsed.featureId,
-    });
     throw new Error(
       parsed.placeId
         ? "Google Places API key is not configured. Enter coordinates manually."
@@ -507,12 +377,6 @@ export async function resolveGoogleMapsLink(
     );
   }
 
-  trace?.("success.coordinates", {
-    latitude,
-    longitude,
-    resolvedUrl: parsed.url,
-    placeId: parsed.placeId,
-  });
   return {
     name: null,
     category: "other",

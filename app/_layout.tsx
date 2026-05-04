@@ -4,7 +4,7 @@ import * as SplashScreen from "expo-splash-screen";
 import * as Linking from "expo-linking";
 import { useFonts } from "expo-font";
 import { useEffect, useRef, useCallback } from "react";
-import { Alert, AppState } from "react-native";
+import { Alert } from "react-native";
 import { useColorScheme } from "nativewind";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import "react-native-reanimated";
@@ -12,13 +12,6 @@ import "../global.css";
 import { useOfflineStore } from "@/store/offlineStore";
 import { useRouteStore } from "@/store/routeStore";
 import { useCollectionStore } from "@/store/collectionStore";
-import { usePanelStore } from "@/store/panelStore";
-import { useSharedPOIStore } from "@/store/sharedPOIStore";
-import {
-  loadPendingSharedPOIFromAppGroup,
-  parseSharedPOIDeepLink,
-  type SharedPOIInput,
-} from "@/services/sharedPOIService";
 import { COLORS } from "@/theme";
 
 export { ErrorBoundary } from "expo-router";
@@ -93,41 +86,26 @@ export default function RootLayout() {
     });
   }, []);
 
-  // Handle incoming GPX/KML files and shared POIs.
+  // Handle incoming GPX/KML files.
   const handledUrls = useRef(new Set<string>());
 
-  const openSharedPOI = useCallback((sharedPOI: SharedPOIInput) => {
-    useSharedPOIStore.getState().setPendingSharedPOI(sharedPOI);
-    usePanelStore.getState().setPanelTab("pois");
-    router.replace("/");
+  const handleIncomingUrl = useCallback(async (url: string) => {
+    if (handledUrls.current.has(url)) return;
+    handledUrls.current.add(url);
+
+    const fileName = decodeURIComponent(url.split("/").pop() || "route");
+    const ext = fileName.toLowerCase().split(".").pop();
+    if (!["gpx", "kml"].includes(ext || "")) return;
+
+    try {
+      const route = await useRouteStore.getState().importFromUri(url, fileName);
+      // Replace (not push) so the +not-found screen Expo Router briefly lands on
+      // for the incoming file:// URL doesn't stay in the back stack.
+      router.replace(`/route/${route.id}`);
+    } catch (e: any) {
+      Alert.alert("Import Failed", e.message || "Could not import the file.");
+    }
   }, []);
-
-  const handleIncomingUrl = useCallback(
-    async (url: string) => {
-      if (handledUrls.current.has(url)) return;
-      handledUrls.current.add(url);
-
-      const sharedPOI = parseSharedPOIDeepLink(url);
-      if (sharedPOI) {
-        openSharedPOI(sharedPOI);
-        return;
-      }
-
-      const fileName = decodeURIComponent(url.split("/").pop() || "route");
-      const ext = fileName.toLowerCase().split(".").pop();
-      if (!["gpx", "kml"].includes(ext || "")) return;
-
-      try {
-        const route = await useRouteStore.getState().importFromUri(url, fileName);
-        // Replace (not push) so the +not-found screen Expo Router briefly lands on
-        // for the incoming file:// URL doesn't stay in the back stack.
-        router.replace(`/route/${route.id}`);
-      } catch (e: any) {
-        Alert.alert("Import Failed", e.message || "Could not import the file.");
-      }
-    },
-    [openSharedPOI],
-  );
 
   useEffect(() => {
     // Handle cold start (app opened via file)
@@ -140,22 +118,6 @@ export default function RootLayout() {
     });
     return () => subscription.remove();
   }, [handleIncomingUrl]);
-
-  useEffect(() => {
-    const importPendingSharedPOI = () => {
-      loadPendingSharedPOIFromAppGroup()
-        .then((sharedPOI) => {
-          if (sharedPOI) openSharedPOI(sharedPOI);
-        })
-        .catch((e) => console.warn("Pending shared POI import failed:", e));
-    };
-
-    importPendingSharedPOI();
-    const subscription = AppState.addEventListener("change", (state) => {
-      if (state === "active") importPendingSharedPOI();
-    });
-    return () => subscription.remove();
-  }, [openSharedPOI]);
 
   if (!fontsLoaded && !fontError) {
     return null;

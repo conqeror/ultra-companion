@@ -147,7 +147,7 @@ describe("savedPOIService", () => {
     await assertion;
   });
 
-  it("falls back to Google Places text search from shared place names", async () => {
+  it("falls back to Google Places text search from pasted place names", async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce({

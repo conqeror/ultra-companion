@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -24,23 +24,12 @@ import {
   resolveGoogleMapsLink,
   type SavedPOITarget,
 } from "@/services/savedPOIService";
-import {
-  getSharedPOIDisplayName,
-  getSharedPOIRawText,
-  type SharedPOIInput,
-} from "@/services/sharedPOIService";
-import {
-  describeRawSharedPOIText,
-  describeSharedPOIInput,
-  logSharedPOIDiagnostic,
-} from "@/services/sharedPOIDiagnostics";
 import type { POI, POICategory } from "@/types";
 
 interface AddSavedPOISheetProps {
   visible: boolean;
   title?: string;
   targets: SavedPOITarget[];
-  sharedPOI?: SharedPOIInput | null;
   onClose: () => void;
   onSaved?: (poi: POI) => void;
 }
@@ -68,7 +57,6 @@ export default function AddSavedPOISheet({
   visible,
   title = "Add POI",
   targets,
-  sharedPOI,
   onClose,
   onSaved,
 }: AddSavedPOISheetProps) {
@@ -82,11 +70,11 @@ export default function AddSavedPOISheet({
   const [notes, setNotes] = useState("");
   const [tags, setTags] = useState<Record<string, string>>({});
   const [sourceId, setSourceId] = useState<string | undefined>();
-  const [sharedMapsUrl, setSharedMapsUrl] = useState<string | null>(null);
+  const [googleMapsInput, setGoogleMapsInput] = useState("");
+  const [googleMapsUrl, setGoogleMapsUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [isResolvingSharedPOI, setIsResolvingSharedPOI] = useState(false);
+  const [isResolvingGoogleMapsUrl, setIsResolvingGoogleMapsUrl] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const resolvedSharedPOIIdRef = useRef<string | null>(null);
 
   const apiKey = Constants.expoConfig?.extra?.googlePlacesApiKey as string | undefined;
   const canSave = useMemo(() => {
@@ -97,9 +85,9 @@ export default function AddSavedPOISheet({
       isValidLongitude(lon) &&
       targets.length > 0 &&
       !isSaving &&
-      !isResolvingSharedPOI
+      !isResolvingGoogleMapsUrl
     );
-  }, [latitude, longitude, targets.length, isSaving, isResolvingSharedPOI]);
+  }, [latitude, longitude, targets.length, isSaving, isResolvingGoogleMapsUrl]);
 
   useEffect(() => {
     if (!visible) return;
@@ -110,77 +98,44 @@ export default function AddSavedPOISheet({
     setNotes("");
     setTags({});
     setSourceId(undefined);
-    setSharedMapsUrl(null);
+    setGoogleMapsInput("");
+    setGoogleMapsUrl(null);
     setError(null);
-    setIsResolvingSharedPOI(false);
+    setIsResolvingGoogleMapsUrl(false);
     setIsSaving(false);
-    resolvedSharedPOIIdRef.current = null;
   }, [visible]);
 
-  useEffect(() => {
-    if (!visible || !sharedPOI || resolvedSharedPOIIdRef.current === sharedPOI.id) return;
+  const handleResolveGoogleMapsUrl = useCallback(async () => {
+    const rawUrl = googleMapsInput.trim();
+    if (!rawUrl) {
+      setError("Paste a Google Maps URL.");
+      return;
+    }
 
-    const rawSharedText = getSharedPOIRawText(sharedPOI);
-    if (!rawSharedText.trim()) return;
-    logSharedPOIDiagnostic("sheet.sharedPOI.received", {
-      sharedPOI: describeSharedPOIInput(sharedPOI),
-      rawText: describeRawSharedPOIText(rawSharedText),
-      apiKeyPresent: Boolean(apiKey),
-    });
-
-    const fallbackName = getSharedPOIDisplayName(sharedPOI);
-    const fallbackUrl = sharedPOI.url;
-    resolvedSharedPOIIdRef.current = sharedPOI.id;
-    if (fallbackName) setName(fallbackName);
-    if (fallbackUrl) setSharedMapsUrl(fallbackUrl);
-
-    let cancelled = false;
-    setIsResolvingSharedPOI(true);
+    setIsResolvingGoogleMapsUrl(true);
     setError(null);
 
-    resolveGoogleMapsLink(rawSharedText, apiKey, (event, data) => {
-      logSharedPOIDiagnostic(`resolver.${event}`, data);
-    })
-      .then((resolved) => {
-        if (cancelled) return;
-        logSharedPOIDiagnostic("sheet.sharedPOI.resolved", {
-          name: resolved.name,
-          category: resolved.category,
-          latitude: resolved.latitude,
-          longitude: resolved.longitude,
-          sourceId: resolved.sourceId,
-          resolvedUrl: resolved.resolvedUrl,
-          tags: resolved.tags,
-        });
-        setSharedMapsUrl(resolved.resolvedUrl);
-        setTags(resolved.tags);
-        setSourceId(resolved.sourceId);
-        setCategory(resolved.category);
-        if (resolved.name) setName(resolved.name);
-        if (resolved.latitude != null) setLatitude(formatCoordinate(resolved.latitude));
-        if (resolved.longitude != null) setLongitude(formatCoordinate(resolved.longitude));
-      })
-      .catch((e) => {
-        if (cancelled) return;
-        logSharedPOIDiagnostic("sheet.sharedPOI.resolveFailed", {
-          error: e instanceof Error ? e.message : String(e),
-        });
-        setError(
-          e instanceof Error ? e.message : "Could not resolve shared place. Enter coordinates.",
-        );
-      })
-      .finally(() => {
-        if (!cancelled) setIsResolvingSharedPOI(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [apiKey, sharedPOI, visible]);
+    try {
+      const resolved = await resolveGoogleMapsLink(rawUrl, apiKey);
+      setGoogleMapsInput(resolved.resolvedUrl);
+      setGoogleMapsUrl(resolved.resolvedUrl);
+      setTags(resolved.tags);
+      setSourceId(resolved.sourceId);
+      setCategory(resolved.category);
+      if (resolved.name) setName(resolved.name);
+      if (resolved.latitude != null) setLatitude(formatCoordinate(resolved.latitude));
+      if (resolved.longitude != null) setLongitude(formatCoordinate(resolved.longitude));
+    } catch (e) {
+      setGoogleMapsUrl(rawUrl);
+      setError(e instanceof Error ? e.message : "Could not resolve this link. Enter coordinates.");
+    } finally {
+      setIsResolvingGoogleMapsUrl(false);
+    }
+  }, [apiKey, googleMapsInput]);
 
   const handleSave = useCallback(async () => {
-    if (isResolvingSharedPOI) {
-      setError("Wait for the shared place to finish resolving.");
+    if (isResolvingGoogleMapsUrl) {
+      setError("Wait for the Google Maps URL to finish resolving.");
       return;
     }
 
@@ -209,7 +164,9 @@ export default function AddSavedPOISheet({
           notes,
           tags: {
             ...tags,
-            ...(sharedMapsUrl ? { google_maps_url: sharedMapsUrl } : {}),
+            ...((googleMapsUrl ?? googleMapsInput.trim())
+              ? { google_maps_url: googleMapsUrl ?? googleMapsInput.trim() }
+              : {}),
           },
           sourceId,
         },
@@ -226,14 +183,15 @@ export default function AddSavedPOISheet({
   }, [
     addCustomPOI,
     category,
-    isResolvingSharedPOI,
+    googleMapsInput,
+    googleMapsUrl,
+    isResolvingGoogleMapsUrl,
     latitude,
     longitude,
     name,
     notes,
     onClose,
     onSaved,
-    sharedMapsUrl,
     sourceId,
     tags,
     targets,
@@ -269,14 +227,35 @@ export default function AddSavedPOISheet({
           contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 28 }}
           keyboardShouldPersistTaps="handled"
         >
-          {sharedPOI && (
-            <View className="flex-row items-center min-h-[48px] px-3 rounded-xl bg-muted mb-4">
-              {isResolvingSharedPOI && <ActivityIndicator size="small" color={colors.accent} />}
-              <Text className="flex-1 ml-2 text-[13px] font-barlow-medium text-muted-foreground">
-                {isResolvingSharedPOI ? "Reading shared place..." : "Shared place received"}
-              </Text>
+          <InputLabel label="Google Maps URL" />
+          <View className="mb-4">
+            <TextInput
+              className="min-h-[52px] px-3 rounded-xl border border-border bg-card text-foreground font-barlow text-[15px]"
+              placeholder="https://maps.app.goo.gl/..."
+              placeholderTextColor={colors.textTertiary}
+              value={googleMapsInput}
+              onChangeText={(value) => {
+                setGoogleMapsInput(value);
+                setGoogleMapsUrl(null);
+                setTags({});
+                setSourceId(undefined);
+              }}
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="url"
+              accessibilityLabel="Google Maps URL"
+            />
+            <View className="mt-2">
+              <Button
+                variant="secondary"
+                disabled={!googleMapsInput.trim() || isResolvingGoogleMapsUrl}
+                onPress={handleResolveGoogleMapsUrl}
+                label={isResolvingGoogleMapsUrl ? undefined : "Resolve URL"}
+              >
+                {isResolvingGoogleMapsUrl && <ActivityIndicator color={colors.accent} />}
+              </Button>
             </View>
-          )}
+          </View>
 
           <InputLabel label="Name" />
           <TextInput
