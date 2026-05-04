@@ -30,19 +30,41 @@ const HELPER_METHOD = `\
     }
   }`;
 
-function withShareSheetImport(config) {
-  return withAppDelegate(config, (mod) => {
-    let src = mod.modResults.contents;
-
-    // 1. didFinishLaunchingWithOptions — resolve URL from launchOptions before RN init
-    src = src.replace(
-      "let delegate = ReactNativeDelegate()",
-      `var resolvedOptions = launchOptions
+const RESOLVED_OPTIONS_BLOCK = `    var resolvedOptions = launchOptions
     if let url = launchOptions?[.url] as? URL {
       resolvedOptions?[.url] = Self.copyImportedFileToTmpIfNeeded(url)
     }
 
-    let delegate = ReactNativeDelegate()`,
+`;
+
+const ORIGINAL_OPEN_URL_RETURN =
+  "return super.application(app, open: url, options: options) || RCTLinkingManager.application(app, open: url, options: options)";
+
+const RESOLVED_OPEN_URL_BLOCK = `let resolvedUrl = Self.copyImportedFileToTmpIfNeeded(url)
+    return super.application(app, open: resolvedUrl, options: options)
+      || RCTLinkingManager.application(app, open: resolvedUrl, options: options)`;
+
+function removeExistingResolvedOptionsBlocks(src) {
+  return src.replace(
+    / {4,8}var resolvedOptions = launchOptions\n {4}if let url = launchOptions\?\[\.url\] as\? URL \{\n {6}resolvedOptions\?\[\.url\] = Self\.copyImportedFileToTmpIfNeeded\(url\)\n {4}\}\n\n/g,
+    "",
+  );
+}
+
+function removeExistingHelperMethods(src) {
+  return src.split(`${HELPER_METHOD}\n\n`).join("");
+}
+
+function withShareSheetImport(config) {
+  return withAppDelegate(config, (mod) => {
+    let src = removeExistingHelperMethods(
+      removeExistingResolvedOptionsBlocks(mod.modResults.contents),
+    );
+
+    // 1. didFinishLaunchingWithOptions — resolve URL from launchOptions before RN init
+    src = src.replace(
+      "    let delegate = ReactNativeDelegate()",
+      `${RESOLVED_OPTIONS_BLOCK}    let delegate = ReactNativeDelegate()`,
     );
 
     // Pass resolvedOptions to startReactNative
@@ -58,12 +80,9 @@ function withShareSheetImport(config) {
     );
 
     // 2. application(_:open:options:) — resolve URL before passing downstream
-    src = src.replace(
-      "return super.application(app, open: url, options: options) || RCTLinkingManager.application(app, open: url, options: options)",
-      `let resolvedUrl = Self.copyImportedFileToTmpIfNeeded(url)
-    return super.application(app, open: resolvedUrl, options: options)
-      || RCTLinkingManager.application(app, open: resolvedUrl, options: options)`,
-    );
+    if (!src.includes(RESOLVED_OPEN_URL_BLOCK)) {
+      src = src.replace(ORIGINAL_OPEN_URL_RETURN, RESOLVED_OPEN_URL_BLOCK);
+    }
 
     // 3. Add helper method to AppDelegate class (before Universal Links section)
     src = src.replace("  // Universal Links", `${HELPER_METHOD}\n\n  // Universal Links`);
