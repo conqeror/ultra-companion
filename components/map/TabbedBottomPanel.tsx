@@ -17,7 +17,7 @@ import ProfileTabContent from "./ProfileTabContent";
 import WeatherPanel from "./WeatherPanel";
 import ClimbTabContent from "./ClimbTabContent";
 import POITabContent from "./POITabContent";
-import RidingHorizonSelector, { RIDING_HORIZON_SELECTOR_HEIGHT } from "./RidingHorizonSelector";
+import RidingHorizonSelector from "./RidingHorizonSelector";
 import type { ActiveRouteData, PanelTab } from "@/types";
 
 /** Combined handle + tabs height */
@@ -107,9 +107,8 @@ export default function TabbedBottomPanel({ activeData }: TabbedBottomPanelProps
   });
 
   const isExpanded = usePanelStore((s) => s.isExpanded);
-  const panelChromeHeight = HEADER_HEIGHT + RIDING_HORIZON_SELECTOR_HEIGHT;
-  const compactContentHeight = compactHeight - panelChromeHeight;
-  const expandedContentHeight = expandedHeight - panelChromeHeight;
+  const compactContentHeight = compactHeight - HEADER_HEIGHT;
+  const expandedContentHeight = expandedHeight - HEADER_HEIGHT;
   const effectiveContentHeight = isExpanded ? expandedContentHeight : compactContentHeight;
 
   return (

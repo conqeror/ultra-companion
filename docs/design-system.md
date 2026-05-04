@@ -250,10 +250,12 @@ border-t border-border
 px-3 pt-3
 ```
 
-The riding horizon selector (`10 / 25 / 50 / 100 / 200 km`) sits below the tab header and scopes all riding bottom-sheet content:
+The riding horizon selector floats above the bottom sheet and scopes all riding bottom-sheet content. Default state shows only the selected value (`50 km`); tapping it expands the full `10 / 25 / 50 / 100 / 200 km` range row.
 
 ```
-height: 56dp
+collapsed height: 48dp
+expanded row height: 48dp
+position: just above sheet top edge; right aligned when collapsed, full width when expanded
 min touch target: 48dp
 active: bg-accent, text-accentForeground
 inactive: text-secondary
@@ -327,9 +329,9 @@ bg-accent/10 text-accent rounded-full px-2 py-0.5 font-labelSmall
 The map takes 100% of the screen. Everything else floats.
 
 - **Floating controls**: top-right corner, vertically stacked (center-on-user)
-- **Bottom panel**: always visible, with tabs for Profile, Weather, Climbs, and POIs plus the shared riding horizon selector
+- **Bottom panel**: always visible, with tabs for Profile, Weather, Climbs, and POIs; the shared riding horizon selector floats just above it
 - **No persistent HUD on map** — keep map clean. Data lives in the panel
-- **Panel closed state**: map + floating buttons + bottom sheet tabs/horizon
+- **Panel closed state**: map + floating buttons + bottom sheet tabs + collapsed horizon chip
 - **Panel open state**: map compresses upward, panel takes bottom ~25% with route stats + elevation profile
 
 ### Route List Screen
