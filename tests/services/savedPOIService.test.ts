@@ -30,6 +30,7 @@ const eastTarget: SavedPOITarget = {
 };
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -133,6 +134,17 @@ describe("savedPOIService", () => {
 
     expect(result.latitude).toBeCloseTo(48.5);
     expect(result.longitude).toBeCloseTo(17.5);
+  });
+
+  it("times out when a Google Maps short link never responds", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("fetch", vi.fn().mockReturnValue(new Promise(() => {})));
+
+    const result = resolveGoogleMapsLink("https://maps.app.goo.gl/stuck");
+    const assertion = expect(result).rejects.toThrow("Could not resolve this link");
+    await vi.advanceTimersByTimeAsync(8_001);
+
+    await assertion;
   });
 
   it("chooses the nearest selected route target for collection saves", () => {

@@ -50,6 +50,9 @@ const URL_RE = /https?:\/\/[^\s]+/i;
 const PLACE_ID_RE = /(?:place_id|query_place_id)=([^&#]+)/i;
 const COORD_RE = /(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)/;
 const MAX_GOOGLE_MAPS_REDIRECTS = 4;
+const GOOGLE_MAPS_READ_TIMEOUT_MS = 8_000;
+const GOOGLE_MAPS_READ_TIMEOUT_MESSAGE =
+  "Could not read this Google Maps link. Enter coordinates manually.";
 
 function sanitizeSourcePart(value: string): string {
   return value.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 96);
@@ -214,6 +217,23 @@ function getResponseHeader(response: Response, name: string): string | null {
   return response.headers?.get(name) ?? null;
 }
 
+async function withGoogleMapsReadTimeout<T>(task: Promise<T>): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      task,
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(
+          () => reject(new Error(GOOGLE_MAPS_READ_TIMEOUT_MESSAGE)),
+          GOOGLE_MAPS_READ_TIMEOUT_MS,
+        );
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
 async function expandGoogleMapsUrl(rawText: string): Promise<ExpandedGoogleMapsUrl> {
   let url = extractFirstUrl(rawText.trim()) ?? rawText.trim();
   if (!url) return { url: rawText, body: null };
@@ -221,10 +241,10 @@ async function expandGoogleMapsUrl(rawText: string): Promise<ExpandedGoogleMapsU
 
   for (let i = 0; i < MAX_GOOGLE_MAPS_REDIRECTS; i++) {
     try {
-      const response = await fetch(url, { method: "GET" });
+      const response = await withGoogleMapsReadTimeout(fetch(url, { method: "GET" }));
       latest = {
         url: response.url || url,
-        body: await response.text().catch(() => null),
+        body: await withGoogleMapsReadTimeout(response.text()).catch(() => null),
       };
 
       const redirectUrl = resolveRedirectUrl(getResponseHeader(response, "location"), latest.url);
@@ -287,7 +307,7 @@ export async function resolveGoogleMapsLink(
   }
 
   if (parsed.placeId && apiKey) {
-    const place = await fetchGooglePlaceDetails(parsed.placeId, apiKey);
+    const place = await withGoogleMapsReadTimeout(fetchGooglePlaceDetails(parsed.placeId, apiKey));
     return resolvedFromPlace(place, parsed.url);
   }
 
