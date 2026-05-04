@@ -2,6 +2,7 @@ import type { POI, POICategory, RoutePoint } from "@/types";
 import {
   buildGooglePlaceTags,
   fetchGooglePlaceDetails,
+  fetchGooglePlaceTextSearch,
   inferPOICategoryFromGoogleTypes,
   type GooglePlace,
 } from "@/services/googlePlacesClient";
@@ -88,6 +89,20 @@ function parseCoordinatesFromText(text: string): { latitude: number; longitude: 
   const latitude = parseNumber(match[1]);
   const longitude = parseNumber(match[2]);
   return buildValidCoordinate(latitude, longitude);
+}
+
+function extractPlaceQueryFromSharedText(text: string): string | null {
+  for (const line of text.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || URL_RE.test(trimmed)) continue;
+    if (/^(google maps|directions|route|share)$/i.test(trimmed)) continue;
+    return trimmed;
+  }
+  return null;
+}
+
+function buildGoogleMapsSearchUrl(query: string): string {
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
 }
 
 function parseGoogleMapsLinkParam(url: URL): ParsedGoogleMapsLink | null {
@@ -316,6 +331,14 @@ export async function resolveGoogleMapsLink(
   const longitude = parsed.longitude ?? htmlCoords?.longitude ?? null;
 
   if (latitude == null || longitude == null) {
+    const placeQuery = extractPlaceQueryFromSharedText(rawText);
+    if (placeQuery && apiKey) {
+      const place = await withGoogleMapsReadTimeout(fetchGooglePlaceTextSearch(placeQuery, apiKey));
+      if (place) {
+        return resolvedFromPlace(place, parsed.url || buildGoogleMapsSearchUrl(placeQuery));
+      }
+    }
+
     throw new Error(
       parsed.placeId
         ? "Google Places API key is not configured. Enter coordinates manually."

@@ -147,6 +147,51 @@ describe("savedPOIService", () => {
     await assertion;
   });
 
+  it("falls back to Google Places text search from shared place names", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        status: 200,
+        url: "https://maps.app.goo.gl/no-coordinates",
+        headers: new Headers(),
+        text: vi.fn().mockResolvedValue("<html>No coordinates here</html>"),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: vi.fn().mockResolvedValue({
+          places: [
+            {
+              id: "place-123",
+              displayName: { text: "Known Station" },
+              location: { latitude: 48.2222, longitude: 17.3333 },
+              types: ["gas_station"],
+              googleMapsUri: "https://www.google.com/maps/place/Known+Station",
+            },
+          ],
+        }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await resolveGoogleMapsLink(
+      "https://maps.app.goo.gl/no-coordinates\nKnown Station",
+      "api-key",
+    );
+
+    expect(result.name).toBe("Known Station");
+    expect(result.category).toBe("gas_station");
+    expect(result.latitude).toBeCloseTo(48.2222);
+    expect(result.longitude).toBeCloseTo(17.3333);
+    expect(result.sourceId).toBe("google:place-123");
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "https://places.googleapis.com/v1/places:searchText",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ textQuery: "Known Station", pageSize: 1 }),
+      }),
+    );
+  });
+
   it("chooses the nearest selected route target for collection saves", () => {
     const nearest = findNearestSavedPOITarget(48.15, 17.101, [eastTarget, northSouthTarget]);
 

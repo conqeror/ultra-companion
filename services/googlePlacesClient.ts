@@ -214,6 +214,29 @@ export async function fetchGooglePlaceDetails(
   return (await response.json()) as GooglePlace;
 }
 
+export async function fetchGooglePlaceTextSearch(
+  textQuery: string,
+  apiKey: string,
+): Promise<GooglePlace | null> {
+  const response = await fetch("https://places.googleapis.com/v1/places:searchText", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Goog-Api-Key": apiKey,
+      "X-Goog-FieldMask": FIELD_MASK,
+    },
+    body: JSON.stringify({ textQuery, pageSize: 1 }),
+  });
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(`Google Places API error (${response.status}): ${text}`);
+  }
+
+  const data: TextSearchResponse = await response.json();
+  return data.places?.[0] ?? null;
+}
+
 // --- Route segmentation ---
 
 const MAX_SEGMENT_M = 50_000;
