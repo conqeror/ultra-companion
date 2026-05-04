@@ -122,9 +122,11 @@ export type POICategory =
   | "gas_station"
   | "bakery"
   | "toilet_shower"
-  | "shelter";
+  | "shelter"
+  | "other";
 
-export type POISource = "osm" | "google";
+export type POIFetchedSource = "osm" | "google";
+export type POISource = POIFetchedSource | "custom";
 
 export interface POI {
   id: string;
@@ -277,6 +279,7 @@ export interface ActiveRouteData {
   totalDescentMeters: number;
   segments: StitchedSegmentInfo[] | null;
   routeIds: string[];
+  pointsByRouteId: Record<string, RoutePoint[]>;
 }
 
 // --- Climb Detection ---

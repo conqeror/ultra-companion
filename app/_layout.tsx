@@ -86,7 +86,7 @@ export default function RootLayout() {
     });
   }, []);
 
-  // Handle incoming GPX/KML files from share sheet / "Open with"
+  // Handle incoming GPX/KML files.
   const handledUrls = useRef(new Set<string>());
 
   const handleIncomingUrl = useCallback(async (url: string) => {

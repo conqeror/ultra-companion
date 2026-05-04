@@ -4,7 +4,7 @@ import { Text } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
 import { useOfflineStore } from "@/store/offlineStore";
 import { usePoiStore, type SourceInfo } from "@/store/poiStore";
-import type { POISource, StitchedCollection } from "@/types";
+import type { POIFetchedSource, StitchedCollection } from "@/types";
 import { formatFileSize } from "@/utils/formatters";
 import { estimateDownloadSize } from "@/services/offlineTiles";
 import { getRoutePoints } from "@/db/database";
@@ -17,7 +17,7 @@ function isSourceReady(info: SourceInfo | undefined): boolean {
   return info?.status === "done" || (info?.count ?? 0) > 0;
 }
 
-function sourceLabel(source: POISource): string {
+function sourceLabel(source: POIFetchedSource): string {
   return source === "google" ? "Google Places" : "OpenStreetMap";
 }
 
@@ -93,7 +93,7 @@ export default function CollectionOfflineSection({ stitched }: CollectionOffline
   const allOfflineReady = stats.offlineReadyCount === stats.total && stats.total > 0;
 
   const poiErrors = useMemo(() => {
-    const out: { routeName: string; source: POISource; error: string }[] = [];
+    const out: { routeName: string; source: POIFetchedSource; error: string }[] = [];
     for (const seg of segments) {
       const src = allSourceInfo[seg.routeId];
       if (src?.osm?.error)
@@ -190,7 +190,7 @@ export default function CollectionOfflineSection({ stitched }: CollectionOffline
   const handleDeleteAll = useCallback(() => {
     Alert.alert(
       "Delete All Offline Data",
-      "Remove downloaded tiles and POI data for all segments?",
+      "Remove downloaded tiles and fetched POI data for all segments?",
       [
         { text: "Keep", style: "cancel" },
         {
@@ -208,18 +208,22 @@ export default function CollectionOfflineSection({ stitched }: CollectionOffline
   }, [segments, deleteOfflineData, clearPOIs]);
 
   const handleDeleteAllPOIs = useCallback(() => {
-    Alert.alert("Delete All POIs", "Remove all POI data for all segments in this collection?", [
-      { text: "Keep", style: "cancel" },
-      {
-        text: "Delete All POIs",
-        style: "destructive",
-        onPress: async () => {
-          for (const seg of segments) {
-            await clearPOIs(seg.routeId);
-          }
+    Alert.alert(
+      "Delete Fetched POIs",
+      "Remove fetched POI data for all segments in this collection?",
+      [
+        { text: "Keep", style: "cancel" },
+        {
+          text: "Delete Fetched POIs",
+          style: "destructive",
+          onPress: async () => {
+            for (const seg of segments) {
+              await clearPOIs(seg.routeId);
+            }
+          },
         },
-      },
-    ]);
+      ],
+    );
   }, [segments, clearPOIs]);
 
   return (
@@ -305,7 +309,9 @@ export default function CollectionOfflineSection({ stitched }: CollectionOffline
           className="px-4 py-2 min-h-[48px] justify-center"
           onPress={handleDeleteAllPOIs}
         >
-          <Text className="text-[15px] font-barlow-medium text-destructive">Delete all POIs</Text>
+          <Text className="text-[15px] font-barlow-medium text-destructive">
+            Delete fetched POIs
+          </Text>
         </TouchableOpacity>
       )}
 

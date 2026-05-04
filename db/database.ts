@@ -235,6 +235,14 @@ export async function deletePOIsBySource(routeId: string, source: POISource): Pr
     .run();
 }
 
+export async function updatePOITags(poiId: string, tags: Record<string, string>): Promise<void> {
+  db.update(pois).set({ tags }).where(eq(pois.id, poiId)).run();
+}
+
+export async function deletePOI(poiId: string): Promise<void> {
+  db.delete(pois).where(eq(pois.id, poiId)).run();
+}
+
 export async function hasPOIsForRoute(routeId: string): Promise<boolean> {
   const row = db.select({ count: count() }).from(pois).where(eq(pois.routeId, routeId)).get();
   return (row?.count ?? 0) > 0;
@@ -254,7 +262,7 @@ export async function getPOICountsBySource(
     google = 0;
   for (const row of rows) {
     if (row.source === "google") google = row.cnt;
-    else osm += row.cnt;
+    else if (row.source === "osm") osm += row.cnt;
   }
   return { osm, google };
 }

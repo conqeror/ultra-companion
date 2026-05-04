@@ -21,6 +21,7 @@ function buildActiveRouteData(
       totalDescentMeters: activeStitchedCollection.totalDescentMeters,
       segments: activeStitchedCollection.segments,
       routeIds: activeStitchedCollection.segments.map((s) => s.routeId),
+      pointsByRouteId: activeStitchedCollection.pointsByRouteId,
     };
   }
 
@@ -36,6 +37,7 @@ function buildActiveRouteData(
       totalDescentMeters: activeRoute.totalDescentMeters,
       segments: null,
       routeIds: [activeRoute.id],
+      pointsByRouteId: { [activeRoute.id]: visibleRoutePoints[activeRoute.id] },
     };
   }
 

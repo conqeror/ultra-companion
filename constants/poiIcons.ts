@@ -1,4 +1,12 @@
-import { Droplets, ShoppingCart, Fuel, Croissant, ShowerHead, Tent } from "lucide-react-native";
+import {
+  Droplets,
+  ShoppingCart,
+  Fuel,
+  Croissant,
+  ShowerHead,
+  Tent,
+  MapPin,
+} from "lucide-react-native";
 
 /** Shared icon map for POI categories, keyed by POICategoryMeta.iconName */
 export const POI_ICON_MAP: Record<string, React.ComponentType<any>> = {
@@ -8,4 +16,5 @@ export const POI_ICON_MAP: Record<string, React.ComponentType<any>> = {
   Croissant,
   ShowerHead,
   Tent,
+  MapPin,
 };
