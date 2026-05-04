@@ -9,7 +9,7 @@ interface OpeningHoursPeriod {
   close?: { day: number; hour: number; minute: number };
 }
 
-interface GooglePlace {
+export interface GooglePlace {
   id: string;
   displayName?: { text: string; languageCode?: string };
   location: { latitude: number; longitude: number };
@@ -18,6 +18,8 @@ interface GooglePlace {
   currentOpeningHours?: { periods: OpeningHoursPeriod[] };
   formattedAddress?: string;
   nationalPhoneNumber?: string;
+  googleMapsUri?: string;
+  websiteUri?: string;
 }
 
 interface TextSearchResponse {
@@ -58,7 +60,7 @@ function encodeSignedValue(value: number): string {
 
 // --- Tags ---
 
-function buildTags(place: GooglePlace): Record<string, string> {
+export function buildGooglePlaceTags(place: GooglePlace): Record<string, string> {
   const tags: Record<string, string> = {};
 
   const periods = place.currentOpeningHours?.periods ?? place.regularOpeningHours?.periods;
@@ -74,7 +76,35 @@ function buildTags(place: GooglePlace): Record<string, string> {
     tags.phone = place.nationalPhoneNumber;
   }
 
+  if (place.googleMapsUri) {
+    tags.google_maps_url = place.googleMapsUri;
+  }
+
+  if (place.websiteUri) {
+    tags.website = place.websiteUri;
+  }
+
+  tags.google_place_id = place.id;
+
   return tags;
+}
+
+export function inferPOICategoryFromGoogleTypes(types: string[]): POICategory {
+  const t = new Set(types);
+  if (t.has("gas_station")) return "gas_station";
+  if (
+    t.has("grocery_store") ||
+    t.has("supermarket") ||
+    t.has("convenience_store") ||
+    t.has("food_store")
+  ) {
+    return "groceries";
+  }
+  if (t.has("bakery")) return "bakery";
+  if (t.has("drinking_water")) return "water";
+  if (t.has("public_bathroom") || t.has("restroom")) return "toilet_shower";
+  if (t.has("lodging") || t.has("campground") || t.has("rv_park")) return "shelter";
+  return "other";
 }
 
 // --- API call ---
@@ -88,7 +118,22 @@ const FIELD_MASK = [
   "places.currentOpeningHours",
   "places.formattedAddress",
   "places.nationalPhoneNumber",
+  "places.googleMapsUri",
+  "places.websiteUri",
   "nextPageToken",
+].join(",");
+
+const DETAILS_FIELD_MASK = [
+  "id",
+  "displayName",
+  "location",
+  "types",
+  "regularOpeningHours",
+  "currentOpeningHours",
+  "formattedAddress",
+  "nationalPhoneNumber",
+  "googleMapsUri",
+  "websiteUri",
 ].join(",");
 
 const SEARCHES: { textQuery: string; includedType?: string; category: POICategory }[] = [
@@ -146,6 +191,27 @@ async function searchAlongRoute(
   } while (pageToken);
 
   return allPlaces;
+}
+
+export async function fetchGooglePlaceDetails(
+  placeId: string,
+  apiKey: string,
+): Promise<GooglePlace> {
+  const response = await fetch(`https://places.googleapis.com/v1/places/${placeId}`, {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Goog-Api-Key": apiKey,
+      "X-Goog-FieldMask": DETAILS_FIELD_MASK,
+    },
+  });
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(`Google Place Details API error (${response.status}): ${text}`);
+  }
+
+  return (await response.json()) as GooglePlace;
 }
 
 // --- Route segmentation ---
@@ -208,7 +274,7 @@ export async function fetchGooglePlacesPOIs(
           category,
           latitude: place.location.latitude,
           longitude: place.location.longitude,
-          tags: buildTags(place),
+          tags: buildGooglePlaceTags(place),
         });
       }
     }

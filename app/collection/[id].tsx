@@ -9,17 +9,20 @@ import { useThemeColors } from "@/theme";
 import { useCollectionStore } from "@/store/collectionStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import { useClimbStore } from "@/store/climbStore";
-import type { Collection, CollectionSegmentWithRoute, StitchedCollection } from "@/types";
+import { usePoiStore } from "@/store/poiStore";
+import type { Collection, CollectionSegmentWithRoute, POI, StitchedCollection } from "@/types";
 import { useMapStyle } from "@/hooks/useMapStyle";
 import { formatDistance, formatElevation } from "@/utils/formatters";
 import { computeBounds } from "@/utils/geo";
-import { stitchCollection } from "@/services/stitchingService";
+import { stitchCollection, stitchPOIs } from "@/services/stitchingService";
 import ElevationProfile from "@/components/elevation/ElevationProfile";
 import RouteLayer from "@/components/map/RouteLayer";
 import StatBox from "@/components/common/StatBox";
 import SegmentList from "@/components/collection/SegmentList";
 import AddSegmentSheet from "@/components/collection/AddSegmentSheet";
 import CollectionOfflineSection from "@/components/collection/CollectionOfflineSection";
+import AddSavedPOISheet from "@/components/poi/AddSavedPOISheet";
+import type { SavedPOITarget } from "@/services/savedPOIService";
 
 export default function CollectionDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -35,6 +38,7 @@ export default function CollectionDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [isBusy, setIsBusy] = useState(false);
   const [showAddSheet, setShowAddSheet] = useState(false);
+  const [showAddPOI, setShowAddPOI] = useState(false);
 
   const collections = useCollectionStore((s) => s.collections);
   const getCollectionSegmentsWithRoutes = useCollectionStore(
@@ -46,6 +50,10 @@ export default function CollectionDetailScreen() {
   const setActiveCollection = useCollectionStore((s) => s.setActiveCollection);
   const deleteCollection = useCollectionStore((s) => s.deleteCollection);
   const units = useSettingsStore((s) => s.units);
+  const loadPOIs = usePoiStore((s) => s.loadPOIs);
+  const getStarredPOIs = usePoiStore((s) => s.getStarredPOIs);
+  const starredPOIIds = usePoiStore((s) => s.starredPOIIds);
+  const setSelectedPOI = usePoiStore((s) => s.setSelectedPOI);
 
   const loadData = useCallback(async () => {
     if (!id) return;
@@ -205,9 +213,10 @@ export default function CollectionDetailScreen() {
     if (stitched) {
       for (const seg of stitched.segments) {
         loadClimbs(seg.routeId);
+        loadPOIs(seg.routeId);
       }
     }
-  }, [stitched, loadClimbs]);
+  }, [stitched, loadClimbs, loadPOIs]);
 
   const collectionClimbs = useMemo(() => {
     if (!stitched) return [];
@@ -216,6 +225,28 @@ export default function CollectionDetailScreen() {
     // allClimbs is a reactivity trigger: getClimbsForDisplay reads store via get() and is not itself reactive
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stitched, getClimbsForDisplay, allClimbs]);
+
+  const collectionPOIs = useMemo(() => {
+    if (!stitched) return [];
+    const poisByRoute: Record<string, POI[]> = {};
+    for (const seg of stitched.segments) {
+      poisByRoute[seg.routeId] = getStarredPOIs(seg.routeId);
+    }
+    return stitchPOIs(stitched.segments, poisByRoute);
+    // starredPOIIds is a reactivity trigger: getStarredPOIs reads from store via get() and is not itself reactive
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stitched, getStarredPOIs, starredPOIIds]);
+
+  const savedPOITargets = useMemo<SavedPOITarget[]>(() => {
+    if (!stitched) return [];
+    return stitched.segments
+      .map((seg) => ({
+        routeId: seg.routeId,
+        routeName: seg.routeName,
+        points: stitched.pointsByRouteId[seg.routeId] ?? [],
+      }))
+      .filter((target) => target.points.length > 0);
+  }, [stitched]);
 
   // Segment boundaries for elevation profile
   const segmentBoundaries = useMemo(() => {
@@ -329,6 +360,12 @@ export default function CollectionDetailScreen() {
           <Button variant="secondary" onPress={() => setShowAddSheet(true)} label="Add Segment" />
         </View>
 
+        {stitched && stitched.segments.length > 0 && (
+          <View className="px-4 mt-3">
+            <Button variant="secondary" onPress={() => setShowAddPOI(true)} label="Add POI" />
+          </View>
+        )}
+
         {/* Elevation Profile */}
         {stitched && stitched.points.length > 0 && (
           <>
@@ -343,6 +380,8 @@ export default function CollectionDetailScreen() {
                 height={chartHeight}
                 segmentBoundaries={segmentBoundaries}
                 climbs={collectionClimbs}
+                pois={collectionPOIs}
+                onPOIPress={setSelectedPOI}
               />
             </View>
           </>
@@ -369,6 +408,12 @@ export default function CollectionDetailScreen() {
         onClose={() => setShowAddSheet(false)}
         onAdd={handleAddSegment}
         existingRouteIds={existingRouteIds}
+      />
+
+      <AddSavedPOISheet
+        visible={showAddPOI}
+        targets={savedPOITargets}
+        onClose={() => setShowAddPOI(false)}
       />
 
       {isBusy && (

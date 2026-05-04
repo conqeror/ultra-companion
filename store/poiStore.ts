@@ -1,8 +1,21 @@
 import { create } from "zustand";
 import { createMMKV, type MMKV } from "react-native-mmkv";
-import type { DisplayPOI, POI, POICategory, POIFetchStatus, POISource, RoutePoint } from "@/types";
+import type {
+  DisplayPOI,
+  POI,
+  POICategory,
+  POIFetchStatus,
+  POIFetchedSource,
+  RoutePoint,
+} from "@/types";
 import { DEFAULT_CORRIDOR_WIDTH_M, POI_CATEGORIES } from "@/constants";
-import { getPOIsForRoute, deletePOIsBySource, deletePOIsForRoute } from "@/db/database";
+import {
+  getPOIsForRoute,
+  deletePOIsBySource,
+  insertPOIs,
+  updatePOITags,
+  deletePOI,
+} from "@/db/database";
 import { fetchOsmPOIs, fetchGooglePOIs } from "@/services/poiFetcher";
 import { getOpeningHoursStatus } from "@/services/openingHoursParser";
 import { usePanelStore } from "./panelStore";
@@ -69,18 +82,18 @@ export const DEFAULT_SOURCE_INFO: SourceInfo = {
 
 const fetchGenerations = new Map<string, number>();
 
-function fetchGenerationKey(routeId: string, source: POISource): string {
+function fetchGenerationKey(routeId: string, source: POIFetchedSource): string {
   return `${routeId}:${source}`;
 }
 
-function nextFetchGeneration(routeId: string, source: POISource): number {
+function nextFetchGeneration(routeId: string, source: POIFetchedSource): number {
   const key = fetchGenerationKey(routeId, source);
   const next = (fetchGenerations.get(key) ?? 0) + 1;
   fetchGenerations.set(key, next);
   return next;
 }
 
-function isCurrentFetch(routeId: string, source: POISource, generation: number): boolean {
+function isCurrentFetch(routeId: string, source: POIFetchedSource, generation: number): boolean {
   return fetchGenerations.get(fetchGenerationKey(routeId, source)) === generation;
 }
 
@@ -90,10 +103,10 @@ function invalidateRouteFetches(routeId: string): void {
 }
 
 const SOURCE_INFO_KEY_PREFIX = "sourceInfo_";
-const sourceInfoKey = (routeId: string, source: POISource) =>
+const sourceInfoKey = (routeId: string, source: POIFetchedSource) =>
   `${SOURCE_INFO_KEY_PREFIX}${source}_${routeId}`;
 
-function readSourceInfo(routeId: string, source: POISource): SourceInfo {
+function readSourceInfo(routeId: string, source: POIFetchedSource): SourceInfo {
   try {
     const raw = getStorage().getString(sourceInfoKey(routeId, source));
     if (raw) {
@@ -104,14 +117,14 @@ function readSourceInfo(routeId: string, source: POISource): SourceInfo {
   return { ...DEFAULT_SOURCE_INFO };
 }
 
-function persistSourceInfo(routeId: string, source: POISource, info: SourceInfo): void {
+function persistSourceInfo(routeId: string, source: POIFetchedSource, info: SourceInfo): void {
   try {
     const { progress: _progress, ...persisted } = info;
     getStorage().set(sourceInfoKey(routeId, source), JSON.stringify(persisted));
   } catch {}
 }
 
-function clearSourceInfo(routeId: string, source: POISource): void {
+function clearSourceInfo(routeId: string, source: POIFetchedSource): void {
   try {
     getStorage().remove(sourceInfoKey(routeId, source));
   } catch {}
@@ -159,7 +172,7 @@ type ScrubMode = "reset" | "remove";
 function buildRouteScrubPatch(
   s: {
     pois: Record<string, POI[]>;
-    sourceInfo: Record<string, Record<POISource, SourceInfo>>;
+    sourceInfo: Record<string, Record<POIFetchedSource, SourceInfo>>;
     starredPOIIds: Set<string>;
     selectedPOI: DisplayPOI | null;
   },
@@ -205,16 +218,23 @@ interface POIState {
   showOpenOnly: boolean;
   starredPOIIds: Set<string>;
 
-  // Fetch state per source per route
-  sourceInfo: Record<string, Record<POISource, SourceInfo>>; // routeId -> source -> info
+  // Fetch state per fetched source per route
+  sourceInfo: Record<string, Record<POIFetchedSource, SourceInfo>>; // routeId -> source -> info
 
   // UI state
   selectedPOI: DisplayPOI | null;
 
   // Actions
   loadPOIs: (routeId: string) => Promise<void>;
-  fetchSource: (routeId: string, source: POISource, routePoints: RoutePoint[]) => Promise<void>;
-  clearSource: (routeId: string, source: POISource) => Promise<void>;
+  fetchSource: (
+    routeId: string,
+    source: POIFetchedSource,
+    routePoints: RoutePoint[],
+  ) => Promise<void>;
+  clearSource: (routeId: string, source: POIFetchedSource) => Promise<void>;
+  addCustomPOI: (poi: POI) => Promise<void>;
+  updatePOINotes: (routeId: string, poiId: string, notes: string) => Promise<void>;
+  deleteCustomPOI: (routeId: string, poiId: string) => Promise<void>;
   toggleCategory: (category: POICategory) => void;
   setCorridorWidth: (widthM: number) => void;
   setAllCategories: (enabled: boolean) => void;
@@ -252,7 +272,7 @@ export const usePoiStore = create<POIState>((set, get) => ({
       googleCount = 0;
     for (const p of pois) {
       if (p.source === "google") googleCount++;
-      else osmCount++;
+      else if (p.source === "osm") osmCount++;
     }
 
     set((s) => {
@@ -347,6 +367,61 @@ export const usePoiStore = create<POIState>((set, get) => ({
     });
   },
 
+  addCustomPOI: async (poi) => {
+    await insertPOIs([poi]);
+    const pois = await getPOIsForRoute(poi.routeId);
+    set((s) => {
+      const nextStarred = new Set([...s.starredPOIIds, poi.id]);
+      try {
+        getStorage().set("starredPOIIds", JSON.stringify([...nextStarred]));
+      } catch {}
+      return {
+        pois: { ...s.pois, [poi.routeId]: pois },
+        starredPOIIds: nextStarred,
+      };
+    });
+  },
+
+  updatePOINotes: async (routeId, poiId, notes) => {
+    const routePois = get().pois[routeId] ?? (await getPOIsForRoute(routeId));
+    const poi = routePois.find((p) => p.id === poiId);
+    if (!poi) return;
+
+    const nextTags = { ...poi.tags };
+    const trimmed = notes.trim();
+    if (trimmed) nextTags.notes = trimmed;
+    else delete nextTags.notes;
+
+    await updatePOITags(poiId, nextTags);
+    const pois = await getPOIsForRoute(routeId);
+
+    set((s) => {
+      const selectedPOI =
+        s.selectedPOI?.id === poiId ? { ...s.selectedPOI, tags: nextTags } : s.selectedPOI;
+      return {
+        pois: { ...s.pois, [routeId]: pois },
+        selectedPOI,
+      };
+    });
+  },
+
+  deleteCustomPOI: async (routeId, poiId) => {
+    await deletePOI(poiId);
+    const pois = await getPOIsForRoute(routeId);
+    set((s) => {
+      const nextStarred = new Set(s.starredPOIIds);
+      nextStarred.delete(poiId);
+      try {
+        getStorage().set("starredPOIIds", JSON.stringify([...nextStarred]));
+      } catch {}
+      return {
+        pois: { ...s.pois, [routeId]: pois },
+        starredPOIIds: nextStarred,
+        selectedPOI: s.selectedPOI?.id === poiId ? null : s.selectedPOI,
+      };
+    });
+  },
+
   toggleCategory: (category) => {
     const current = get().enabledCategories;
     const next = current.includes(category)
@@ -406,10 +481,34 @@ export const usePoiStore = create<POIState>((set, get) => ({
 
   clearPOIs: async (routeId) => {
     invalidateRouteFetches(routeId);
-    await deletePOIsForRoute(routeId);
+    await deletePOIsBySource(routeId, "google");
+    await deletePOIsBySource(routeId, "osm");
     clearSourceInfo(routeId, "osm");
     clearSourceInfo(routeId, "google");
-    set((s) => buildRouteScrubPatch(s, routeId, "reset"));
+    const pois = await getPOIsForRoute(routeId);
+    set((s) => {
+      const currentRoutePois = s.pois[routeId] ?? [];
+      const removedIds = new Set(
+        currentRoutePois.filter((p) => p.source !== "custom").map((p) => p.id),
+      );
+      const nextStarred = new Set([...s.starredPOIIds].filter((id) => !removedIds.has(id)));
+      try {
+        getStorage().set("starredPOIIds", JSON.stringify([...nextStarred]));
+      } catch {}
+      const selectedPOI =
+        s.selectedPOI?.routeId === routeId && s.selectedPOI.source !== "custom"
+          ? null
+          : s.selectedPOI;
+      return {
+        pois: { ...s.pois, [routeId]: pois },
+        sourceInfo: {
+          ...s.sourceInfo,
+          [routeId]: { osm: { ...DEFAULT_SOURCE_INFO }, google: { ...DEFAULT_SOURCE_INFO } },
+        },
+        starredPOIIds: nextStarred,
+        selectedPOI,
+      };
+    });
   },
 
   cleanupRouteState: (routeId) => {

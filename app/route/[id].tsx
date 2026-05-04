@@ -3,6 +3,7 @@ import { View, ScrollView, useWindowDimensions, ActivityIndicator } from "react-
 import { useLocalSearchParams, Stack } from "expo-router";
 import { Camera, MapView as MapboxMapView } from "@rnmapbox/maps";
 import { Text } from "@/components/ui/text";
+import { Button } from "@/components/ui/button";
 import { useThemeColors } from "@/theme";
 import { useRouteStore } from "@/store/routeStore";
 import { useSettingsStore } from "@/store/settingsStore";
@@ -22,6 +23,8 @@ import ElevationProfile from "@/components/elevation/ElevationProfile";
 import RouteLayer from "@/components/map/RouteLayer";
 import StatBox from "@/components/common/StatBox";
 import DataSection from "@/components/route/DataSection";
+import AddSavedPOISheet from "@/components/poi/AddSavedPOISheet";
+import type { SavedPOITarget } from "@/services/savedPOIService";
 
 const EMPTY_CLIMBS: Climb[] = [];
 
@@ -34,6 +37,7 @@ export default function RouteDetailScreen() {
 
   const [route, setRoute] = useState<RouteWithPoints | null>(null);
   const [loading, setLoading] = useState(true);
+  const [showAddPOI, setShowAddPOI] = useState(false);
 
   const getRouteDetail = useRouteStore((s) => s.getRouteDetail);
   const snappedPosition = useRouteStore((s) => s.snappedPosition);
@@ -92,6 +96,11 @@ export default function RouteDetailScreen() {
   const bounds = useMemo(() => {
     if (!route?.points.length) return null;
     return computeBounds(route.points);
+  }, [route]);
+
+  const savedPOITargets = useMemo<SavedPOITarget[]>(() => {
+    if (!route) return [];
+    return [{ routeId: route.id, routeName: route.name, points: route.points }];
   }, [route]);
 
   if (loading) {
@@ -181,6 +190,10 @@ export default function RouteDetailScreen() {
           />
         </View>
 
+        <View className="px-4 mt-4">
+          <Button variant="secondary" onPress={() => setShowAddPOI(true)} label="Add POI" />
+        </View>
+
         {/* Data: Map tiles, Google Places, OSM */}
         <DataSection routeId={id!} points={route.points} />
 
@@ -220,6 +233,11 @@ export default function RouteDetailScreen() {
           </View>
         )}
       </ScrollView>
+      <AddSavedPOISheet
+        visible={showAddPOI}
+        targets={savedPOITargets}
+        onClose={() => setShowAddPOI(false)}
+      />
     </>
   );
 }

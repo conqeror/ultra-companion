@@ -1,15 +1,27 @@
-import React, { useMemo, useState, useCallback } from "react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
 import {
   View,
   FlatList,
   ScrollView,
   TouchableOpacity,
   TextInput as RNTextInput,
+  Alert,
+  Linking,
   type ListRenderItem,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Text } from "@/components/ui/text";
-import { Star, MapPin, Clock, ChevronLeft, Phone, Search } from "lucide-react-native";
+import { Button } from "@/components/ui/button";
+import {
+  Star,
+  MapPin,
+  Clock,
+  ChevronLeft,
+  Phone,
+  Search,
+  Plus,
+  ExternalLink,
+} from "lucide-react-native";
 import { useThemeColors } from "@/theme";
 import { useSettingsStore } from "@/store/settingsStore";
 import { useRouteStore } from "@/store/routeStore";
@@ -27,7 +39,14 @@ import { getETAToDistanceFromDistance as resolveETAToDistance } from "@/services
 import { resolveActiveRouteProgress } from "@/utils/routeProgress";
 import POIFilterBar from "@/components/map/POIFilterBar";
 import POIListItem from "@/components/poi/POIListItem";
+import AddSavedPOISheet from "@/components/poi/AddSavedPOISheet";
 import type { ActiveRouteData, DisplayPOI, POI, StitchedSegmentInfo } from "@/types";
+import {
+  getGoogleMapsUrlForPOI,
+  getPOINotes,
+  isGoogleDerivedPOI,
+  type SavedPOITarget,
+} from "@/services/savedPOIService";
 
 interface POITabContentProps {
   activeData: ActiveRouteData | null;
@@ -61,6 +80,8 @@ export default function POITabContent({ activeData }: POITabContentProps) {
   const isExpanded = usePanelStore((s) => s.isExpanded);
 
   const [searchQuery, setSearchQuery] = useState("");
+  const [showAddPOI, setShowAddPOI] = useState(false);
+  const [loadedSavedPOITargets, setLoadedSavedPOITargets] = useState<SavedPOITarget[] | null>(null);
 
   const routeIds = useMemo(() => activeData?.routeIds ?? [], [activeData?.routeIds]);
   const routePoints = activeData?.points ?? null;
@@ -70,6 +91,27 @@ export default function POITabContent({ activeData }: POITabContentProps) {
     [activeData, snappedPosition],
   );
   const currentDist = activeRouteProgress?.distanceAlongRouteMeters ?? null;
+
+  const savedPOITargets = useMemo<SavedPOITarget[]>(() => {
+    if (!activeData) return [];
+    if (activeData.segments) {
+      return activeData.segments
+        .map((seg) => ({
+          routeId: seg.routeId,
+          routeName: seg.routeName,
+          points: activeData.pointsByRouteId[seg.routeId] ?? [],
+        }))
+        .filter((target) => target.points.length > 0);
+    }
+    const routeId = activeData.routeIds[0];
+    if (!routeId) return [];
+    return [{ routeId, routeName: activeData.name, points: activeData.points }];
+  }, [activeData]);
+  const effectiveSavedPOITargets = loadedSavedPOITargets ?? savedPOITargets;
+
+  useEffect(() => {
+    setLoadedSavedPOITargets(null);
+  }, [activeData?.id]);
 
   const starredUpcoming = useMemo(() => {
     if (routeIds.length === 0) return [];
@@ -144,6 +186,33 @@ export default function POITabContent({ activeData }: POITabContentProps) {
     [setSelectedPOI],
   );
 
+  const handleOpenAddPOI = useCallback(async () => {
+    if (!activeData?.segments || savedPOITargets.length > 0) {
+      setLoadedSavedPOITargets(null);
+      setShowAddPOI(true);
+      return;
+    }
+
+    const { getRoutePoints } = await import("@/db/database");
+    const targets = await Promise.all(
+      activeData.segments.map(async (seg) => ({
+        routeId: seg.routeId,
+        routeName: seg.routeName,
+        points: await getRoutePoints(seg.routeId),
+      })),
+    );
+    setLoadedSavedPOITargets(targets.filter((target) => target.points.length > 0));
+    setShowAddPOI(true);
+  }, [activeData?.segments, savedPOITargets.length]);
+
+  const handleSavedPOI = useCallback(
+    (poi: POI) => {
+      const displayPOI = toDisplayPOIForSegments(poi, segments);
+      if (displayPOI) setSelectedPOI(displayPOI);
+    },
+    [segments, setSelectedPOI],
+  );
+
   const renderExpandedPOI = useCallback<ListRenderItem<DisplayPOI>>(
     ({ item }) => (
       <POIListItem poi={item} currentDistAlongRoute={currentDist} onPress={handlePOIPress} />
@@ -178,15 +247,28 @@ export default function POITabContent({ activeData }: POITabContentProps) {
   // Empty state — no POI data at all
   if (totalPOICount === 0) {
     return (
-      <View className="flex-1 items-center justify-center">
-        <MapPin size={24} color={colors.textTertiary} />
-        <Text className="text-[13px] text-muted-foreground font-barlow-medium mt-2">
-          No POIs on this route
-        </Text>
-        <Text className="text-[11px] text-muted-foreground mt-1">
-          Fetch POI data from the route detail screen
-        </Text>
-      </View>
+      <>
+        <View className="flex-1 items-center justify-center px-4">
+          <MapPin size={24} color={colors.textTertiary} />
+          <Text className="text-[13px] text-muted-foreground font-barlow-medium mt-2">
+            No POIs on this route
+          </Text>
+          <View className="mt-3 w-full max-w-[220px]">
+            <Button
+              variant="secondary"
+              onPress={handleOpenAddPOI}
+              disabled={!activeData}
+              label="Add POI"
+            />
+          </View>
+        </View>
+        <AddSavedPOISheet
+          visible={showAddPOI}
+          targets={effectiveSavedPOITargets}
+          onClose={() => setShowAddPOI(false)}
+          onSaved={handleSavedPOI}
+        />
+      </>
     );
   }
 
@@ -211,6 +293,14 @@ export default function POITabContent({ activeData }: POITabContentProps) {
             clearButtonMode="while-editing"
             accessibilityLabel="Search POIs"
           />
+          <TouchableOpacity
+            className="w-[48px] h-[48px] items-center justify-center ml-2"
+            onPress={handleOpenAddPOI}
+            disabled={!activeData}
+            accessibilityLabel="Add POI"
+          >
+            <Plus size={20} color={colors.accent} />
+          </TouchableOpacity>
         </View>
 
         {/* Category filters */}
@@ -233,43 +323,57 @@ export default function POITabContent({ activeData }: POITabContentProps) {
           keyboardShouldPersistTaps="handled"
           extraData={currentDist}
         />
+        <AddSavedPOISheet
+          visible={showAddPOI}
+          targets={effectiveSavedPOITargets}
+          onClose={() => setShowAddPOI(false)}
+          onSaved={handleSavedPOI}
+        />
       </View>
     );
   }
 
   // --- Compact mode: starred POIs only ---
   return (
-    <View className="flex-1">
-      {starredUpcoming.length > 0 ? (
-        <>
-          <View className="flex-row items-center justify-between px-3 py-1.5">
-            <Text className="text-[11px] font-barlow-semibold text-muted-foreground">
-              {starredUpcoming.length} starred ahead
+    <>
+      <View className="flex-1">
+        {starredUpcoming.length > 0 ? (
+          <>
+            <View className="flex-row items-center justify-between px-3 py-1.5">
+              <Text className="text-[11px] font-barlow-semibold text-muted-foreground">
+                {starredUpcoming.length} starred ahead
+              </Text>
+            </View>
+            <FlatList
+              data={starredUpcoming}
+              keyExtractor={poiKeyExtractor}
+              renderItem={renderCompactPOI}
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{ paddingBottom: safeBottom }}
+              initialNumToRender={COMPACT_POI_INITIAL_RENDER_COUNT}
+              maxToRenderPerBatch={POI_LIST_MAX_BATCH}
+              updateCellsBatchingPeriod={POI_LIST_BATCHING_PERIOD_MS}
+              windowSize={POI_LIST_WINDOW_SIZE}
+              removeClippedSubviews
+              extraData={currentDist}
+            />
+          </>
+        ) : (
+          <View className="flex-1 items-center justify-center">
+            <Star size={20} color={colors.textTertiary} />
+            <Text className="text-[12px] text-muted-foreground font-barlow-medium mt-2">
+              No starred POIs ahead
             </Text>
           </View>
-          <FlatList
-            data={starredUpcoming}
-            keyExtractor={poiKeyExtractor}
-            renderItem={renderCompactPOI}
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={{ paddingBottom: safeBottom }}
-            initialNumToRender={COMPACT_POI_INITIAL_RENDER_COUNT}
-            maxToRenderPerBatch={POI_LIST_MAX_BATCH}
-            updateCellsBatchingPeriod={POI_LIST_BATCHING_PERIOD_MS}
-            windowSize={POI_LIST_WINDOW_SIZE}
-            removeClippedSubviews
-            extraData={currentDist}
-          />
-        </>
-      ) : (
-        <View className="flex-1 items-center justify-center">
-          <Star size={20} color={colors.textTertiary} />
-          <Text className="text-[12px] text-muted-foreground font-barlow-medium mt-2">
-            No starred POIs ahead
-          </Text>
-        </View>
-      )}
-    </View>
+        )}
+      </View>
+      <AddSavedPOISheet
+        visible={showAddPOI}
+        targets={effectiveSavedPOITargets}
+        onClose={() => setShowAddPOI(false)}
+        onSaved={handleSavedPOI}
+      />
+    </>
   );
 }
 
@@ -362,6 +466,8 @@ function InlinePOIDetail({
   const units = useSettingsStore((s) => s.units);
   const toggleStarred = usePoiStore((s) => s.toggleStarred);
   const isStarred = usePoiStore((s) => s.starredPOIIds.has(poi.id));
+  const updatePOINotes = usePoiStore((s) => s.updatePOINotes);
+  const deleteCustomPOI = usePoiStore((s) => s.deleteCustomPOI);
   const getETAToPOI = useEtaStore((s) => s.getETAToPOI);
 
   const catMeta = POI_CATEGORIES.find((c) => c.key === poi.category);
@@ -416,6 +522,46 @@ function InlinePOIDetail({
   }, [poi]);
 
   const phone = poi.tags?.phone ?? poi.tags?.["contact:phone"] ?? null;
+  const notes = getPOINotes(poi);
+  const googleMapsUrl = useMemo(() => getGoogleMapsUrlForPOI(poi), [poi]);
+
+  const handleEditNotes = useCallback(() => {
+    Alert.prompt(
+      "POI Notes",
+      undefined,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Save",
+          onPress: (value?: string) => {
+            updatePOINotes(poi.routeId, poi.id, value ?? "");
+          },
+        },
+      ],
+      "plain-text",
+      notes,
+    );
+  }, [notes, poi.id, poi.routeId, updatePOINotes]);
+
+  const handleDeleteSavedPOI = useCallback(() => {
+    Alert.alert("Delete Saved POI", "Remove this saved POI?", [
+      { text: "Keep", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: () => {
+          deleteCustomPOI(poi.routeId, poi.id);
+        },
+      },
+    ]);
+  }, [deleteCustomPOI, poi.id, poi.routeId]);
+
+  const handleOpenGoogleMaps = useCallback(() => {
+    if (!googleMapsUrl) return;
+    Linking.openURL(googleMapsUrl).catch(() => {
+      Alert.alert("Open Failed", "Could not open Google Maps.");
+    });
+  }, [googleMapsUrl]);
 
   return (
     <ScrollView className="flex-1 px-3 pt-1">
@@ -534,7 +680,48 @@ function InlinePOIDetail({
         </View>
       )}
 
-      {poi.source === "google" && (
+      {notes ? (
+        <View className="mt-3">
+          <Text className="text-[12px] font-barlow-semibold text-muted-foreground mb-1">Notes</Text>
+          <Text className="text-[13px] text-foreground font-barlow">{notes}</Text>
+        </View>
+      ) : null}
+
+      {googleMapsUrl && (
+        <TouchableOpacity
+          className="flex-row items-center min-h-[48px] mt-2"
+          onPress={handleOpenGoogleMaps}
+          accessibilityLabel="Open in Google Maps"
+        >
+          <ExternalLink size={14} color={colors.accent} />
+          <Text className="ml-2 text-[14px] font-barlow-medium text-primary">
+            Open in Google Maps
+          </Text>
+        </TouchableOpacity>
+      )}
+
+      {poi.source === "custom" && (
+        <View className="mt-1">
+          <TouchableOpacity
+            className="min-h-[48px] justify-center"
+            onPress={handleEditNotes}
+            accessibilityLabel="Edit POI notes"
+          >
+            <Text className="text-[14px] font-barlow-medium text-primary">Edit notes</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            className="min-h-[48px] justify-center"
+            onPress={handleDeleteSavedPOI}
+            accessibilityLabel="Delete saved POI"
+          >
+            <Text className="text-[14px] font-barlow-medium text-destructive">
+              Delete saved POI
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {isGoogleDerivedPOI(poi) && (
         <Text className="text-[10px] text-muted-foreground font-barlow mt-3">
           Powered by Google
         </Text>

@@ -51,6 +51,7 @@ What's implemented. For the "why" behind these, see `usage-context.md`.
 - POI list sortable by distance along route
 - POI text search (filter by name)
 - Starred POIs
+- Saved custom POIs from Google Maps links or manual coordinates, route-scoped and starred by default
 - Opening hours: open/closed status, color-coded, "open now" filter
 - Category filters (multi-select)
 

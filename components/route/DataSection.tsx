@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { View, Alert } from "react-native";
 import { Text } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
-import type { POISource, RoutePoint } from "@/types";
+import type { POIFetchedSource, RoutePoint } from "@/types";
 import { usePoiStore, DEFAULT_SOURCE_INFO, type SourceInfo } from "@/store/poiStore";
 import { useOfflineStore } from "@/store/offlineStore";
 import { formatFileSize } from "@/utils/formatters";
@@ -75,7 +75,7 @@ export default function DataSection({ routeId, points }: DataSectionProps) {
     ]);
   };
 
-  const handleDeleteSource = (source: POISource, label: string) => {
+  const handleDeleteSource = (source: POIFetchedSource, label: string) => {
     Alert.alert(`Delete ${label}`, `Remove ${label.toLowerCase()} for this route?`, [
       { text: "Keep", style: "cancel" },
       { text: "Delete", style: "destructive", onPress: () => clearSource(routeId, source) },
