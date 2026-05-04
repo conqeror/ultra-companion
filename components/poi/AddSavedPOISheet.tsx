@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -81,7 +81,7 @@ export default function AddSavedPOISheet({
   const [error, setError] = useState<string | null>(null);
   const [isResolvingSharedPOI, setIsResolvingSharedPOI] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [resolvedSharedPOIId, setResolvedSharedPOIId] = useState<string | null>(null);
+  const resolvedSharedPOIIdRef = useRef<string | null>(null);
 
   const apiKey = Constants.expoConfig?.extra?.googlePlacesApiKey as string | undefined;
   const canSave = useMemo(() => {
@@ -109,18 +109,18 @@ export default function AddSavedPOISheet({
     setError(null);
     setIsResolvingSharedPOI(false);
     setIsSaving(false);
-    setResolvedSharedPOIId(null);
+    resolvedSharedPOIIdRef.current = null;
   }, [visible]);
 
   useEffect(() => {
-    if (!visible || !sharedPOI || resolvedSharedPOIId === sharedPOI.id) return;
+    if (!visible || !sharedPOI || resolvedSharedPOIIdRef.current === sharedPOI.id) return;
 
     const rawSharedText = getSharedPOIRawText(sharedPOI);
     if (!rawSharedText.trim()) return;
 
     const fallbackName = getSharedPOIDisplayName(sharedPOI);
     const fallbackUrl = sharedPOI.url;
-    setResolvedSharedPOIId(sharedPOI.id);
+    resolvedSharedPOIIdRef.current = sharedPOI.id;
     if (fallbackName) setName(fallbackName);
     if (fallbackUrl) setSharedMapsUrl(fallbackUrl);
 
@@ -152,7 +152,7 @@ export default function AddSavedPOISheet({
     return () => {
       cancelled = true;
     };
-  }, [apiKey, resolvedSharedPOIId, sharedPOI, visible]);
+  }, [apiKey, sharedPOI, visible]);
 
   const handleSave = useCallback(async () => {
     if (isResolvingSharedPOI) {
