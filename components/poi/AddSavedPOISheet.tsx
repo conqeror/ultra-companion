@@ -29,6 +29,11 @@ import {
   getSharedPOIRawText,
   type SharedPOIInput,
 } from "@/services/sharedPOIService";
+import {
+  describeRawSharedPOIText,
+  describeSharedPOIInput,
+  logSharedPOIDiagnostic,
+} from "@/services/sharedPOIDiagnostics";
 import type { POI, POICategory } from "@/types";
 
 interface AddSavedPOISheetProps {
@@ -117,6 +122,11 @@ export default function AddSavedPOISheet({
 
     const rawSharedText = getSharedPOIRawText(sharedPOI);
     if (!rawSharedText.trim()) return;
+    logSharedPOIDiagnostic("sheet.sharedPOI.received", {
+      sharedPOI: describeSharedPOIInput(sharedPOI),
+      rawText: describeRawSharedPOIText(rawSharedText),
+      apiKeyPresent: Boolean(apiKey),
+    });
 
     const fallbackName = getSharedPOIDisplayName(sharedPOI);
     const fallbackUrl = sharedPOI.url;
@@ -128,9 +138,20 @@ export default function AddSavedPOISheet({
     setIsResolvingSharedPOI(true);
     setError(null);
 
-    resolveGoogleMapsLink(rawSharedText, apiKey)
+    resolveGoogleMapsLink(rawSharedText, apiKey, (event, data) => {
+      logSharedPOIDiagnostic(`resolver.${event}`, data);
+    })
       .then((resolved) => {
         if (cancelled) return;
+        logSharedPOIDiagnostic("sheet.sharedPOI.resolved", {
+          name: resolved.name,
+          category: resolved.category,
+          latitude: resolved.latitude,
+          longitude: resolved.longitude,
+          sourceId: resolved.sourceId,
+          resolvedUrl: resolved.resolvedUrl,
+          tags: resolved.tags,
+        });
         setSharedMapsUrl(resolved.resolvedUrl);
         setTags(resolved.tags);
         setSourceId(resolved.sourceId);
@@ -141,6 +162,9 @@ export default function AddSavedPOISheet({
       })
       .catch((e) => {
         if (cancelled) return;
+        logSharedPOIDiagnostic("sheet.sharedPOI.resolveFailed", {
+          error: e instanceof Error ? e.message : String(e),
+        });
         setError(
           e instanceof Error ? e.message : "Could not resolve shared place. Enter coordinates.",
         );

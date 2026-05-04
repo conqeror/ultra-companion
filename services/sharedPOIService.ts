@@ -1,3 +1,9 @@
+import {
+  describeDiagnosticText,
+  describeSharedPOIInput,
+  logSharedPOIDiagnostic,
+} from "@/services/sharedPOIDiagnostics";
+
 export interface SharedPOIInput {
   id: string;
   title: string | null;
@@ -106,23 +112,48 @@ export function parsePendingSharedPOIJSON(rawValue: string): SharedPOIInput | nu
 export async function loadPendingSharedPOIFromAppGroup(): Promise<SharedPOIInput | null> {
   const { File, Paths } = await import("expo-file-system");
   const containers = Paths.appleSharedContainers;
+  logSharedPOIDiagnostic("appGroup.containers", {
+    containerIds: Object.keys(containers),
+  });
   const containerId = Object.keys(containers).find((id) => id.startsWith("group."));
-  if (!containerId) return null;
+  if (!containerId) {
+    logSharedPOIDiagnostic("appGroup.noContainer");
+    return null;
+  }
 
   const pendingFile = new File(containers[containerId], PENDING_SHARED_POI_FILE);
+  logSharedPOIDiagnostic("appGroup.pendingFile", {
+    containerId,
+    fileName: PENDING_SHARED_POI_FILE,
+    exists: pendingFile.exists,
+  });
   if (!pendingFile.exists) return null;
 
   let rawValue: string;
   try {
     rawValue = await pendingFile.text();
-  } catch {
+    logSharedPOIDiagnostic("appGroup.rawPayload", {
+      raw: describeDiagnosticText(rawValue),
+    });
+  } catch (error) {
+    logSharedPOIDiagnostic("appGroup.readFailed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
     return null;
   }
 
   const pendingSharedPOI = parsePendingSharedPOIJSON(rawValue);
+  logSharedPOIDiagnostic("appGroup.parsedPayload", {
+    sharedPOI: describeSharedPOIInput(pendingSharedPOI),
+  });
   try {
     pendingFile.delete();
-  } catch {}
+    logSharedPOIDiagnostic("appGroup.deletedPendingFile");
+  } catch (error) {
+    logSharedPOIDiagnostic("appGroup.deleteFailed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
   return pendingSharedPOI;
 }
 

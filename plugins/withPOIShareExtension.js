@@ -73,7 +73,7 @@ final class ShareViewController: UIViewController {
     Task {
       let payload = await loadPayload()
       await MainActor.run {
-        logger.info("Loaded Google Maps share payload title=\\(payload.title ?? "<nil>", privacy: .public) textLength=\\(payload.text?.count ?? 0, privacy: .public) url=\\(payload.url ?? "<nil>", privacy: .public)")
+        logger.info("Loaded Google Maps share payload title=\\(payload.title ?? "<nil>", privacy: .public) text=\\(payload.text ?? "<nil>", privacy: .public) url=\\(payload.url ?? "<nil>", privacy: .public)")
 
         guard payload.url != nil || payload.text != nil || payload.title != nil else {
           logger.error("Google Maps share payload was empty")
@@ -136,11 +136,14 @@ final class ShareViewController: UIViewController {
 
   private func loadPayload() async -> SharePayload {
     guard let extensionItems = extensionContext?.inputItems as? [NSExtensionItem] else {
+      logger.error("Share extension had no NSExtensionItem input items")
       return SharePayload()
     }
 
+    logger.info("Share extension input item count=\\(extensionItems.count, privacy: .public)")
     var payload = SharePayload()
-    for item in extensionItems {
+    for (itemIndex, item) in extensionItems.enumerated() {
+      logger.info("Share extension item=\\(itemIndex, privacy: .public) attributedTitle=\\(item.attributedTitle?.string ?? "<nil>", privacy: .public) attributedContentText=\\(item.attributedContentText?.string ?? "<nil>", privacy: .public)")
       if payload.title == nil {
         payload.title = item.attributedTitle?.string
       }
@@ -148,7 +151,8 @@ final class ShareViewController: UIViewController {
         payload.text = item.attributedContentText?.string
       }
 
-      for provider in item.attachments ?? [] {
+      for (providerIndex, provider) in (item.attachments ?? []).enumerated() {
+        logger.info("Share extension provider item=\\(itemIndex, privacy: .public) provider=\\(providerIndex, privacy: .public) registeredTypes=\\(provider.registeredTypeIdentifiers.joined(separator: ", "), privacy: .public)")
         if payload.url == nil,
           let url = await loadURL(from: provider)
         {
@@ -169,6 +173,7 @@ final class ShareViewController: UIViewController {
   private func loadURL(from provider: NSItemProvider) async -> String? {
     let identifiers = [UTType.url.identifier, "public.url"]
     for identifier in identifiers where provider.hasItemConformingToTypeIdentifier(identifier) {
+      logger.info("Trying URL item provider type=\\(identifier, privacy: .public)")
       if let value = await loadItem(from: provider, typeIdentifier: identifier) {
         if let url = value as? URL {
           return url.absoluteString
@@ -187,6 +192,7 @@ final class ShareViewController: UIViewController {
   private func loadText(from provider: NSItemProvider) async -> String? {
     let identifiers = [UTType.plainText.identifier, UTType.text.identifier, "public.text"]
     for identifier in identifiers where provider.hasItemConformingToTypeIdentifier(identifier) {
+      logger.info("Trying text item provider type=\\(identifier, privacy: .public)")
       if let value = await loadItem(from: provider, typeIdentifier: identifier) {
         if let text = value as? String {
           return text
@@ -204,10 +210,33 @@ final class ShareViewController: UIViewController {
 
   private func loadItem(from provider: NSItemProvider, typeIdentifier: String) async -> NSSecureCoding? {
     await withCheckedContinuation { continuation in
-      provider.loadItem(forTypeIdentifier: typeIdentifier, options: nil) { item, _ in
+      provider.loadItem(forTypeIdentifier: typeIdentifier, options: nil) { item, error in
+        if let error {
+          self.logger.error("Failed to load item type=\\(typeIdentifier, privacy: .public) error=\\(error.localizedDescription, privacy: .public)")
+        } else if let item {
+          self.logger.info("Loaded item type=\\(typeIdentifier, privacy: .public) class=\\(String(describing: type(of: item)), privacy: .public) value=\\(self.describeLoadedValue(item), privacy: .public)")
+        } else {
+          self.logger.info("Loaded nil item type=\\(typeIdentifier, privacy: .public)")
+        }
         continuation.resume(returning: item)
       }
     }
+  }
+
+  private func describeLoadedValue(_ value: NSSecureCoding) -> String {
+    if let url = value as? URL {
+      return url.absoluteString
+    }
+    if let url = value as? NSURL {
+      return url.absoluteString ?? "<nil>"
+    }
+    if let text = value as? String {
+      return text
+    }
+    if let data = value as? Data {
+      return String(data: data, encoding: .utf8) ?? "<data \\(data.count) bytes>"
+    }
+    return String(describing: value)
   }
 
   @objc private func doneButtonTapped() {
