@@ -192,6 +192,57 @@ describe("savedPOIService", () => {
     );
   });
 
+  it("uses the place query from Google consent URLs after short-link expansion", async () => {
+    const mapsUrl =
+      "https://maps.google.com/maps?q=Papaya+Vietnamese+and+Thai+Street+Food,+Twin+City+Tower+(vn%C3%BAtroblok+Twin+City+A/B,+Mlynsk%C3%A9+nivy+10,+821+09+Bratislava&ftid=0x476c891957ae8c5d:0xeb494592c9f5cf30&entry=gps";
+    const consentUrl = `https://consent.google.com/ml?continue=${encodeURIComponent(mapsUrl)}&gl=SK`;
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        status: 200,
+        url: consentUrl,
+        headers: new Headers({ "content-type": "text/html; charset=utf-8" }),
+        text: vi.fn().mockResolvedValue("<html>Google consent page</html>"),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: vi.fn().mockResolvedValue({
+          places: [
+            {
+              id: "papaya-place",
+              displayName: { text: "Papaya Vietnamese and Thai Street Food" },
+              location: { latitude: 48.1459, longitude: 17.1262 },
+              types: ["restaurant"],
+              googleMapsUri: "https://www.google.com/maps/place/Papaya",
+            },
+          ],
+        }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await resolveGoogleMapsLink(
+      "https://maps.app.goo.gl/DUWBuDsT8vRNUYHGA",
+      "api-key",
+    );
+
+    expect(result.name).toBe("Papaya Vietnamese and Thai Street Food");
+    expect(result.latitude).toBeCloseTo(48.1459);
+    expect(result.longitude).toBeCloseTo(17.1262);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "https://places.googleapis.com/v1/places:searchText",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          textQuery:
+            "Papaya Vietnamese and Thai Street Food, Twin City Tower (vnútroblok Twin City A/B, Mlynské nivy 10, 821 09 Bratislava",
+          pageSize: 1,
+        }),
+      }),
+    );
+  });
+
   it("chooses the nearest selected route target for collection saves", () => {
     const nearest = findNearestSavedPOITarget(48.15, 17.101, [eastTarget, northSouthTarget]);
 

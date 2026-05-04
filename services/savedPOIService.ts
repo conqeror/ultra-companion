@@ -42,6 +42,8 @@ export interface ResolvedGoogleMapsLink {
 interface ParsedGoogleMapsLink {
   url: string;
   placeId: string | null;
+  placeQuery: string | null;
+  featureId: string | null;
   latitude: number | null;
   longitude: number | null;
 }
@@ -107,12 +109,19 @@ function extractPlaceQueryFromSharedText(text: string): string | null {
   return null;
 }
 
+function cleanPlaceQuery(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed || parseCoordinatesFromText(trimmed)) return null;
+  return trimmed;
+}
+
 function buildGoogleMapsSearchUrl(query: string): string {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
 }
 
 function parseGoogleMapsLinkParam(url: URL): ParsedGoogleMapsLink | null {
-  const nestedUrl = url.searchParams.get("link") ?? url.searchParams.get("url");
+  const nestedUrl =
+    url.searchParams.get("link") ?? url.searchParams.get("url") ?? url.searchParams.get("continue");
   return nestedUrl ? parseGoogleMapsLink(nestedUrl) : null;
 }
 
@@ -121,6 +130,8 @@ function describeParsedLink(parsed: ParsedGoogleMapsLink | null): Record<string,
     ? {
         url: parsed.url,
         placeId: parsed.placeId,
+        placeQuery: parsed.placeQuery,
+        featureId: parsed.featureId,
         latitude: parsed.latitude,
         longitude: parsed.longitude,
       }
@@ -142,6 +153,9 @@ function parseGoogleMapsLink(rawText: string): ParsedGoogleMapsLink | null {
   if (nested) return nested;
 
   const placeId = urlText.match(PLACE_ID_RE)?.[1];
+  const placeQuery =
+    cleanPlaceQuery(url.searchParams.get("query")) ?? cleanPlaceQuery(url.searchParams.get("q"));
+  const featureId = url.searchParams.get("ftid");
   const atCoords = urlText.match(/@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/);
   const bangCoords = urlText.match(/!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)/);
   const queryCoords =
@@ -167,6 +181,8 @@ function parseGoogleMapsLink(rawText: string): ParsedGoogleMapsLink | null {
   return {
     url: url.toString(),
     placeId: placeId ? decodeURIComponent(placeId) : null,
+    placeQuery,
+    featureId: cleanPlaceQuery(featureId),
     latitude,
     longitude,
   };
@@ -320,6 +336,15 @@ async function expandGoogleMapsUrl(
 
       if (!latest.body || parseCoordinatesFromGoogleMapsHtml(latest.body)) return latest;
 
+      const responseParsed = parseGoogleMapsLink(latest.url);
+      if (responseParsed?.placeId || responseParsed?.placeQuery || responseParsed?.featureId) {
+        trace?.("expand.responseUrlUsable", {
+          attempt: i + 1,
+          parsed: describeParsedLink(responseParsed),
+        });
+        return latest;
+      }
+
       const htmlUrlCandidates = extractGoogleMapsUrlCandidatesFromHtml(latest.body);
       trace?.("expand.htmlUrlCandidates", {
         attempt: i + 1,
@@ -334,6 +359,9 @@ async function expandGoogleMapsUrl(
           parsed: describeParsedLink(htmlParsed),
         });
         if (htmlParsed?.latitude != null && htmlParsed.longitude != null) {
+          return { url: htmlUrl, body: latest.body };
+        }
+        if (htmlParsed?.placeId || htmlParsed?.placeQuery || htmlParsed?.featureId) {
           return { url: htmlUrl, body: latest.body };
         }
 
@@ -434,9 +462,10 @@ export async function resolveGoogleMapsLink(
   });
 
   if (latitude == null || longitude == null) {
-    const placeQuery = extractPlaceQueryFromSharedText(rawText);
+    const placeQuery = parsed.placeQuery ?? extractPlaceQueryFromSharedText(rawText);
     trace?.("places.textSearch.decision", {
       placeQuery,
+      featureId: parsed.featureId,
       apiKeyPresent: Boolean(apiKey),
     });
     if (placeQuery && apiKey) {
@@ -469,6 +498,7 @@ export async function resolveGoogleMapsLink(
       hasPlaceId: Boolean(parsed.placeId),
       apiKeyPresent: Boolean(apiKey),
       placeQuery,
+      featureId: parsed.featureId,
     });
     throw new Error(
       parsed.placeId
