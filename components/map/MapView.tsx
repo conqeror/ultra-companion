@@ -10,6 +10,7 @@ import { usePanelStore } from "@/store/panelStore";
 import { SHEET_COMPACT_RATIO, SHEET_EXPANDED_RATIO } from "@/constants";
 import { useThemeColors } from "@/theme";
 import { useMapStyle } from "@/hooks/useMapStyle";
+import { useRouteGeometryZoom } from "@/hooks/useRouteGeometryZoom";
 import { GPS_STALE_THRESHOLD_MS } from "@/constants";
 import MapControls from "./MapControls";
 import RouteLayer from "./RouteLayer";
@@ -63,6 +64,9 @@ export default function MapScreen() {
     zoom: useMapStore.getState().zoom,
   });
   const lastCamera = useRef(initialCamera.current);
+  const { routeGeometryZoom, updateRouteGeometryZoom } = useRouteGeometryZoom(
+    initialCamera.current.zoom,
+  );
   const panelTab = usePanelStore((s) => s.panelTab);
   const isPanelExpanded = usePanelStore((s) => s.isExpanded);
   const { bottom: safeBottom } = useSafeAreaInsets();
@@ -314,9 +318,11 @@ export default function MapScreen() {
   const handleCameraChanged = useCallback(
     (state: { properties: { center: number[]; zoom: number } }) => {
       const c = state.properties.center;
-      lastCamera.current = { center: [c[0], c[1]], zoom: state.properties.zoom };
+      const zoom = state.properties.zoom;
+      lastCamera.current = { center: [c[0], c[1]], zoom };
+      updateRouteGeometryZoom(zoom);
     },
-    [],
+    [updateRouteGeometryZoom],
   );
 
   // Persist camera to MMKV when app goes to background
@@ -477,6 +483,7 @@ export default function MapScreen() {
               key={`${route.id}-${mapStyle.styleKey}`}
               route={styledRoute}
               points={visibleRoutePoints[route.id]}
+              zoomLevel={routeGeometryZoom}
               dimmed={highlightedClimb != null}
             />
           );
@@ -486,6 +493,7 @@ export default function MapScreen() {
             key={`${activeCollectionRoute.id}-${mapStyle.styleKey}`}
             route={activeCollectionRoute}
             points={activeRoutePoints}
+            zoomLevel={routeGeometryZoom}
             dimmed={highlightedClimb != null}
           />
         )}

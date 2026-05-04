@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo, useRef } from "react";
+import React, { useCallback, useEffect, useState, useMemo, useRef } from "react";
 import { View, ScrollView, useWindowDimensions, ActivityIndicator } from "react-native";
 import { useLocalSearchParams, Stack } from "expo-router";
 import { Camera, MapView as MapboxMapView } from "@rnmapbox/maps";
@@ -11,6 +11,7 @@ import { usePoiStore } from "@/store/poiStore";
 import { useClimbStore } from "@/store/climbStore";
 import type { RouteWithPoints, Climb } from "@/types";
 import { useMapStyle } from "@/hooks/useMapStyle";
+import { useRouteGeometryZoom } from "@/hooks/useRouteGeometryZoom";
 import { formatDistance, formatElevation } from "@/utils/formatters";
 import {
   computeBounds,
@@ -34,6 +35,7 @@ export default function RouteDetailScreen() {
   const cameraRef = useRef<Camera>(null);
   const colors = useThemeColors();
   const mapStyle = useMapStyle();
+  const { routeGeometryZoom, updateRouteGeometryZoom } = useRouteGeometryZoom();
 
   const [route, setRoute] = useState<RouteWithPoints | null>(null);
   const [loading, setLoading] = useState(true);
@@ -103,6 +105,13 @@ export default function RouteDetailScreen() {
     return [{ routeId: route.id, routeName: route.name, points: route.points }];
   }, [route]);
 
+  const handleCameraChanged = useCallback(
+    (state: { properties: { zoom: number } }) => {
+      updateRouteGeometryZoom(state.properties.zoom);
+    },
+    [updateRouteGeometryZoom],
+  );
+
   if (loading) {
     return (
       <View className="flex-1 items-center justify-center bg-background">
@@ -136,6 +145,7 @@ export default function RouteDetailScreen() {
             rotateEnabled={false}
             scrollEnabled={true}
             zoomEnabled={true}
+            onCameraChanged={handleCameraChanged}
           >
             <Camera
               ref={cameraRef}
@@ -158,6 +168,7 @@ export default function RouteDetailScreen() {
               key={mapStyle.styleKey}
               route={{ ...route, isActive: true }}
               points={route.points}
+              zoomLevel={routeGeometryZoom}
             />
           </MapboxMapView>
         </View>

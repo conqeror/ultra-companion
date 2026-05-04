@@ -12,6 +12,7 @@ import { useClimbStore } from "@/store/climbStore";
 import { usePoiStore } from "@/store/poiStore";
 import type { Collection, CollectionSegmentWithRoute, POI, StitchedCollection } from "@/types";
 import { useMapStyle } from "@/hooks/useMapStyle";
+import { useRouteGeometryZoom } from "@/hooks/useRouteGeometryZoom";
 import { formatDistance, formatElevation } from "@/utils/formatters";
 import { computeBounds } from "@/utils/geo";
 import { stitchCollection, stitchPOIs } from "@/services/stitchingService";
@@ -31,6 +32,7 @@ export default function CollectionDetailScreen() {
   const cameraRef = useRef<Camera>(null);
   const colors = useThemeColors();
   const mapStyle = useMapStyle();
+  const { routeGeometryZoom, updateRouteGeometryZoom } = useRouteGeometryZoom();
 
   const [collection, setCollection] = useState<Collection | null>(null);
   const [segmentsWithRoutes, setSegmentsWithRoutes] = useState<CollectionSegmentWithRoute[]>([]);
@@ -116,6 +118,13 @@ export default function CollectionDetailScreen() {
       animationDuration: 300,
     });
   }, [bounds]);
+
+  const handleCameraChanged = useCallback(
+    (state: { properties: { zoom: number } }) => {
+      updateRouteGeometryZoom(state.properties.zoom);
+    },
+    [updateRouteGeometryZoom],
+  );
 
   // Get route points for each selected segment (for mini map RouteLayer)
   const selectedSegmentRoutes = useMemo(() => {
@@ -294,6 +303,7 @@ export default function CollectionDetailScreen() {
               rotateEnabled={false}
               scrollEnabled={true}
               zoomEnabled={true}
+              onCameraChanged={handleCameraChanged}
             >
               <Camera
                 ref={cameraRef}
@@ -320,6 +330,7 @@ export default function CollectionDetailScreen() {
                     key={`${route.id}-${mapStyle.styleKey}`}
                     route={{ ...route, isActive: true }}
                     points={points}
+                    zoomLevel={routeGeometryZoom}
                   />
                 );
               })}

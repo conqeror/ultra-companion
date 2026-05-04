@@ -8,13 +8,14 @@ import type { Route, RoutePoint } from "@/types";
 interface RouteLayerProps {
   route: Route;
   points: RoutePoint[];
+  zoomLevel?: number;
   /** Dim the route line (e.g. when a climb highlight is shown on top) */
   dimmed?: boolean;
 }
 
-export default function RouteLayer({ route, points, dimmed }: RouteLayerProps) {
+export default function RouteLayer({ route, points, zoomLevel, dimmed }: RouteLayerProps) {
   const colors = useThemeColors();
-  const geoJSON = useMemo(() => routeToMapGeoJSON(points), [points]);
+  const geoJSON = useMemo(() => routeToMapGeoJSON(points, zoomLevel), [points, zoomLevel]);
 
   const outlineStyle = useMemo(
     () => ({
