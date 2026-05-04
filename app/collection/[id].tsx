@@ -51,7 +51,7 @@ export default function CollectionDetailScreen() {
   const deleteCollection = useCollectionStore((s) => s.deleteCollection);
   const units = useSettingsStore((s) => s.units);
   const loadPOIs = usePoiStore((s) => s.loadPOIs);
-  const getStarredPOIs = usePoiStore((s) => s.getStarredPOIs);
+  const poisByRouteId = usePoiStore((s) => s.pois);
   const starredPOIIds = usePoiStore((s) => s.starredPOIIds);
   const setSelectedPOI = usePoiStore((s) => s.setSelectedPOI);
 
@@ -230,12 +230,12 @@ export default function CollectionDetailScreen() {
     if (!stitched) return [];
     const poisByRoute: Record<string, POI[]> = {};
     for (const seg of stitched.segments) {
-      poisByRoute[seg.routeId] = getStarredPOIs(seg.routeId);
+      poisByRoute[seg.routeId] = (poisByRouteId[seg.routeId] ?? []).filter((poi) =>
+        starredPOIIds.has(poi.id),
+      );
     }
     return stitchPOIs(stitched.segments, poisByRoute);
-    // starredPOIIds is a reactivity trigger: getStarredPOIs reads from store via get() and is not itself reactive
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stitched, getStarredPOIs, starredPOIIds]);
+  }, [stitched, poisByRouteId, starredPOIIds]);
 
   const savedPOITargets = useMemo<SavedPOITarget[]>(() => {
     if (!stitched) return [];
