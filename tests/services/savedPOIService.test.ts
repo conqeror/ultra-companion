@@ -65,7 +65,9 @@ describe("savedPOIService", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({
+        status: 200,
         url: "https://www.google.com/maps/place//data=!4m2!3m1!1s0x476c895170197e7d:0x5049eb7d4047ad4f",
+        headers: new Headers(),
         text: vi
           .fn()
           .mockResolvedValue(
@@ -79,6 +81,58 @@ describe("savedPOIService", () => {
     expect(result.latitude).toBeCloseTo(48.152576);
     expect(result.longitude).toBeCloseTo(17.1245568);
     expect(result.tags.google_maps_url).toContain("google.com/maps/place");
+  });
+
+  it("manually follows short-link redirects before reading Google Maps HTML", async () => {
+    const shortUrl = "https://maps.app.goo.gl/eEhh3";
+    const finalUrl =
+      "https://www.google.com/maps/place//data=!4m2!3m1!1s0x391904e4af9b1e35:0xee6f3c848c9e5341";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        status: 302,
+        url: shortUrl,
+        headers: new Headers({ location: finalUrl }),
+        text: vi.fn().mockResolvedValue(""),
+      })
+      .mockResolvedValueOnce({
+        status: 200,
+        url: finalUrl,
+        headers: new Headers(),
+        text: vi
+          .fn()
+          .mockResolvedValue(
+            '<link href="/maps/preview/place?pb=%211m3%211d340710.9536922071%212d17.1245568%213d48.152576">',
+          ),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await resolveGoogleMapsLink(shortUrl);
+
+    expect(result.latitude).toBeCloseTo(48.152576);
+    expect(result.longitude).toBeCloseTo(17.1245568);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("extracts escaped Google Maps targets from HTML redirect pages", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        status: 200,
+        url: "https://maps.app.goo.gl/example",
+        headers: new Headers(),
+        text: vi
+          .fn()
+          .mockResolvedValue(
+            '<script>location.replace("https:\\/\\/www.google.com\\/maps\\/place\\/Test\\/@48.5,17.5,17z")</script>',
+          ),
+      }),
+    );
+
+    const result = await resolveGoogleMapsLink("https://maps.app.goo.gl/example");
+
+    expect(result.latitude).toBeCloseTo(48.5);
+    expect(result.longitude).toBeCloseTo(17.5);
   });
 
   it("chooses the nearest selected route target for collection saves", () => {

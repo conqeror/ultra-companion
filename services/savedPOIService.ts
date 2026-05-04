@@ -49,6 +49,7 @@ interface ExpandedGoogleMapsUrl {
 const URL_RE = /https?:\/\/[^\s]+/i;
 const PLACE_ID_RE = /(?:place_id|query_place_id)=([^&#]+)/i;
 const COORD_RE = /(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)/;
+const MAX_GOOGLE_MAPS_REDIRECTS = 4;
 
 function sanitizeSourcePart(value: string): string {
   return value.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 96);
@@ -111,7 +112,8 @@ function parseGoogleMapsLink(rawText: string): ParsedGoogleMapsLink | null {
   const queryCoords =
     parseCoordinatesFromText(url.searchParams.get("query") ?? "") ??
     parseCoordinatesFromText(url.searchParams.get("q") ?? "") ??
-    parseCoordinatesFromText(url.searchParams.get("ll") ?? "");
+    parseCoordinatesFromText(url.searchParams.get("ll") ?? "") ??
+    parseCoordinatesFromText(url.searchParams.get("center") ?? "");
   const genericCoords = parseCoordinatesFromText(urlText);
 
   const latitude =
@@ -139,7 +141,7 @@ function parseCoordinatesFromGoogleMapsHtml(html: string): {
   latitude: number;
   longitude: number;
 } | null {
-  const normalized = html.replace(/&amp;/g, "&").replace(/\\u003d/g, "=");
+  const normalized = normalizeGoogleMapsHtml(html);
 
   const staticMapCenter = normalized.match(
     /[?&]center=(-?\d+(?:\.\d+)?)(?:%2C|,)(-?\d+(?:\.\d+)?)/i,
@@ -163,6 +165,34 @@ function parseCoordinatesFromGoogleMapsHtml(html: string): {
   return null;
 }
 
+function extractGoogleMapsUrlFromHtml(html: string): string | null {
+  const normalized = normalizeGoogleMapsHtml(html);
+  const decoded = safeDecodeURIComponent(normalized);
+  const candidates = [normalized, decoded];
+
+  for (const candidate of candidates) {
+    const matches = candidate.match(
+      /https:\/\/(?:(?:www\.)?google\.[^"'<>\s\\]+\/maps|maps\.google\.[^"'<>\s\\]+\/maps)[^"'<>\s\\]*/gi,
+    );
+    for (const match of matches ?? []) {
+      const url = safeDecodeURIComponent(match);
+      if (parseGoogleMapsLink(url)) return url;
+    }
+  }
+
+  return null;
+}
+
+function normalizeGoogleMapsHtml(html: string): string {
+  return html
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/\\u0026/g, "&")
+    .replace(/\\u003d/g, "=")
+    .replace(/\\u002f/gi, "/")
+    .replace(/\\\//g, "/");
+}
+
 function safeDecodeURIComponent(value: string): string {
   try {
     return decodeURIComponent(value);
@@ -171,19 +201,60 @@ function safeDecodeURIComponent(value: string): string {
   }
 }
 
-async function expandGoogleMapsUrl(rawText: string): Promise<ExpandedGoogleMapsUrl> {
-  const url = extractFirstUrl(rawText.trim()) ?? rawText.trim();
-  if (!url) return { url: rawText, body: null };
-
+function resolveRedirectUrl(location: string | null, baseUrl: string): string | null {
+  if (!location) return null;
   try {
-    const response = await fetch(url, { method: "GET" });
-    return {
-      url: response.url || url,
-      body: await response.text().catch(() => null),
-    };
+    return new URL(location, baseUrl).toString();
   } catch {
-    return { url, body: null };
+    return null;
   }
+}
+
+function getResponseHeader(response: Response, name: string): string | null {
+  return response.headers?.get(name) ?? null;
+}
+
+async function expandGoogleMapsUrl(rawText: string): Promise<ExpandedGoogleMapsUrl> {
+  let url = extractFirstUrl(rawText.trim()) ?? rawText.trim();
+  if (!url) return { url: rawText, body: null };
+  let latest: ExpandedGoogleMapsUrl = { url, body: null };
+
+  for (let i = 0; i < MAX_GOOGLE_MAPS_REDIRECTS; i++) {
+    try {
+      const response = await fetch(url, { method: "GET" });
+      latest = {
+        url: response.url || url,
+        body: await response.text().catch(() => null),
+      };
+
+      const redirectUrl = resolveRedirectUrl(getResponseHeader(response, "location"), latest.url);
+      if (response.status >= 300 && response.status < 400 && redirectUrl) {
+        url = redirectUrl;
+        latest = { url, body: null };
+        continue;
+      }
+
+      if (!latest.body || parseCoordinatesFromGoogleMapsHtml(latest.body)) return latest;
+
+      const htmlUrl = extractGoogleMapsUrlFromHtml(latest.body);
+      if (htmlUrl && htmlUrl !== latest.url && htmlUrl !== url) {
+        const htmlParsed = parseGoogleMapsLink(htmlUrl);
+        if (htmlParsed?.latitude != null && htmlParsed.longitude != null) {
+          return { url: htmlUrl, body: latest.body };
+        }
+
+        url = htmlUrl;
+        latest = { url, body: null };
+        continue;
+      }
+
+      return latest;
+    } catch {
+      return latest;
+    }
+  }
+
+  return latest;
 }
 
 function resolvedFromPlace(place: GooglePlace, fallbackUrl: string): ResolvedGoogleMapsLink {
