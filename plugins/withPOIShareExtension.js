@@ -1,41 +1,61 @@
 const fs = require("fs");
 const path = require("path");
-const { withDangerousMod, withXcodeProject } = require("expo/config-plugins");
+const {
+  withDangerousMod,
+  withEntitlementsPlist,
+  withXcodeProject,
+} = require("expo/config-plugins");
 
 const EXTENSION_TARGET_NAME = "UltraCompanionShareExtension";
 const EXTENSION_DIR = "UltraCompanionShareExtension";
 const SHARE_VIEW_CONTROLLER_FILE = "ShareViewController.swift";
 const INFO_PLIST_FILE = "Info.plist";
+const ENTITLEMENTS_FILE = `${EXTENSION_TARGET_NAME}.entitlements`;
 const INFO_PLIST = `${EXTENSION_DIR}/${INFO_PLIST_FILE}`;
+const ENTITLEMENTS_PLIST = `${EXTENSION_DIR}/${ENTITLEMENTS_FILE}`;
+const APP_GROUPS_ENTITLEMENT = "com.apple.security.application-groups";
+const PENDING_SHARED_POI_FILE = "pending-poi-share.json";
 
-const SHARE_VIEW_CONTROLLER_SOURCE = `import UIKit
+const SHARE_VIEW_CONTROLLER_SOURCE = (appGroupIdentifier) => `import UIKit
 import UniformTypeIdentifiers
+import OSLog
 
 final class ShareViewController: UIViewController {
   private let statusLabel = UILabel()
   private let activityIndicator = UIActivityIndicatorView(style: .medium)
-  private var didFinishOpenAttempt = false
+  private let doneButton = UIButton(type: .system)
+  private let logger = Logger(subsystem: "com.conqeror.ultracompanion.share", category: "ShareExtension")
+  private let appGroupIdentifier = ${JSON.stringify(appGroupIdentifier)}
+  private let pendingShareFileName = "${PENDING_SHARED_POI_FILE}"
 
   override func viewDidLoad() {
     super.viewDidLoad()
     configureView()
-    loadAndOpenSharedPlace()
+    loadAndSaveSharedPlace()
   }
 
   private func configureView() {
     view.backgroundColor = .systemBackground
 
-    statusLabel.text = "Opening Ultra Companion..."
+    statusLabel.text = "Saving POI..."
     statusLabel.font = .preferredFont(forTextStyle: .body)
     statusLabel.textAlignment = .center
     statusLabel.textColor = .label
     statusLabel.translatesAutoresizingMaskIntoConstraints = false
+    statusLabel.numberOfLines = 0
 
     activityIndicator.translatesAutoresizingMaskIntoConstraints = false
     activityIndicator.startAnimating()
 
+    doneButton.setTitle("Done", for: .normal)
+    doneButton.titleLabel?.font = .preferredFont(forTextStyle: .headline)
+    doneButton.translatesAutoresizingMaskIntoConstraints = false
+    doneButton.isHidden = true
+    doneButton.addTarget(self, action: #selector(doneButtonTapped), for: .touchUpInside)
+
     view.addSubview(statusLabel)
     view.addSubview(activityIndicator)
+    view.addSubview(doneButton)
 
     NSLayoutConstraint.activate([
       activityIndicator.centerXAnchor.constraint(equalTo: view.centerXAnchor),
@@ -43,68 +63,75 @@ final class ShareViewController: UIViewController {
       statusLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 24),
       statusLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -24),
       statusLabel.topAnchor.constraint(equalTo: activityIndicator.bottomAnchor, constant: 16),
+      doneButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+      doneButton.topAnchor.constraint(equalTo: statusLabel.bottomAnchor, constant: 18),
+      doneButton.heightAnchor.constraint(greaterThanOrEqualToConstant: 48),
     ])
   }
 
-  private func loadAndOpenSharedPlace() {
+  private func loadAndSaveSharedPlace() {
     Task {
       let payload = await loadPayload()
       await MainActor.run {
+        logger.info("Loaded Google Maps share payload title=\\(payload.title ?? "<nil>", privacy: .public) textLength=\\(payload.text?.count ?? 0, privacy: .public) url=\\(payload.url ?? "<nil>", privacy: .public)")
+
         guard payload.url != nil || payload.text != nil || payload.title != nil else {
-          cancelShare("Ultra Companion could not read this share.")
+          logger.error("Google Maps share payload was empty")
+          finishShare("Ultra Companion could not read this share.", isError: true)
           return
         }
 
-        guard let deepLink = makeDeepLink(payload: payload) else {
-          cancelShare("Ultra Companion could not open this share.")
+        guard savePayload(payload) else {
+          finishShare("Ultra Companion could not save this POI.", isError: true)
           return
         }
 
-        openDeepLink(deepLink)
+        finishShare("Saved to Ultra Companion. Open Ultra Companion to finish.")
       }
     }
   }
 
-  private func openDeepLink(_ deepLink: URL) {
-    extensionContext?.open(deepLink) { [weak self] success in
-      DispatchQueue.main.async {
-        self?.finishOpenAttempt(deepLink, success: success)
-      }
+  private func savePayload(_ payload: SharePayload) -> Bool {
+    guard let containerURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupIdentifier) else {
+      logger.error("App Group container unavailable for \\(self.appGroupIdentifier, privacy: .public)")
+      return false
     }
 
-    DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
-      guard let self, !self.didFinishOpenAttempt else { return }
-      self.finishOpenAttempt(deepLink, success: false)
+    var body: [String: String] = [
+      "receivedAt": ISO8601DateFormatter().string(from: Date()),
+    ]
+    if let title = trimmed(payload.title) {
+      body["title"] = title
+    }
+    if let text = trimmed(payload.text) {
+      body["text"] = text
+    }
+    if let url = trimmed(payload.url) {
+      body["url"] = url
+    }
+
+    guard body["title"] != nil || body["text"] != nil || body["url"] != nil else {
+      logger.error("Google Maps share payload was blank after trimming")
+      return false
+    }
+
+    do {
+      let fileURL = containerURL.appendingPathComponent(pendingShareFileName)
+      let data = try JSONSerialization.data(withJSONObject: body, options: [])
+      try data.write(to: fileURL, options: [.atomic])
+      logger.info("Saved Google Maps share payload to App Group \\(self.appGroupIdentifier, privacy: .public)")
+      return true
+    } catch {
+      logger.error("Failed to save Google Maps share payload: \\(error.localizedDescription, privacy: .public)")
+      return false
     }
   }
 
-  private func finishOpenAttempt(_ deepLink: URL, success: Bool) {
-    guard !didFinishOpenAttempt else { return }
-
-    if success || openViaResponderChain(deepLink) {
-      didFinishOpenAttempt = true
-      extensionContext?.completeRequest(returningItems: nil)
-      return
-    }
-
+  private func finishShare(_ message: String, isError: Bool = false) {
     activityIndicator.stopAnimating()
-    statusLabel.text = "Could not open Ultra Companion."
-  }
-
-  @discardableResult
-  private func openViaResponderChain(_ url: URL) -> Bool {
-    let selector = NSSelectorFromString("openURL:")
-    var responder: UIResponder? = self
-
-    while let currentResponder = responder {
-      if currentResponder.responds(to: selector) {
-        currentResponder.perform(selector, with: url)
-        return true
-      }
-      responder = currentResponder.next
-    }
-
-    return false
+    statusLabel.text = message
+    statusLabel.textColor = isError ? .systemRed : .label
+    doneButton.isHidden = false
   }
 
   private func loadPayload() async -> SharePayload {
@@ -183,25 +210,9 @@ final class ShareViewController: UIViewController {
     }
   }
 
-  private func makeDeepLink(payload: SharePayload) -> URL? {
-    var components = URLComponents()
-    components.scheme = "ultra"
-    components.host = "share-poi"
-    components.queryItems = [
-      URLQueryItem(name: "title", value: trimmed(payload.title)),
-      URLQueryItem(name: "text", value: trimmed(payload.text)),
-      URLQueryItem(name: "url", value: trimmed(payload.url)),
-    ].filter { $0.value != nil }
-    return components.url
-  }
-
-  private func cancelShare(_ message: String) {
-    let error = NSError(
-      domain: "UltraCompanionShareExtension",
-      code: 1,
-      userInfo: [NSLocalizedDescriptionKey: message]
-    )
-    extensionContext?.cancelRequest(withError: error)
+  @objc private func doneButtonTapped() {
+    logger.info("Share extension done tapped")
+    extensionContext?.completeRequest(returningItems: nil)
   }
 
   private func trimmed(_ value: String?) -> String? {
@@ -260,6 +271,18 @@ const INFO_PLIST_SOURCE = `<?xml version="1.0" encoding="UTF-8"?>
 </plist>
 `;
 
+const ENTITLEMENTS_PLIST_SOURCE = (appGroupIdentifier) => `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+\t<key>${APP_GROUPS_ENTITLEMENT}</key>
+\t<array>
+\t\t<string>${appGroupIdentifier}</string>
+\t</array>
+</dict>
+</plist>
+`;
+
 function ensureTargetAttributes(project, targetUuid) {
   const firstProject = project.getFirstProject().firstProject;
   firstProject.attributes ||= {};
@@ -299,6 +322,14 @@ function getExtensionBundleIdentifier(config) {
   return `${appBundleIdentifier}.share`;
 }
 
+function getAppGroupIdentifier(config) {
+  const appBundleIdentifier = config.ios?.bundleIdentifier;
+  if (!appBundleIdentifier) {
+    throw new Error("withPOIShareExtension requires ios.bundleIdentifier in app config.");
+  }
+  return `group.${appBundleIdentifier}`;
+}
+
 function repairExtensionFileReferences(project) {
   const files = project.pbxFileReferenceSection();
   for (const key of Object.keys(files)) {
@@ -311,6 +342,9 @@ function repairExtensionFileReferences(project) {
     if (rawPath.endsWith(`${EXTENSION_DIR}/${INFO_PLIST_FILE}`)) {
       file.path = INFO_PLIST_FILE;
     }
+    if (rawPath.endsWith(`${EXTENSION_DIR}/${ENTITLEMENTS_FILE}`)) {
+      file.path = ENTITLEMENTS_FILE;
+    }
   }
 }
 
@@ -320,6 +354,7 @@ function updateExtensionBuildSettings(project, extensionBundleIdentifier) {
       ...config.buildSettings,
       APPLICATION_EXTENSION_API_ONLY: "YES",
       CODE_SIGN_IDENTITY: '"Apple Development"',
+      CODE_SIGN_ENTITLEMENTS: ENTITLEMENTS_PLIST,
       CODE_SIGN_STYLE: "Automatic",
       CURRENT_PROJECT_VERSION: 1,
       GENERATE_INFOPLIST_FILE: "NO",
@@ -358,6 +393,9 @@ function ensureSourceFile(project, targetUuid, groupKey) {
   if (!project.hasFile(INFO_PLIST_FILE)) {
     project.addFile(INFO_PLIST_FILE, groupKey, { lastKnownFileType: "text.plist.xml" });
   }
+  if (!project.hasFile(ENTITLEMENTS_FILE)) {
+    project.addFile(ENTITLEMENTS_FILE, groupKey, { lastKnownFileType: "text.plist.entitlements" });
+  }
 
   const sources = project.pbxSourcesBuildPhaseObj(targetUuid);
   const hasSource = sources.files.some((file) =>
@@ -370,6 +408,7 @@ function ensureSourceFile(project, targetUuid, groupKey) {
 
 function withPOIShareExtension(config) {
   const extensionBundleIdentifier = getExtensionBundleIdentifier(config);
+  const appGroupIdentifier = getAppGroupIdentifier(config);
 
   config = withDangerousMod(config, [
     "ios",
@@ -378,12 +417,26 @@ function withPOIShareExtension(config) {
       fs.mkdirSync(extensionPath, { recursive: true });
       fs.writeFileSync(
         path.join(extensionPath, "ShareViewController.swift"),
-        SHARE_VIEW_CONTROLLER_SOURCE,
+        SHARE_VIEW_CONTROLLER_SOURCE(appGroupIdentifier),
       );
       fs.writeFileSync(path.join(extensionPath, "Info.plist"), INFO_PLIST_SOURCE);
+      fs.writeFileSync(
+        path.join(extensionPath, ENTITLEMENTS_FILE),
+        ENTITLEMENTS_PLIST_SOURCE(appGroupIdentifier),
+      );
       return mod;
     },
   ]);
+
+  config = withEntitlementsPlist(config, (mod) => {
+    const existingGroups = Array.isArray(mod.modResults[APP_GROUPS_ENTITLEMENT])
+      ? mod.modResults[APP_GROUPS_ENTITLEMENT]
+      : [];
+    mod.modResults[APP_GROUPS_ENTITLEMENT] = Array.from(
+      new Set([...existingGroups, appGroupIdentifier]),
+    );
+    return mod;
+  });
 
   return withXcodeProject(config, (mod) => {
     const project = mod.modResults;
