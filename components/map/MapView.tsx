@@ -307,6 +307,19 @@ export default function MapScreen() {
     }
   }, [selectedPOI, setFollowUser]);
 
+  const handlePOIClusterPress = useCallback(
+    (centerCoordinate: [number, number], zoomLevel: number) => {
+      setFollowUser(false);
+      cameraRef.current?.setCamera({
+        centerCoordinate,
+        zoomLevel,
+        animationMode: "easeTo",
+        animationDuration: 450,
+      });
+    },
+    [setFollowUser],
+  );
+
   const handleLocate = useCallback(async () => {
     setFollowUser(true);
     // Snap to cached position instantly, then ease to fresh fix (no zoom change)
@@ -518,6 +531,7 @@ export default function MapScreen() {
             routeIds={activeRouteIds}
             segments={activeData?.segments ?? null}
             currentDistanceMeters={currentPOIDistanceMeters}
+            onClusterPress={handlePOIClusterPress}
           />
         )}
         {highlightedClimb && activeRoutePoints && (
