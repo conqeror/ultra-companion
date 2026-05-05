@@ -7,6 +7,7 @@ export default {
       { idx: 0, when: 1774960304141, tag: "0000_misty_true_believers", breakpoints: true },
       { idx: 1, when: 1774960400000, tag: "0001_add_climbs", breakpoints: true },
       { idx: 2, when: 1777986756000, tag: "0002_add_starred_items", breakpoints: true },
+      { idx: 3, when: 1777986757000, tag: "0003_add_collection_planned_start", breakpoints: true },
     ],
   },
   migrations: {
@@ -96,6 +97,8 @@ CREATE INDEX \`idx_climbs_route_distance\` ON \`climbs\` (\`routeId\`,\`startDis
 	\`createdAt\` text NOT NULL,
 	PRIMARY KEY(\`entityType\`, \`entityId\`)
 );
+`,
+    m0003: `ALTER TABLE \`collections\` ADD \`plannedStartMs\` integer;
 `,
   },
 };

@@ -17,6 +17,7 @@ import RouteLayer from "./RouteLayer";
 import RouteMarkerLayer from "./RouteMarkerLayer";
 import POILayer from "./POILayer";
 import ClimbHighlightLayer from "./ClimbHighlightLayer";
+import TemperatureRouteOverlay from "./TemperatureRouteOverlay";
 import TabbedBottomPanel from "./TabbedBottomPanel";
 import { resolveActiveClimb } from "@/utils/climbSelect";
 import { getClimbMapBounds, getZoomLevelToFitBounds } from "@/utils/climbGeometry";
@@ -34,6 +35,7 @@ import { useClimbStore } from "@/store/climbStore";
 import { useEtaStore } from "@/store/etaStore";
 import { useWeatherStore } from "@/store/weatherStore";
 import { useOfflineStore } from "@/store/offlineStore";
+import { useSettingsStore } from "@/store/settingsStore";
 import type { RoutePoint, UserPosition } from "@/types";
 
 const CLIMB_PAN_PADDING = {
@@ -96,16 +98,30 @@ export default function MapScreen() {
   const computeETAForRoute = useEtaStore((s) => s.computeETAForRoute);
   const cumulativeTime = useEtaStore((s) => s.cumulativeTime);
   const fetchWeather = useWeatherStore((s) => s.fetchWeather);
+  const weatherTimeline = useWeatherStore((s) => s.timeline);
+  const weatherRouteId = useWeatherStore((s) => s.routeId);
+  const weatherTemperatureMode = useSettingsStore((s) => s.weatherTemperatureDisplayMode);
   const isConnected = useOfflineStore((s) => s.isConnected);
 
   // Unified active context — works for both standalone routes and collections
   const activeData = useActiveRouteData();
   const activeRoutePoints = activeData?.points ?? null;
+  const activeCollection = useCollectionStore((s) =>
+    activeData?.type === "collection"
+      ? s.collections.find((collection) => collection.id === activeData.id)
+      : null,
+  );
+  const activePlannedStartMs = activeCollection?.plannedStartMs ?? null;
+  const activeForecastStartMs =
+    activePlannedStartMs != null && activePlannedStartMs > Date.now() ? activePlannedStartMs : null;
   const activeRouteIds = useMemo(() => activeData?.routeIds ?? [], [activeData?.routeIds]);
   const activeRouteIdsKey = useMemo(() => activeRouteIds.join(","), [activeRouteIds]);
   const activeRouteProgress = useMemo(
-    () => resolveActiveRouteProgress(activeData, snappedPosition),
-    [activeData, snappedPosition],
+    () =>
+      resolveActiveRouteProgress(activeData, snappedPosition, {
+        plannedStartMs: activePlannedStartMs,
+      }),
+    [activeData, snappedPosition, activePlannedStartMs],
   );
   const activeProgressDistanceMeters = activeRouteProgress?.distanceAlongRouteMeters ?? null;
   const climbHorizonWindow = useMemo(
@@ -190,11 +206,19 @@ export default function MapScreen() {
         activeRoutePoints,
         activeRouteProgress.distanceAlongRouteMeters,
         cumulativeTime,
+        activeForecastStartMs,
       );
     }
     // Intentional: fire on id/progress changes, not full object identities
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeData?.id, activeProgressDistanceMeters, isConnected, cumulativeTime, fetchWeather]);
+  }, [
+    activeData?.id,
+    activeProgressDistanceMeters,
+    isConnected,
+    cumulativeTime,
+    fetchWeather,
+    activeForecastStartMs,
+  ]);
 
   const applyRouteSnap = useCallback(
     (position: UserPosition, data: { id: string; points: RoutePoint[] }) => {
@@ -551,6 +575,17 @@ export default function MapScreen() {
             points={activeRoutePoints}
           />
         )}
+        {panelTab === "weather" &&
+          activeRoutePoints &&
+          weatherRouteId === activeData?.id &&
+          weatherTimeline.length > 1 && (
+            <TemperatureRouteOverlay
+              key={`weather-temperature-${overlayStackKey}`}
+              points={activeRoutePoints}
+              timeline={weatherTimeline}
+              temperatureMode={weatherTemperatureMode}
+            />
+          )}
         <RouteMarkerLayer
           key={`route-markers-${overlayStackKey}`}
           points={activeRoutePoints ?? []}

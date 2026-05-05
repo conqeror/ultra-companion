@@ -4,6 +4,7 @@ import {
   insertCollection as dbInsertCollection,
   deleteCollection as dbDeleteCollection,
   renameCollection as dbRenameCollection,
+  updateCollectionPlannedStart as dbUpdateCollectionPlannedStart,
   setActiveCollection as dbSetActiveCollection,
   insertCollectionSegment,
   deleteCollectionSegment as dbDeleteCollectionSegment,
@@ -43,6 +44,7 @@ interface CollectionState {
   createCollection: (name: string) => Promise<string>;
   deleteCollection: (id: string) => Promise<void>;
   renameCollection: (id: string, name: string) => Promise<void>;
+  updateCollectionPlannedStart: (id: string, plannedStartMs: number | null) => Promise<void>;
 
   addSegment: (collectionId: string, routeId: string) => Promise<void>;
   removeSegment: (collectionId: string, routeId: string) => Promise<void>;
@@ -104,6 +106,7 @@ export const useCollectionStore = create<CollectionState>((set, get) => ({
       name,
       isActive: false,
       createdAt: new Date().toISOString(),
+      plannedStartMs: null,
     };
     await dbInsertCollection(collection);
     await get().loadCollections();
@@ -120,6 +123,11 @@ export const useCollectionStore = create<CollectionState>((set, get) => ({
 
   renameCollection: async (id, name) => {
     await dbRenameCollection(id, name);
+    await get().loadCollections();
+  },
+
+  updateCollectionPlannedStart: async (id, plannedStartMs) => {
+    await dbUpdateCollectionPlannedStart(id, plannedStartMs);
     await get().loadCollections();
   },
 

@@ -1,11 +1,16 @@
 import { create } from "zustand";
 import { createMMKV, type MMKV } from "react-native-mmkv";
-import type { WeatherPoint, WeatherFetchStatus, RoutePoint } from "@/types";
-import { WEATHER_STALE_MS } from "@/constants";
-import { buildWeatherTimeline } from "@/services/weatherService";
+import type { RoutePoint, WeatherFetchStatus, WeatherPoint } from "@/types";
+import { WEATHER_MANUAL_REFRESH_THROTTLE_MS, WEATHER_STALE_MS } from "@/constants";
+import {
+  buildWeatherTimelineFromForecasts,
+  fetchWeatherForecastsForRoute,
+} from "@/services/weatherService";
+import type { HourlyForecast } from "@/services/weatherClient";
 import { useOfflineStore } from "./offlineStore";
 
 let storage: MMKV | null = null;
+const WEATHER_CACHE_VERSION = 2;
 
 function getStorage(): MMKV {
   if (!storage) {
@@ -14,16 +19,36 @@ function getStorage(): MMKV {
   return storage;
 }
 
+export type WeatherManualRefreshOutcome =
+  | "idle"
+  | "unavailable"
+  | "skipped-fresh"
+  | "success"
+  | "error";
+
 interface CachedWeather {
+  version: number;
   timeline: WeatherPoint[];
+  forecasts: HourlyForecast[];
   fetchedAt: number;
   routeId: string;
+  plannedStartMs: number | null;
+  fromDistanceAlongRouteMeters: number;
+  forecastFromMs: number | null;
+  forecastUntilMs: number | null;
+  routeCoverageFromMeters: number | null;
+  routeCoverageUntilMeters: number | null;
 }
 
 function loadCache(): CachedWeather | null {
   try {
     const raw = getStorage().getString("cache");
-    if (raw) return JSON.parse(raw);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<CachedWeather>;
+    if (parsed.version !== WEATHER_CACHE_VERSION) return null;
+    if (!Array.isArray(parsed.timeline)) return null;
+    if (!Array.isArray(parsed.forecasts)) return null;
+    return parsed as CachedWeather;
   } catch {}
   return null;
 }
@@ -40,92 +65,383 @@ function clearCache(): void {
   } catch {}
 }
 
+function isFresh(fetchAt: number | null): boolean {
+  return fetchAt != null && Date.now() - fetchAt < WEATHER_STALE_MS;
+}
+
+function contextKey(routeId: string, plannedStartMs: number | null, fromDistanceMeters: number) {
+  return `${routeId}:${plannedStartMs ?? "now"}:${Math.round(fromDistanceMeters / 100)}`;
+}
+
+function cacheMatchesContext(
+  cache: CachedWeather | null,
+  routeId: string,
+  plannedStartMs: number | null,
+  fromDistanceMeters: number,
+): boolean {
+  return (
+    cache?.routeId === routeId &&
+    cache.plannedStartMs === plannedStartMs &&
+    Math.abs(cache.fromDistanceAlongRouteMeters - fromDistanceMeters) < 100
+  );
+}
+
+function cacheMatchesRouteStart(
+  cache: CachedWeather | null,
+  routeId: string,
+  plannedStartMs: number | null,
+): cache is CachedWeather {
+  return cache?.routeId === routeId && cache.plannedStartMs === plannedStartMs;
+}
+
+function rebuildCachedWeather(
+  cache: CachedWeather,
+  points: RoutePoint[],
+  fromDistanceAlongRouteMeters: number,
+  cumulativeTime: number[],
+  plannedStartMs: number | null,
+): CachedWeather | null {
+  const options = plannedStartMs ? { projectionStartTime: new Date(plannedStartMs) } : {};
+  const buildResult = buildWeatherTimelineFromForecasts(
+    points,
+    fromDistanceAlongRouteMeters,
+    cumulativeTime,
+    cache.forecasts,
+    options,
+  );
+  if (buildResult.timeline.length === 0) return null;
+  return {
+    ...cache,
+    timeline: buildResult.timeline,
+    fromDistanceAlongRouteMeters,
+    forecastFromMs: buildResult.forecastFromMs,
+    forecastUntilMs: buildResult.forecastUntilMs,
+    routeCoverageFromMeters: buildResult.routeCoverageFromMeters,
+    routeCoverageUntilMeters: buildResult.routeCoverageUntilMeters,
+  };
+}
+
 interface WeatherState {
   timeline: WeatherPoint[];
-  fetchedAt: number | null;
-  routeId: string | null;
   fetchStatus: WeatherFetchStatus;
-  error: string | null;
+  lastSuccessfulFetchAtMs: number | null;
+  lastFailedFetchAtMs: number | null;
+  lastAttemptedAtMs: number | null;
+  lastError: string | null;
+  lastRefreshOutcome: WeatherManualRefreshOutcome;
+  lastRefreshMessage: string | null;
+  forecastFromMs: number | null;
+  forecastUntilMs: number | null;
+  routeCoverageFromMeters: number | null;
+  routeCoverageUntilMeters: number | null;
+  routeId: string | null;
+  plannedStartMs: number | null;
+  fromDistanceAlongRouteMeters: number | null;
 
   fetchWeather: (
     routeId: string,
     points: RoutePoint[],
     fromDistanceAlongRouteMeters: number,
     cumulativeTime: number[],
+    plannedStartMs?: number | null,
   ) => Promise<void>;
+  refreshWeatherNow: (
+    routeId: string,
+    points: RoutePoint[],
+    fromDistanceAlongRouteMeters: number,
+    cumulativeTime: number[],
+    plannedStartMs?: number | null,
+  ) => Promise<void>;
+  recordManualRefreshUnavailable: (message?: string) => void;
   clearWeather: () => void;
 }
 
 export const useWeatherStore = create<WeatherState>((set, get) => {
   const cached = loadCache();
-  // Mark cached data as stale if older than threshold
-  const cacheIsFresh = cached?.fetchedAt && Date.now() - cached.fetchedAt < WEATHER_STALE_MS;
+  const hasCachedTimeline = (cached?.timeline.length ?? 0) > 0;
 
-  return {
-    timeline: cached?.timeline ?? [],
-    fetchedAt: cached?.fetchedAt ?? null,
-    routeId: cached?.routeId ?? null,
-    fetchStatus: cacheIsFresh && cached?.timeline?.length ? "done" : "idle",
-    error: null,
+  async function runFetch(
+    routeId: string,
+    points: RoutePoint[],
+    fromDistanceAlongRouteMeters: number,
+    cumulativeTime: number[],
+    mode: "automatic" | "manual",
+    plannedStartMs: number | null = null,
+  ): Promise<void> {
+    const state = get();
+    if (state.fetchStatus === "fetching") {
+      if (mode === "manual") {
+        set({
+          lastRefreshOutcome: "unavailable",
+          lastRefreshMessage: "Weather refresh already in progress",
+        });
+      }
+      return;
+    }
 
-    fetchWeather: async (routeId, points, fromDistanceAlongRouteMeters, cumulativeTime) => {
-      const state = get();
+    const currentContextKey = contextKey(routeId, plannedStartMs, fromDistanceAlongRouteMeters);
+    const cachedData = loadCache();
 
-      // Skip if already fetching
-      if (state.fetchStatus === "fetching") return;
+    if (
+      mode === "automatic" &&
+      state.timeline.length > 0 &&
+      state.routeId != null &&
+      contextKey(state.routeId, state.plannedStartMs, state.fromDistanceAlongRouteMeters ?? 0) ===
+        currentContextKey &&
+      isFresh(state.lastSuccessfulFetchAtMs)
+    ) {
+      return;
+    }
 
-      const isConnected = useOfflineStore.getState().isConnected;
-      if (!isConnected) return;
+    if (
+      mode === "automatic" &&
+      cacheMatchesContext(cachedData, routeId, plannedStartMs, fromDistanceAlongRouteMeters) &&
+      isFresh(cachedData?.fetchedAt ?? null)
+    ) {
+      set({
+        timeline: cachedData?.timeline ?? [],
+        fetchStatus: "done",
+        lastSuccessfulFetchAtMs: cachedData?.fetchedAt ?? null,
+        lastFailedFetchAtMs: null,
+        lastError: null,
+        forecastFromMs: cachedData?.forecastFromMs ?? null,
+        forecastUntilMs: cachedData?.forecastUntilMs ?? null,
+        routeCoverageFromMeters: cachedData?.routeCoverageFromMeters ?? null,
+        routeCoverageUntilMeters: cachedData?.routeCoverageUntilMeters ?? null,
+        routeId,
+        plannedStartMs,
+        fromDistanceAlongRouteMeters,
+      });
+      return;
+    }
 
-      // Don't refetch if we have fresh data for the same route
-      if (
-        state.routeId === routeId &&
-        state.fetchedAt &&
-        Date.now() - state.fetchedAt < WEATHER_STALE_MS &&
-        state.timeline.length > 0
-      ) {
+    if (
+      mode === "automatic" &&
+      cacheMatchesRouteStart(cachedData, routeId, plannedStartMs) &&
+      isFresh(cachedData.fetchedAt)
+    ) {
+      const rebuiltCache = rebuildCachedWeather(
+        cachedData,
+        points,
+        fromDistanceAlongRouteMeters,
+        cumulativeTime,
+        plannedStartMs,
+      );
+      if (rebuiltCache) {
+        persistCache(rebuiltCache);
+        set({
+          timeline: rebuiltCache.timeline,
+          fetchStatus: "done",
+          lastSuccessfulFetchAtMs: rebuiltCache.fetchedAt,
+          lastFailedFetchAtMs: null,
+          lastError: null,
+          forecastFromMs: rebuiltCache.forecastFromMs,
+          forecastUntilMs: rebuiltCache.forecastUntilMs,
+          routeCoverageFromMeters: rebuiltCache.routeCoverageFromMeters,
+          routeCoverageUntilMeters: rebuiltCache.routeCoverageUntilMeters,
+          routeId,
+          plannedStartMs,
+          fromDistanceAlongRouteMeters,
+        });
         return;
       }
+    }
 
-      set({ fetchStatus: "fetching", error: null });
+    if (
+      mode === "manual" &&
+      cacheMatchesContext(cachedData, routeId, plannedStartMs, fromDistanceAlongRouteMeters) &&
+      isFresh(cachedData?.fetchedAt ?? null) &&
+      state.lastSuccessfulFetchAtMs != null &&
+      Date.now() - state.lastSuccessfulFetchAtMs < WEATHER_MANUAL_REFRESH_THROTTLE_MS
+    ) {
+      set({
+        timeline: cachedData?.timeline ?? state.timeline,
+        fetchStatus: "done",
+        lastSuccessfulFetchAtMs: cachedData?.fetchedAt ?? state.lastSuccessfulFetchAtMs,
+        lastFailedFetchAtMs: null,
+        lastError: null,
+        lastRefreshOutcome: "skipped-fresh",
+        lastRefreshMessage: "Already up to date",
+        forecastFromMs: cachedData?.forecastFromMs ?? state.forecastFromMs,
+        forecastUntilMs: cachedData?.forecastUntilMs ?? state.forecastUntilMs,
+        routeCoverageFromMeters:
+          cachedData?.routeCoverageFromMeters ?? state.routeCoverageFromMeters,
+        routeCoverageUntilMeters:
+          cachedData?.routeCoverageUntilMeters ?? state.routeCoverageUntilMeters,
+        routeId,
+        plannedStartMs,
+        fromDistanceAlongRouteMeters,
+      });
+      return;
+    }
 
-      try {
-        const timeline = await buildWeatherTimeline(
-          points,
-          fromDistanceAlongRouteMeters,
-          cumulativeTime,
-        );
+    const attemptedAt = Date.now();
+    set({
+      fetchStatus: "fetching",
+      lastAttemptedAtMs: attemptedAt,
+      lastError: null,
+      ...(mode === "manual"
+        ? {
+            lastRefreshOutcome: "idle" as const,
+            lastRefreshMessage: null,
+          }
+        : {}),
+    });
 
-        const cache: CachedWeather = {
-          timeline,
-          fetchedAt: Date.now(),
-          routeId,
-        };
-        persistCache(cache);
+    if (!useOfflineStore.getState().isConnected) {
+      set({
+        fetchStatus: "error",
+        lastFailedFetchAtMs: attemptedAt,
+        lastError: "Offline",
+        lastRefreshOutcome: "error",
+        lastRefreshMessage: "Offline",
+      });
+      return;
+    }
 
-        set({
-          timeline,
-          fetchedAt: cache.fetchedAt,
-          routeId,
-          fetchStatus: "done",
-          error: null,
-        });
-      } catch (e) {
-        set({
-          fetchStatus: "error",
-          error: e instanceof Error ? e.message : "Failed to fetch weather",
-        });
-      }
+    try {
+      const options = plannedStartMs ? { projectionStartTime: new Date(plannedStartMs) } : {};
+      const forecasts = await fetchWeatherForecastsForRoute(
+        points,
+        fromDistanceAlongRouteMeters,
+        cumulativeTime,
+        options,
+      );
+      if (forecasts.length === 0) throw new Error("No weather forecasts returned");
+
+      const buildResult = buildWeatherTimelineFromForecasts(
+        points,
+        fromDistanceAlongRouteMeters,
+        cumulativeTime,
+        forecasts,
+        options,
+      );
+      if (buildResult.timeline.length === 0) throw new Error("No forecast coverage for route");
+
+      const fetchedAt = Date.now();
+      const cache: CachedWeather = {
+        version: WEATHER_CACHE_VERSION,
+        timeline: buildResult.timeline,
+        forecasts,
+        fetchedAt,
+        routeId,
+        plannedStartMs,
+        fromDistanceAlongRouteMeters,
+        forecastFromMs: buildResult.forecastFromMs,
+        forecastUntilMs: buildResult.forecastUntilMs,
+        routeCoverageFromMeters: buildResult.routeCoverageFromMeters,
+        routeCoverageUntilMeters: buildResult.routeCoverageUntilMeters,
+      };
+      persistCache(cache);
+
+      set({
+        timeline: buildResult.timeline,
+        fetchStatus: "done",
+        lastSuccessfulFetchAtMs: fetchedAt,
+        lastFailedFetchAtMs: null,
+        lastAttemptedAtMs: attemptedAt,
+        lastError: null,
+        lastRefreshOutcome: mode === "manual" ? "success" : get().lastRefreshOutcome,
+        lastRefreshMessage: mode === "manual" ? null : get().lastRefreshMessage,
+        forecastFromMs: buildResult.forecastFromMs,
+        forecastUntilMs: buildResult.forecastUntilMs,
+        routeCoverageFromMeters: buildResult.routeCoverageFromMeters,
+        routeCoverageUntilMeters: buildResult.routeCoverageUntilMeters,
+        routeId,
+        plannedStartMs,
+        fromDistanceAlongRouteMeters,
+      });
+    } catch (e) {
+      const failedAt = Date.now();
+      const message = e instanceof Error ? e.message : "Failed to fetch weather";
+      set({
+        fetchStatus: "error",
+        lastFailedFetchAtMs: failedAt,
+        lastError: message,
+        lastRefreshOutcome: "error",
+        lastRefreshMessage: message,
+      });
+    }
+  }
+
+  return {
+    timeline: hasCachedTimeline ? (cached?.timeline ?? []) : [],
+    fetchStatus: hasCachedTimeline ? "done" : "idle",
+    lastSuccessfulFetchAtMs: hasCachedTimeline ? (cached?.fetchedAt ?? null) : null,
+    lastFailedFetchAtMs: null,
+    lastAttemptedAtMs: null,
+    lastError: null,
+    lastRefreshOutcome: "idle",
+    lastRefreshMessage: null,
+    forecastFromMs: hasCachedTimeline ? (cached?.forecastFromMs ?? null) : null,
+    forecastUntilMs: hasCachedTimeline ? (cached?.forecastUntilMs ?? null) : null,
+    routeCoverageFromMeters: hasCachedTimeline ? (cached?.routeCoverageFromMeters ?? null) : null,
+    routeCoverageUntilMeters: hasCachedTimeline ? (cached?.routeCoverageUntilMeters ?? null) : null,
+    routeId: hasCachedTimeline ? (cached?.routeId ?? null) : null,
+    plannedStartMs: hasCachedTimeline ? (cached?.plannedStartMs ?? null) : null,
+    fromDistanceAlongRouteMeters: hasCachedTimeline
+      ? (cached?.fromDistanceAlongRouteMeters ?? null)
+      : null,
+
+    fetchWeather: async (
+      routeId,
+      points,
+      fromDistanceAlongRouteMeters,
+      cumulativeTime,
+      plannedStartMs = null,
+    ) => {
+      await runFetch(
+        routeId,
+        points,
+        fromDistanceAlongRouteMeters,
+        cumulativeTime,
+        "automatic",
+        plannedStartMs,
+      );
+    },
+
+    refreshWeatherNow: async (
+      routeId,
+      points,
+      fromDistanceAlongRouteMeters,
+      cumulativeTime,
+      plannedStartMs = null,
+    ) => {
+      await runFetch(
+        routeId,
+        points,
+        fromDistanceAlongRouteMeters,
+        cumulativeTime,
+        "manual",
+        plannedStartMs,
+      );
+    },
+
+    recordManualRefreshUnavailable: (message = "Weather refresh unavailable") => {
+      set({
+        lastRefreshOutcome: "unavailable",
+        lastRefreshMessage: message,
+      });
     },
 
     clearWeather: () => {
       clearCache();
       set({
         timeline: [],
-        fetchedAt: null,
-        routeId: null,
         fetchStatus: "idle",
-        error: null,
+        lastSuccessfulFetchAtMs: null,
+        lastFailedFetchAtMs: null,
+        lastAttemptedAtMs: null,
+        lastError: null,
+        lastRefreshOutcome: "idle",
+        lastRefreshMessage: null,
+        forecastFromMs: null,
+        forecastUntilMs: null,
+        routeCoverageFromMeters: null,
+        routeCoverageUntilMeters: null,
+        routeId: null,
+        plannedStartMs: null,
+        fromDistanceAlongRouteMeters: null,
       });
     },
   };

@@ -1,9 +1,18 @@
 import React, { useEffect, useState, useMemo, useCallback, useRef } from "react";
-import { View, useWindowDimensions, ActivityIndicator, Alert } from "react-native";
+import {
+  View,
+  useWindowDimensions,
+  ActivityIndicator,
+  Alert,
+  Modal,
+  Pressable,
+} from "react-native";
 import { NestableScrollContainer } from "react-native-draggable-flatlist";
 import { useLocalSearchParams, useRouter, Stack } from "expo-router";
+import { DatePicker, Host } from "@expo/ui/swift-ui";
+import { datePickerStyle } from "@expo/ui/swift-ui/modifiers";
 import { Camera, MapView as MapboxMapView } from "@rnmapbox/maps";
-import { Share2 } from "lucide-react-native";
+import { CalendarClock, Share2 } from "lucide-react-native";
 import { Text } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
 import { useThemeColors } from "@/theme";
@@ -28,6 +37,18 @@ import type { SavedPOITarget } from "@/services/savedPOIService";
 import { serializeCollectionToGPX } from "@/services/gpxSerializer";
 import { shareGPXFile } from "@/utils/gpxExportShare";
 
+function formatPlannedStart(plannedStartMs: number | null): string {
+  if (plannedStartMs == null) return "Not set";
+  const date = new Date(plannedStartMs);
+  return date.toLocaleString([], {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 export default function CollectionDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
@@ -45,6 +66,8 @@ export default function CollectionDetailScreen() {
   const [isExporting, setIsExporting] = useState(false);
   const [showAddSheet, setShowAddSheet] = useState(false);
   const [showAddPOI, setShowAddPOI] = useState(false);
+  const [showStartSheet, setShowStartSheet] = useState(false);
+  const [startDraftDate, setStartDraftDate] = useState(() => new Date());
 
   const collections = useCollectionStore((s) => s.collections);
   const getCollectionSegmentsWithRoutes = useCollectionStore(
@@ -54,6 +77,7 @@ export default function CollectionDetailScreen() {
   const removeSegment = useCollectionStore((s) => s.removeSegment);
   const selectVariant = useCollectionStore((s) => s.selectVariant);
   const setActiveCollection = useCollectionStore((s) => s.setActiveCollection);
+  const updateCollectionPlannedStart = useCollectionStore((s) => s.updateCollectionPlannedStart);
   const deleteCollection = useCollectionStore((s) => s.deleteCollection);
   const units = useSettingsStore((s) => s.units);
   const loadPOIs = usePoiStore((s) => s.loadPOIs);
@@ -201,6 +225,38 @@ export default function CollectionDetailScreen() {
     await setActiveCollection(id);
     setIsBusy(false);
   }, [id, setActiveCollection]);
+
+  const openStartSheet = useCallback(() => {
+    setStartDraftDate(new Date(collection?.plannedStartMs ?? Date.now()));
+    setShowStartSheet(true);
+  }, [collection?.plannedStartMs]);
+
+  const handleSavePlannedStart = useCallback(async () => {
+    if (!id) return;
+    const plannedStartMs = startDraftDate.getTime();
+    setIsBusy(true);
+    try {
+      await updateCollectionPlannedStart(id, plannedStartMs);
+      setCollection((current) => (current?.id === id ? { ...current, plannedStartMs } : current));
+      setShowStartSheet(false);
+    } finally {
+      setIsBusy(false);
+    }
+  }, [id, startDraftDate, updateCollectionPlannedStart]);
+
+  const handleClearPlannedStart = useCallback(async () => {
+    if (!id) return;
+    setIsBusy(true);
+    try {
+      await updateCollectionPlannedStart(id, null);
+      setCollection((current) =>
+        current?.id === id ? { ...current, plannedStartMs: null } : current,
+      );
+      setShowStartSheet(false);
+    } finally {
+      setIsBusy(false);
+    }
+  }, [id, updateCollectionPlannedStart]);
 
   const handleDelete = useCallback(() => {
     if (!id || !collection) return;
@@ -372,6 +428,28 @@ export default function CollectionDetailScreen() {
           </View>
         )}
 
+        <View className="mx-4 mb-3 rounded-lg border border-border bg-card px-3 py-3">
+          <View className="flex-row items-center">
+            <View className="h-10 w-10 rounded-full bg-muted items-center justify-center mr-3">
+              <CalendarClock size={20} color={colors.accent} />
+            </View>
+            <View className="flex-1 min-w-0">
+              <Text className="text-[12px] font-barlow-medium text-muted-foreground">
+                Race Start
+              </Text>
+              <Text className="text-[17px] font-barlow-semibold text-foreground" numberOfLines={1}>
+                {formatPlannedStart(collection.plannedStartMs)}
+              </Text>
+            </View>
+            <Button
+              variant="secondary"
+              onPress={openStartSheet}
+              label={collection.plannedStartMs == null ? "Set" : "Edit"}
+              className="h-12 px-4"
+            />
+          </View>
+        </View>
+
         {/* Segments */}
         <Text className="text-[22px] font-barlow-semibold text-foreground px-4 mt-2 mb-3">
           Segments
@@ -451,6 +529,64 @@ export default function CollectionDetailScreen() {
         targets={savedPOITargets}
         onClose={() => setShowAddPOI(false)}
       />
+
+      <Modal
+        visible={showStartSheet}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowStartSheet(false)}
+      >
+        <Pressable
+          className="flex-1 justify-end bg-black/40"
+          onPress={() => setShowStartSheet(false)}
+        >
+          <Pressable className="rounded-t-2xl bg-surface px-4 pt-4 pb-8">
+            <View className="items-center pb-3">
+              <View
+                className="rounded-full"
+                style={{
+                  width: 32,
+                  height: 4,
+                  backgroundColor: colors.textTertiary,
+                  opacity: 0.5,
+                }}
+              />
+            </View>
+            <Text className="text-[22px] font-barlow-semibold text-foreground">Race Start</Text>
+            <Text className="mt-1 text-[13px] font-barlow-medium text-muted-foreground">
+              Local start date and time.
+            </Text>
+            <View className="mt-3 overflow-hidden rounded-lg border border-border bg-card">
+              <Host matchContents={{ vertical: true }} style={{ minHeight: 216 }}>
+                <DatePicker
+                  selection={startDraftDate}
+                  displayedComponents={["date", "hourAndMinute"]}
+                  onDateChange={setStartDraftDate}
+                  modifiers={[datePickerStyle("wheel")]}
+                />
+              </Host>
+            </View>
+            <Text className="mt-2 text-[13px] font-barlow-medium text-muted-foreground">
+              {formatPlannedStart(startDraftDate.getTime())}
+            </Text>
+            <View className="mt-4 flex-row gap-2">
+              <Button
+                variant="secondary"
+                label="Clear"
+                onPress={handleClearPlannedStart}
+                className="h-12 flex-1"
+              />
+              <Button
+                variant="secondary"
+                label="Cancel"
+                onPress={() => setShowStartSheet(false)}
+                className="h-12 flex-1"
+              />
+              <Button label="Save" onPress={handleSavePlannedStart} className="h-12 flex-1" />
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       {isBusy && (
         <View className="absolute inset-0 items-center justify-center z-40 bg-background/60">

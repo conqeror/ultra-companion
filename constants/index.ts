@@ -396,8 +396,14 @@ export const WEATHER_LOOKAHEAD_M = 200_000;
 /** Weather cache becomes stale after this (1 hour) */
 export const WEATHER_STALE_MS = 60 * 60 * 1000;
 
+/** Manual refresh no-ops within this window when the same forecast coverage is already fresh */
+export const WEATHER_MANUAL_REFRESH_THROTTLE_MS = 10 * 60 * 1000;
+
 /** Open-Meteo API base URL */
 export const OPEN_METEO_API_URL = "https://api.open-meteo.com/v1/forecast";
+
+/** Open-Meteo forecast_hours upper bound */
+export const OPEN_METEO_MAX_FORECAST_HOURS = 384;
 
 /** Max number of hourly points to show in weather timeline */
 export const WEATHER_TIMELINE_HOURS = 24;

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildClimb } from "@/tests/fixtures/climb";
 import { buildStitchedCollection, stitchedSegmentsFixture } from "@/tests/fixtures/collection";
 import { buildPoi } from "@/tests/fixtures/poi";
@@ -56,6 +56,10 @@ describe("stitched collection coordinate behavior", () => {
     });
     stitchedHarness.reset();
     etaCalculatorMocks.computeRouteETA.mockReset();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("applies segment offsets for POI ETA and supports segment 0 and later segments", () => {
@@ -152,6 +156,49 @@ describe("stitched collection coordinate behavior", () => {
 
     expect(eta?.distanceMeters).toBe(650);
     expect(eta?.ridingTimeSeconds).toBe(65);
+  });
+
+  it("uses collection planned start as ETA base and route start before the race starts", () => {
+    const stitchedPoints = [
+      buildRoutePoint(0, 0),
+      buildRoutePoint(1_000, 1),
+      buildRoutePoint(2_000, 2),
+    ];
+    const plannedStartMs = new Date("2026-01-01T06:00:00.000Z").getTime();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T05:00:00.000Z"));
+
+    useEtaStore.setState({
+      routeId: "c1",
+      cumulativeTime: [0, 100, 200],
+      cachedPoints: stitchedPoints,
+    });
+
+    stitchedHarness.routeState.snappedPosition = {
+      routeId: "c1",
+      pointIndex: 0,
+      distanceAlongRouteMeters: 700,
+      distanceFromRouteMeters: 0,
+    };
+    stitchedHarness.routeState.visibleRoutePoints = { c1: stitchedPoints };
+    stitchedHarness.collectionState.collections = [
+      {
+        id: "c1",
+        name: "Race",
+        isActive: true,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        plannedStartMs,
+      },
+    ];
+    stitchedHarness.collectionState.activeStitchedCollection = buildStitchedCollection({
+      points: stitchedPoints,
+    });
+
+    const eta = useEtaStore.getState().getETAToPOI(toDisplayPOI(buildPoi("p0", "r1", 900)));
+
+    expect(eta?.distanceMeters).toBe(900);
+    expect(eta?.ridingTimeSeconds).toBe(90);
+    expect(eta?.eta.toISOString()).toBe("2026-01-01T06:01:30.000Z");
   });
 
   it("does not resolve ETA from stale snap progress for another route", () => {

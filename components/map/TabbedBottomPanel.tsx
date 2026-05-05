@@ -187,7 +187,7 @@ export default function TabbedBottomPanel({ activeData }: TabbedBottomPanelProps
               height={effectiveContentHeight}
             />
           )}
-          {panelTab === "weather" && <WeatherPanel />}
+          {panelTab === "weather" && <WeatherPanel activeData={activeData} />}
           {panelTab === "climbs" && <ClimbTabContent activeData={activeData} />}
           {panelTab === "pois" && <POITabContent activeData={activeData} />}
         </View>

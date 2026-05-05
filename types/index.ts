@@ -9,6 +9,12 @@ export interface UserPosition {
 
 export type UnitSystem = "metric" | "imperial";
 
+export type WeatherTemperatureDisplayMode = "actual" | "feels-like";
+
+export type WeatherSampleKind = "hourly" | "distance" | "finish" | "post-finish";
+
+export type WeatherTimelineMetricKey = "precipitation" | "humidity" | "gusts";
+
 export const MAP_STYLE_URL = "mapbox://styles/mapbox/outdoors-v12";
 
 // --- Phase 2: Route types ---
@@ -241,12 +247,26 @@ export interface ParsedRoute {
 // --- Phase 5: Weather ---
 
 export interface WeatherPoint {
-  /** Hours from now (0 = current hour) */
+  /** Display order in the weather timeline */
   hourOffset: number;
+  /** Whether this row is on-route or forecast after route finish */
+  phase: "route" | "post-finish";
+  /** Sampling source for route timeline display/filtering */
+  sampleKind: WeatherSampleKind;
+  /** All sampling sources this row satisfies, for filter chips */
+  sampleKinds: WeatherSampleKind[];
   /** ISO 8601 time string */
   time: string;
+  /** ISO 8601 estimated arrival time at this route forecast point */
+  etaTime: string;
   /** Temperature in °C */
   temperatureC: number;
+  /** Apparent/feels-like temperature in °C */
+  apparentTemperatureC: number;
+  /** Dew point in °C */
+  dewPointC: number;
+  /** Relative humidity 0–100 */
+  relativeHumidityPercent: number;
   /** Precipitation in mm/h */
   precipitationMm: number;
   /** Probability of precipitation 0–100 */
@@ -259,12 +279,16 @@ export interface WeatherPoint {
   windGustKmh: number;
   /** WMO weather code (0–99) */
   weatherCode: number;
+  /** Open-Meteo daylight flag */
+  isDay: boolean;
   /** Latitude of the waypoint this forecast is for */
   latitude: number;
   /** Longitude of the waypoint this forecast is for */
   longitude: number;
   /** Distance along route from current position (meters) */
   distanceAlongRouteM: number;
+  /** Absolute distance from route start (meters) */
+  routeDistanceMeters: number;
   /** Bearing of route at this point (degrees, for wind relative direction) */
   routeBearingDeg: number | null;
 }
@@ -280,6 +304,7 @@ export interface Collection {
   name: string;
   isActive: boolean;
   createdAt: string; // ISO 8601
+  plannedStartMs: number | null;
 }
 
 export interface CollectionSegment {

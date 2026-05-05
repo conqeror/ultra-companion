@@ -31,6 +31,14 @@ function loadConfig(): PowerModelConfig {
   return DEFAULT_POWER_CONFIG;
 }
 
+function plannedStartForRoute(routeId: string): number | null {
+  const collectionState = useCollectionStore.getState();
+  const stitched = collectionState.activeStitchedCollection;
+  if (stitched?.collectionId !== routeId) return null;
+  const collection = collectionState.collections.find((c) => c.id === routeId);
+  return collection?.plannedStartMs ?? null;
+}
+
 interface ETAState {
   powerConfig: PowerModelConfig;
   cumulativeTime: number[] | null;
@@ -93,18 +101,27 @@ export const useEtaStore = create<ETAState>((set, get) => ({
     if (!cumulativeTime || !routeId) return null;
 
     const snapped = useRouteStore.getState().snappedPosition;
-    if (!snapped) return null;
-
     const routePoints = cachedPoints ?? useRouteStore.getState().visibleRoutePoints[routeId];
     if (!routePoints?.length) return null;
-    const routeProgress = resolveRouteProgress(snapped, routeId, routePoints);
+    const plannedStartMs = plannedStartForRoute(routeId);
+    const routeProgress = resolveRouteProgress(snapped, routeId, routePoints, { plannedStartMs });
     if (!routeProgress) return null;
 
-    return getETAToDistanceFromDistance(
+    const result = getETAToDistanceFromDistance(
       cumulativeTime,
       routePoints,
       routeProgress.distanceAlongRouteMeters,
       targetDistM,
     );
+    if (!result) return null;
+
+    if (plannedStartMs != null && plannedStartMs > Date.now()) {
+      return {
+        ...result,
+        eta: new Date(plannedStartMs + result.ridingTimeSeconds * 1000),
+      };
+    }
+
+    return result;
   },
 }));

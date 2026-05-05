@@ -37,4 +37,18 @@ describe("routeProgress", () => {
       resolveRouteProgress(snap({ distanceAlongRouteMeters: Number.NaN }), "r1", points),
     ).toBeNull();
   });
+
+  it("clamps progress to route start before planned start", () => {
+    const progress = resolveRouteProgress(snap({ distanceAlongRouteMeters: 500 }), "r1", points, {
+      plannedStartMs: 2_000,
+      nowMs: 1_000,
+    });
+
+    expect(progress).toMatchObject({
+      routeId: "r1",
+      pointIndex: 0,
+      distanceAlongRouteMeters: 0,
+      distanceFromRouteMeters: 0,
+    });
+  });
 });

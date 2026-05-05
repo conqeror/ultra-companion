@@ -22,6 +22,13 @@
       "when": 1777986756000,
       "tag": "0002_add_starred_items",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1777986757000,
+      "tag": "0003_add_collection_planned_start",
+      "breakpoints": true
     }
   ]
 }
