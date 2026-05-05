@@ -400,7 +400,7 @@ export const usePoiStore = create<POIState>((set, get) => ({
 
   clearSource: async (routeId, source) => {
     nextFetchGeneration(routeId, source);
-    await deletePOIsBySource(routeId, source);
+    await deletePOIsBySource(routeId, source, { deleteStarredItems: true });
     clearSourceInfo(routeId, source);
 
     // Reload remaining POIs
@@ -578,8 +578,8 @@ export const usePoiStore = create<POIState>((set, get) => ({
 
   clearPOIs: async (routeId) => {
     invalidateRouteFetches(routeId);
-    await deletePOIsBySource(routeId, "google");
-    await deletePOIsBySource(routeId, "osm");
+    await deletePOIsBySource(routeId, "google", { deleteStarredItems: true });
+    await deletePOIsBySource(routeId, "osm", { deleteStarredItems: true });
     clearSourceInfo(routeId, "osm");
     clearSourceInfo(routeId, "google");
     const pois = await getPOIsForRoute(routeId);

@@ -5,7 +5,12 @@ vi.mock("@/db/database", () => ({
   insertPOIs: vi.fn(),
 }));
 
-import { associateAndFilter } from "@/services/poiFetcher";
+vi.mock("@/services/overpassClient", () => ({
+  fetchAllPOIs: vi.fn().mockResolvedValue([]),
+}));
+
+import { deletePOIsBySource } from "@/db/database";
+import { associateAndFilter, fetchOsmPOIs } from "@/services/poiFetcher";
 import type { RoutePoint } from "@/types";
 
 const routePoints: RoutePoint[] = [
@@ -20,6 +25,12 @@ const routePoints: RoutePoint[] = [
 ];
 
 describe("poiFetcher", () => {
+  it("refreshes fetched POIs without deleting persisted stars", async () => {
+    await fetchOsmPOIs("route-1", routePoints, 1000);
+
+    expect(vi.mocked(deletePOIsBySource).mock.calls[0]).toEqual(["route-1", "osm"]);
+  });
+
   it("filters associated POIs with category-specific corridor widths", () => {
     const pois = associateAndFilter(
       [

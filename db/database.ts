@@ -272,11 +272,21 @@ export async function deletePOIsForRoute(routeId: string): Promise<void> {
   });
 }
 
-export async function deletePOIsBySource(routeId: string, source: POISource): Promise<void> {
+interface DeletePOIsBySourceOptions {
+  deleteStarredItems?: boolean;
+}
+
+export async function deletePOIsBySource(
+  routeId: string,
+  source: POISource,
+  options: DeletePOIsBySourceOptions = {},
+): Promise<void> {
   const where = and(eq(pois.routeId, routeId), eq(pois.source, source));
-  const poiIds = db.select({ id: pois.id }).from(pois).where(where).all();
+  const poiIds = options.deleteStarredItems
+    ? db.select({ id: pois.id }).from(pois).where(where).all()
+    : [];
   db.transaction((tx) => {
-    if (poiIds.length > 0) {
+    if (options.deleteStarredItems && poiIds.length > 0) {
       tx.delete(starredItems)
         .where(
           and(

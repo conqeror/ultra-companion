@@ -63,8 +63,12 @@ describe("poiStore starred POIs", () => {
 
     await usePoiStore.getState().clearPOIs("route-1");
 
-    expect(databaseMocks.deletePOIsBySource).toHaveBeenCalledWith("route-1", "google");
-    expect(databaseMocks.deletePOIsBySource).toHaveBeenCalledWith("route-1", "osm");
+    expect(databaseMocks.deletePOIsBySource).toHaveBeenCalledWith("route-1", "google", {
+      deleteStarredItems: true,
+    });
+    expect(databaseMocks.deletePOIsBySource).toHaveBeenCalledWith("route-1", "osm", {
+      deleteStarredItems: true,
+    });
     expect([...usePoiStore.getState().starredPOIIds]).toEqual(["custom-1"]);
   });
 
@@ -79,7 +83,9 @@ describe("poiStore starred POIs", () => {
 
     await usePoiStore.getState().clearSource("route-1", "osm");
 
-    expect(databaseMocks.deletePOIsBySource).toHaveBeenCalledWith("route-1", "osm");
+    expect(databaseMocks.deletePOIsBySource).toHaveBeenCalledWith("route-1", "osm", {
+      deleteStarredItems: true,
+    });
     expect([...usePoiStore.getState().starredPOIIds]).toEqual(["google-1"]);
   });
 });
