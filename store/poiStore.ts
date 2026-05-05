@@ -54,26 +54,11 @@ function parseStarredIds(raw: string | undefined): Set<string> {
 }
 
 const allPoiCategories = (): POICategory[] => POI_CATEGORIES.map((c) => c.key);
-const LEGACY_DEFAULT_CATEGORIES: POICategory[] = [
-  "water",
-  "groceries",
-  "gas_station",
-  "bakery",
-  "toilet_shower",
-  "shelter",
-  "other",
-];
 
-function parseCategories(raw: string | undefined): POICategory[] {
+export function parsePersistedEnabledCategories(raw: string | undefined): POICategory[] {
   if (raw === undefined) return allPoiCategories();
   try {
-    const valid = new Set<string>(POI_CATEGORIES.map((c) => c.key));
-    const parsed = (JSON.parse(raw) as string[]).filter((c) => valid.has(c)) as POICategory[];
-    const parsedSet = new Set(parsed);
-    if (LEGACY_DEFAULT_CATEGORIES.every((category) => parsedSet.has(category))) {
-      return allPoiCategories();
-    }
-    return parsed;
+    return normalizeKnownPoiCategories(JSON.parse(raw) as POICategory[]);
   } catch {
     return allPoiCategories();
   }
@@ -298,7 +283,7 @@ interface POIState {
 
 export const usePoiStore = create<POIState>((set, get) => ({
   pois: {},
-  enabledCategories: parseCategories(readString("enabledCategories")),
+  enabledCategories: parsePersistedEnabledCategories(readString("enabledCategories")),
   discoveryCategories: parseDiscoveryCategories(readString("discoveryCategories")),
   corridorWidthM: Number(readString("corridorWidthM")) || DEFAULT_CORRIDOR_WIDTH_M,
   showOpenOnly: readString("showOpenOnly") === "true",
