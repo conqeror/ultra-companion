@@ -15,6 +15,7 @@ import { useThemeColors } from "@/theme";
 import { useSettingsStore } from "@/store/settingsStore";
 import { useRouteStore } from "@/store/routeStore";
 import { useClimbStore } from "@/store/climbStore";
+import { usePoiStore } from "@/store/poiStore";
 import { usePanelStore } from "@/store/panelStore";
 import {
   climbDifficultyColor,
@@ -25,6 +26,8 @@ import {
 import { extractRouteSlice, findNearestPointIndexAtDistance } from "@/utils/geo";
 import { resolveActiveRouteProgress } from "@/utils/routeProgress";
 import { formatDistance, formatElevation } from "@/utils/formatters";
+import { stitchPOIs } from "@/services/stitchingService";
+import { toDisplayPOIs } from "@/services/displayDistance";
 import {
   createRidingHorizonWindow,
   filterClimbsToRidingHorizon,
@@ -34,7 +37,7 @@ import {
 import ElevationProfile from "@/components/elevation/ElevationProfile";
 import ClimbListItem from "@/components/climb/ClimbListItem";
 import { resolveActiveClimb } from "@/utils/climbSelect";
-import type { ActiveRouteData, ClimbDifficulty, DisplayClimb } from "@/types";
+import type { ActiveRouteData, ClimbDifficulty, DisplayClimb, POI } from "@/types";
 
 interface ClimbTabContentProps {
   activeData: ActiveRouteData | null;
@@ -79,6 +82,9 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
   const minimumDifficulty = useClimbStore((s) => s.minimumDifficulty);
   const setMinimumDifficulty = useClimbStore((s) => s.setMinimumDifficulty);
   const renameClimb = useClimbStore((s) => s.renameClimb);
+  const getStarredPOIs = usePoiStore((s) => s.getStarredPOIs);
+  const starredPOIIds = usePoiStore((s) => s.starredPOIIds);
+  const setSelectedPOI = usePoiStore((s) => s.setSelectedPOI);
   const isExpanded = usePanelStore((s) => s.isExpanded);
   const panelMode = usePanelStore((s) => s.panelMode);
   // Reset to current/upcoming climb when tab mounts
@@ -91,6 +97,7 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
   const [editingClimb, setEditingClimb] = useState<DisplayClimb | null>(null);
   const [graphHeight, setGraphHeight] = useState(0);
 
+  const activeId = activeData?.id ?? null;
   const routeIds = useMemo(() => activeData?.routeIds ?? [], [activeData?.routeIds]);
   const segments = activeData?.segments ?? null;
   const activeTotalDistance = activeData?.totalDistanceMeters;
@@ -108,6 +115,20 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
     [currentDist, ridingHorizonMeters, activeTotalDistance],
   );
   const horizonScopeLabel = ridingHorizonScopeLabelForMode(panelMode);
+
+  const poisForChart = useMemo(() => {
+    if (!activeId || routeIds.length === 0) return [];
+    if (segments) {
+      const poisByRoute: Record<string, POI[]> = {};
+      for (const routeId of routeIds) {
+        poisByRoute[routeId] = getStarredPOIs(routeId);
+      }
+      return stitchPOIs(segments, poisByRoute);
+    }
+    return toDisplayPOIs(getStarredPOIs(routeIds[0]));
+    // starredPOIIds is a reactivity trigger: getStarredPOIs reads store via get() and is not itself reactive
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeId, routeIds, segments, getStarredPOIs, starredPOIIds]);
 
   const displayedClimbs = useMemo(
     () => getClimbsForDisplay(routeIds, segments),
@@ -192,6 +213,18 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
       currentDistanceInSliceMeters,
     };
   }, [climb, activeData, currentDist]);
+
+  const climbProfilePOIs = useMemo(() => {
+    if (!climbProfile) return undefined;
+    const endDistance =
+      climbProfile.offsetMeters +
+      climbProfile.points[climbProfile.points.length - 1].distanceFromStartMeters;
+    return poisForChart.filter(
+      (poi) =>
+        poi.effectiveDistanceMeters >= climbProfile.offsetMeters &&
+        poi.effectiveDistanceMeters <= endDistance,
+    );
+  }, [climbProfile, poisForChart]);
 
   const handleStartEdit = () => {
     if (!climb) return;
@@ -420,6 +453,8 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
                 distanceOffsetMeters={climbProfile.offsetMeters}
                 currentPointIndex={climbProfile.currentIdxInSlice}
                 currentDistanceMeters={climbProfile.currentDistanceInSliceMeters}
+                pois={climbProfilePOIs}
+                onPOIPress={setSelectedPOI}
               />
             )}
           </View>

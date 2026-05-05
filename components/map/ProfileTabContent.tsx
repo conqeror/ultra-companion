@@ -266,6 +266,10 @@ export default function ProfileTabContent({ activeData, width, height }: Profile
             currentDistanceMeters={climbSlice!.currentDistanceInSliceMeters}
             showLegend={false}
             distanceOffsetMeters={climbSlice!.offsetMeters}
+            pois={poisForChart}
+            onPOIPress={(poi) => {
+              setSelectedPOI(poi);
+            }}
             climbs={climbsForChart}
             fitToWidth
           />

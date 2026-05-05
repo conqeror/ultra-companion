@@ -6,24 +6,14 @@ import Animated, {
   useAnimatedScrollHandler,
   useSharedValue,
 } from "react-native-reanimated";
-import Svg, {
-  Path,
-  Circle,
-  Defs,
-  LinearGradient,
-  Stop,
-  Line,
-  G,
-  Rect,
-  Text as SvgText,
-} from "react-native-svg";
+import Svg, { Path, Circle, Defs, LinearGradient, Stop, Line, G, Rect } from "react-native-svg";
 import { Text } from "@/components/ui/text";
 import { useThemeColors, gradientColor } from "@/theme";
 import { ELEVATION_STOPS } from "@/theme/elevation";
 import { formatDistance, formatElevation } from "@/utils/formatters";
-import { getOpeningHoursStatus } from "@/services/openingHoursParser";
-import { categoryColor, categoryLetter, ohStatusColorKey } from "@/constants/poiHelpers";
+import { categoryColor, getCategoryMeta } from "@/constants/poiHelpers";
 import { climbDifficultyColor } from "@/constants/climbHelpers";
+import { POI_ICON_MAP } from "@/constants/poiIcons";
 import type { RoutePoint, UnitSystem, DisplayPOI, DisplayClimb } from "@/types";
 
 interface SegmentBoundary {
@@ -64,6 +54,8 @@ const OVERVIEW_MAX_SAMPLES = 220;
 const OVERVIEW_MARKER_RADIUS = 3;
 const CURRENT_MARKER_RADIUS = 5;
 const POI_MARKER_RADIUS = 6;
+const POI_ICON_SIZE = 10;
+const POI_ICON_STROKE_WIDTH = 2.5;
 const POI_MARKER_OFFSET_Y = -14;
 const POI_COLLISION_MIN_PX = 12;
 const POI_COLLISION_STEP_PX = 16;
@@ -200,8 +192,7 @@ interface POIMarkerPos {
   x: number;
   y: number;
   color: string;
-  letter: string;
-  ohRingColor: string | null;
+  iconName: string;
 }
 
 export default function ElevationProfile({
@@ -346,17 +337,12 @@ export default function ElevationProfile({
       const elev = interpolateElevation(samples, localDist);
       const baseY = yScale(elev) + POI_MARKER_OFFSET_Y;
 
-      const ohTag = poi.tags?.opening_hours;
-      const ohKey = ohTag ? ohStatusColorKey(getOpeningHoursStatus(ohTag)) : null;
-      const ohRingColor = ohKey ? colors[ohKey] : null;
-
       markers.push({
         poi,
         x,
         y: baseY,
         color: categoryColor(poi.category),
-        letter: categoryLetter(poi.category),
-        ohRingColor,
+        iconName: getCategoryMeta(poi.category)?.iconName ?? "MapPin",
       });
     }
 
@@ -370,7 +356,7 @@ export default function ElevationProfile({
       m.y = Math.max(PADDING.top + POI_MARKER_RADIUS + 2, m.y);
     }
     return markers;
-  }, [pois, samples, totalMeters, distanceOffsetMeters, xScale, yScale, colors]);
+  }, [pois, samples, totalMeters, distanceOffsetMeters, xScale, yScale]);
 
   const climbRegions = useMemo(() => {
     if (!climbs || climbs.length === 0 || samples.length === 0 || totalMeters === 0) return [];
@@ -645,40 +631,26 @@ export default function ElevationProfile({
           );
         })}
 
-        {poiMarkers.map((m) => (
-          <G key={m.poi.id} onPress={onPOIPress ? () => onPOIPress(m.poi) : undefined}>
-            {m.ohRingColor && (
-              <Circle
-                cx={m.x}
-                cy={m.y}
-                r={POI_MARKER_RADIUS + 2.5}
-                fill="none"
-                stroke={m.ohRingColor}
-                strokeWidth={2}
-              />
-            )}
-            <Circle cx={m.x} cy={m.y} r={POI_MARKER_RADIUS} fill={m.color} />
-            <SvgText
-              x={m.x}
-              y={m.y + 3.5}
-              fontSize={9}
-              fontWeight="bold"
-              fill="white"
-              textAnchor="middle"
-            >
-              {m.letter}
-            </SvgText>
-            {onPOIPress && (
-              <Rect
-                x={m.x - POI_HIT_SIZE / 2}
-                y={m.y - POI_HIT_SIZE / 2}
-                width={POI_HIT_SIZE}
-                height={POI_HIT_SIZE}
-                fill="transparent"
-              />
-            )}
-          </G>
-        ))}
+        {poiMarkers.map((m) => {
+          const Icon = POI_ICON_MAP[m.iconName] ?? POI_ICON_MAP.MapPin;
+          return (
+            <G key={m.poi.id} onPress={onPOIPress ? () => onPOIPress(m.poi) : undefined}>
+              <Circle cx={m.x} cy={m.y} r={POI_MARKER_RADIUS} fill={m.color} />
+              <G transform={`translate(${m.x - POI_ICON_SIZE / 2}, ${m.y - POI_ICON_SIZE / 2})`}>
+                <Icon color="white" size={POI_ICON_SIZE} strokeWidth={POI_ICON_STROKE_WIDTH} />
+              </G>
+              {onPOIPress && (
+                <Rect
+                  x={m.x - POI_HIT_SIZE / 2}
+                  y={m.y - POI_HIT_SIZE / 2}
+                  width={POI_HIT_SIZE}
+                  height={POI_HIT_SIZE}
+                  fill="transparent"
+                />
+              )}
+            </G>
+          );
+        })}
       </Svg>
     ),
     [
