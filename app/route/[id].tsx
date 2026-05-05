@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useState, useMemo, useRef } from "react";
-import { View, ScrollView, useWindowDimensions, ActivityIndicator } from "react-native";
+import { View, ScrollView, useWindowDimensions, ActivityIndicator, Alert } from "react-native";
 import { useLocalSearchParams, Stack } from "expo-router";
 import { Camera, MapView as MapboxMapView } from "@rnmapbox/maps";
+import { Share2 } from "lucide-react-native";
 import { Text } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
 import { useThemeColors } from "@/theme";
@@ -26,6 +27,8 @@ import StatBox from "@/components/common/StatBox";
 import DataSection from "@/components/route/DataSection";
 import AddSavedPOISheet from "@/components/poi/AddSavedPOISheet";
 import type { SavedPOITarget } from "@/services/savedPOIService";
+import { serializeRouteToGPX } from "@/services/gpxSerializer";
+import { shareGPXFile } from "@/utils/gpxExportShare";
 
 const EMPTY_CLIMBS: Climb[] = [];
 
@@ -40,6 +43,7 @@ export default function RouteDetailScreen() {
   const [route, setRoute] = useState<RouteWithPoints | null>(null);
   const [loading, setLoading] = useState(true);
   const [showAddPOI, setShowAddPOI] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
 
   const getRouteDetail = useRouteStore((s) => s.getRouteDetail);
   const snappedPosition = useRouteStore((s) => s.snappedPosition);
@@ -111,6 +115,19 @@ export default function RouteDetailScreen() {
     },
     [updateRouteGeometryZoom],
   );
+
+  const handleExportGPX = useCallback(async () => {
+    if (!route) return;
+    setIsExporting(true);
+    try {
+      const gpx = serializeRouteToGPX(route, { poisAsWaypoints: chartPOIs });
+      await shareGPXFile(gpx, route.name);
+    } catch {
+      Alert.alert("Export Failed", "Could not export this route as GPX.");
+    } finally {
+      setIsExporting(false);
+    }
+  }, [route, chartPOIs]);
 
   if (loading) {
     return (
@@ -201,8 +218,14 @@ export default function RouteDetailScreen() {
           />
         </View>
 
-        <View className="px-4 mt-4">
+        <View className="px-4 mt-4 gap-3">
           <Button variant="secondary" onPress={() => setShowAddPOI(true)} label="Add POI" />
+          <Button variant="secondary" onPress={handleExportGPX} disabled={isExporting}>
+            <Share2 size={18} color={colors.accent} />
+            <Text className="ml-2 text-primary font-barlow-semibold text-[15px]">
+              {isExporting ? "Exporting..." : "Export GPX"}
+            </Text>
+          </Button>
         </View>
 
         {/* Data: Map tiles, Google Places, OSM */}

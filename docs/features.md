@@ -54,7 +54,7 @@ What's implemented. For the "why" behind these, see `usage-context.md`.
 - FULL horizon switches riding POI views to full-route planning
 - POI list sorted by distance along route
 - POI text search (filter by name)
-- Starred POIs
+- Starred POIs persisted in SQLite
 - Saved custom POIs from iOS share sheet or manual coordinates, route-scoped and starred by default
 - Opening hours: open/closed status, color-coded, "open now" filter
 - Category filters (multi-select)
@@ -83,3 +83,9 @@ What's implemented. For the "why" behind these, see `usage-context.md`.
 - "Prepare for offline" per route/collection
 - Storage management — space used per route, cleanup
 - All features except weather work fully offline
+
+## Export
+
+- Export standalone routes and stitched collections as GPX tracks
+- Include starred and saved custom POIs as on-route GPX waypoint cues for bike-computer workflows
+- Share exported GPX files through the native iOS share sheet

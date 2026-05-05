@@ -7,7 +7,7 @@ import {
   unique,
   primaryKey,
 } from "drizzle-orm/sqlite-core";
-import type { POICategory, POISource } from "@/types";
+import type { POICategory, POISource, StarredEntityType } from "@/types";
 
 // --- Climbs ---
 
@@ -90,6 +90,18 @@ export const pois = sqliteTable(
     index("idx_pois_route_source").on(table.routeId, table.source),
     unique("uq_pois_route_source").on(table.routeId, table.sourceId),
   ],
+);
+
+// --- Starred Items ---
+
+export const starredItems = sqliteTable(
+  "starred_items",
+  {
+    entityType: text("entityType").notNull().$type<StarredEntityType>(),
+    entityId: text("entityId").notNull(),
+    createdAt: text("createdAt").notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.entityType, table.entityId] })],
 );
 
 // --- Collections ---

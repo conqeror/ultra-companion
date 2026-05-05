@@ -175,6 +175,14 @@ export interface DisplayPOI extends POI {
   effectiveDistanceMeters: DisplayDistanceMeters;
 }
 
+export type StarredEntityType = "poi";
+
+export interface StarredItem {
+  entityType: StarredEntityType;
+  entityId: string;
+  createdAt: string;
+}
+
 export interface POICategoryMeta {
   key: POICategory;
   label: string;

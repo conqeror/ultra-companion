@@ -60,6 +60,20 @@ type POICategory =
   | "other";
 ```
 
+### Starred Items
+
+```typescript
+type StarredEntityType = "poi";
+
+interface StarredItem {
+  entityType: StarredEntityType;
+  entityId: string;
+  createdAt: string;
+}
+```
+
+Starred POIs are stored in SQLite in `starred_items`, not only in MMKV. The app still keeps an in-memory `starredPOIIds` set in `poiStore` for fast rendering and map/list reactivity. Existing MMKV `starredPOIIds` values are migrated into SQLite on app startup.
+
 ### Power Model
 
 ```typescript
@@ -92,6 +106,7 @@ ETA computation: for each route segment, solve `P = (Crr × m × g × cos(θ) + 
 - Stored in SQLite with spatial indexing
 - ~1–5 MB per 1000 km route corridor
 - Saved custom POIs use `source: "custom"` and store notes, Google place IDs, and Google Maps links in `tags`. They can be created from the iOS share sheet or manual coordinates, and are not removed by clearing or refetching fetched OSM/Google data.
+- Starred fetched/custom POIs are stored separately in SQLite so they persist across app restarts and can be exported.
 
 ### Elevation Data
 
@@ -143,3 +158,7 @@ For standalone routes, effective distance equals raw distance. For collections, 
 ### Climb Detection
 
 Runs on import, stored per-route. Algorithm: smooth elevation (200m window), find rising segments with dip absorption (descent < 20% of accumulated gain), qualify (50m+ gain, 2.5%+ avg gradient). Difficulty: Climbbybike method (gradient² × length, summed). For stitched collections, cross-segment climbs are merged at display time.
+
+### GPX Export
+
+Routes and stitched collections export as GPX 1.1 tracks. Starred POIs and saved custom POIs can be included as GPX `<wpt>` entries, but they are emitted as on-route cue points interpolated from `DisplayPOI.effectiveDistanceMeters`, not as an imported route-waypoint data model. The waypoint name keeps the POI name/category and off-route distance; the description keeps the actual POI coordinates and available notes/address context.
