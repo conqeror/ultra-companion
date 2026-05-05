@@ -14,6 +14,7 @@ import { useRouteGeometryZoom } from "@/hooks/useRouteGeometryZoom";
 import { GPS_STALE_THRESHOLD_MS } from "@/constants";
 import MapControls from "./MapControls";
 import RouteLayer from "./RouteLayer";
+import RouteMarkerLayer from "./RouteMarkerLayer";
 import POILayer from "./POILayer";
 import ClimbHighlightLayer from "./ClimbHighlightLayer";
 import TabbedBottomPanel from "./TabbedBottomPanel";
@@ -62,6 +63,8 @@ export default function MapScreen() {
 
   const followUser = useMapStore((s) => s.followUser);
   const setFollowUser = useMapStore((s) => s.setFollowUser);
+  const showDistanceMarkers = useMapStore((s) => s.showDistanceMarkers);
+  const showPOIs = useMapStore((s) => s.showPOIs);
   const refreshPosition = useMapStore((s) => s.refreshPosition);
   const persistCamera = useMapStore((s) => s.persistCamera);
   const initialCamera = useRef({
@@ -407,12 +410,23 @@ export default function MapScreen() {
     };
   }, [activeData, activeRoutePoints?.length]);
 
-  // Forces LocationPuck to remount so its layer is recreated on top of route/POI layers.
-  const renderedRouteKey = useMemo(() => {
-    const ids = renderedRoutes.map((r) => r.id);
-    if (activeCollectionRoute) ids.push(activeCollectionRoute.id);
-    return ids.sort().join(",") + `-${mapStyle.styleKey}`;
-  }, [renderedRoutes, activeCollectionRoute, mapStyle.styleKey]);
+  // RNMapbox inserts native layers in mount order. Key upper overlay tiers so they remount
+  // above lower tiers when route/climb/visibility state changes.
+  const routeStackKey = useMemo(() => {
+    const ids = renderedRoutes.map(
+      (route) => `${route.id}:${visibleRoutePoints[route.id]?.length ?? 0}`,
+    );
+    if (activeCollectionRoute) {
+      ids.push(`${activeCollectionRoute.id}:${activeRoutePoints?.length ?? 0}`);
+    }
+    return `${ids.sort().join(",")}-${mapStyle.styleKey}`;
+  }, [
+    renderedRoutes,
+    visibleRoutePoints,
+    activeCollectionRoute,
+    activeRoutePoints?.length,
+    mapStyle.styleKey,
+  ]);
 
   // Climb to highlight on the map — active when Climbs tab is selected
   const highlightedClimb = useMemo(() => {
@@ -436,6 +450,11 @@ export default function MapScreen() {
     climbHorizonWindow,
     allClimbData,
   ]);
+
+  const climbStackKey = `${routeStackKey}-${highlightedClimb?.id ?? "none"}`;
+  const overlayStackKey = `${climbStackKey}-${activeContextKey ?? "none"}-markers:${
+    showDistanceMarkers ? "on" : "off"
+  }-pois:${showPOIs ? "on" : "off"}`;
 
   // Center highlighted climbs without increasing zoom; zoom out only when the climb cannot fit.
   useEffect(() => {
@@ -525,20 +544,29 @@ export default function MapScreen() {
             dimmed={highlightedClimb != null}
           />
         )}
-        {activeRouteIds.length > 0 && (
+        {highlightedClimb && activeRoutePoints && (
+          <ClimbHighlightLayer
+            key={`climb-${highlightedClimb.id}-${routeStackKey}`}
+            climb={highlightedClimb}
+            points={activeRoutePoints}
+          />
+        )}
+        <RouteMarkerLayer
+          key={`route-markers-${overlayStackKey}`}
+          points={activeRoutePoints ?? []}
+          showDistanceMarkers={showDistanceMarkers}
+        />
+        {showPOIs && activeRouteIds.length > 0 && (
           <POILayer
-            key={mapStyle.styleKey}
+            key={`pois-${overlayStackKey}`}
             routeIds={activeRouteIds}
             segments={activeData?.segments ?? null}
             currentDistanceMeters={currentPOIDistanceMeters}
             onClusterPress={handlePOIClusterPress}
           />
         )}
-        {highlightedClimb && activeRoutePoints && (
-          <ClimbHighlightLayer climb={highlightedClimb} points={activeRoutePoints} />
-        )}
         <LocationPuck
-          key={`puck-${renderedRouteKey}`}
+          key={`puck-${overlayStackKey}`}
           puckBearing="heading"
           puckBearingEnabled
           pulsing={pulsingConfig}

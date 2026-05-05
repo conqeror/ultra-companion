@@ -21,15 +21,34 @@ function readPersistedCamera(): { center: [number, number]; zoom: number } {
   };
 }
 
+function readPersistedBoolean(key: string, defaultValue: boolean): boolean {
+  try {
+    const raw = getStorage().getString(key);
+    if (raw === "true") return true;
+    if (raw === "false") return false;
+  } catch {}
+  return defaultValue;
+}
+
+function persistBoolean(key: string, value: boolean): void {
+  try {
+    getStorage().set(key, String(value));
+  } catch {}
+}
+
 interface MapState {
   center: [number, number]; // [longitude, latitude] — Mapbox convention
   zoom: number;
   followUser: boolean;
+  showDistanceMarkers: boolean;
+  showPOIs: boolean;
   userPosition: UserPosition | null;
   isRefreshing: boolean;
 
   setCenter: (center: [number, number]) => void;
   setFollowUser: (follow: boolean) => void;
+  toggleDistanceMarkers: () => void;
+  togglePOIs: () => void;
   setUserPosition: (position: UserPosition | null) => void;
   refreshPosition: () => Promise<UserPosition | null>;
   persistCamera: (center: [number, number], zoom: number) => void;
@@ -41,11 +60,23 @@ export const useMapStore = create<MapState>((set, get) => ({
   center: persisted.center,
   zoom: persisted.zoom,
   followUser: true,
+  showDistanceMarkers: readPersistedBoolean("showDistanceMarkers", false),
+  showPOIs: readPersistedBoolean("showPOIs", true),
   userPosition: null,
   isRefreshing: false,
 
   setCenter: (center) => set({ center }),
   setFollowUser: (followUser) => set({ followUser }),
+  toggleDistanceMarkers: () => {
+    const showDistanceMarkers = !get().showDistanceMarkers;
+    persistBoolean("showDistanceMarkers", showDistanceMarkers);
+    set({ showDistanceMarkers });
+  },
+  togglePOIs: () => {
+    const showPOIs = !get().showPOIs;
+    persistBoolean("showPOIs", showPOIs);
+    set({ showPOIs });
+  },
   setUserPosition: (userPosition) => set({ userPosition }),
 
   persistCamera: (center, zoom) => {
