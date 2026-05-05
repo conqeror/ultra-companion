@@ -2,7 +2,15 @@ import { drizzle } from "drizzle-orm/expo-sqlite";
 import { migrate } from "drizzle-orm/expo-sqlite/migrator";
 import { openDatabaseSync } from "expo-sqlite";
 import { sql, eq, and, inArray, desc, asc, count, max } from "drizzle-orm";
-import { routes, routePoints, pois, collections, collectionSegments, climbs } from "./schema";
+import {
+  routes,
+  routePoints,
+  pois,
+  starredItems,
+  collections,
+  collectionSegments,
+  climbs,
+} from "./schema";
 import migrations from "../drizzle/migrations";
 import type {
   Route,
@@ -11,6 +19,8 @@ import type {
   POI,
   POICategory,
   POISource,
+  StarredEntityType,
+  StarredItem,
   Collection,
   CollectionSegment,
   Climb,
@@ -23,7 +33,7 @@ expoDb.execSync("PRAGMA journal_mode = WAL;");
 expoDb.execSync("PRAGMA foreign_keys = ON;");
 
 export const db = drizzle(expoDb, {
-  schema: { routes, routePoints, pois, collections, collectionSegments, climbs },
+  schema: { routes, routePoints, pois, starredItems, collections, collectionSegments, climbs },
 });
 
 // Apply schema from drizzle/migrations.ts (generated from db/schema.ts via `npm run db:migrate`)
@@ -140,8 +150,25 @@ export async function getRoutePoints(routeId: string): Promise<RoutePoint[]> {
 }
 
 export async function deleteRoute(routeId: string): Promise<void> {
-  // Foreign keys with ON DELETE CASCADE handle route_points, pois, and race_segments
-  db.delete(routes).where(eq(routes.id, routeId)).run();
+  // Foreign keys with ON DELETE CASCADE handle route_points, pois, climbs, and collection_segments.
+  // Starred items are generic, so explicitly remove stars for this route's POIs first.
+  const poiIds = db.select({ id: pois.id }).from(pois).where(eq(pois.routeId, routeId)).all();
+  db.transaction((tx) => {
+    if (poiIds.length > 0) {
+      tx.delete(starredItems)
+        .where(
+          and(
+            eq(starredItems.entityType, "poi"),
+            inArray(
+              starredItems.entityId,
+              poiIds.map((row) => row.id),
+            ),
+          ),
+        )
+        .run();
+    }
+    tx.delete(routes).where(eq(routes.id, routeId)).run();
+  });
 }
 
 export async function updateRouteVisibility(routeId: string, isVisible: boolean): Promise<void> {
@@ -226,13 +253,54 @@ export async function getPOIsForRoute(
 }
 
 export async function deletePOIsForRoute(routeId: string): Promise<void> {
-  db.delete(pois).where(eq(pois.routeId, routeId)).run();
+  const poiIds = db.select({ id: pois.id }).from(pois).where(eq(pois.routeId, routeId)).all();
+  db.transaction((tx) => {
+    if (poiIds.length > 0) {
+      tx.delete(starredItems)
+        .where(
+          and(
+            eq(starredItems.entityType, "poi"),
+            inArray(
+              starredItems.entityId,
+              poiIds.map((row) => row.id),
+            ),
+          ),
+        )
+        .run();
+    }
+    tx.delete(pois).where(eq(pois.routeId, routeId)).run();
+  });
 }
 
-export async function deletePOIsBySource(routeId: string, source: POISource): Promise<void> {
-  db.delete(pois)
-    .where(and(eq(pois.routeId, routeId), eq(pois.source, source)))
-    .run();
+interface DeletePOIsBySourceOptions {
+  deleteStarredItems?: boolean;
+}
+
+export async function deletePOIsBySource(
+  routeId: string,
+  source: POISource,
+  options: DeletePOIsBySourceOptions = {},
+): Promise<void> {
+  const where = and(eq(pois.routeId, routeId), eq(pois.source, source));
+  const poiIds = options.deleteStarredItems
+    ? db.select({ id: pois.id }).from(pois).where(where).all()
+    : [];
+  db.transaction((tx) => {
+    if (options.deleteStarredItems && poiIds.length > 0) {
+      tx.delete(starredItems)
+        .where(
+          and(
+            eq(starredItems.entityType, "poi"),
+            inArray(
+              starredItems.entityId,
+              poiIds.map((row) => row.id),
+            ),
+          ),
+        )
+        .run();
+    }
+    tx.delete(pois).where(where).run();
+  });
 }
 
 export async function updatePOITags(poiId: string, tags: Record<string, string>): Promise<void> {
@@ -240,7 +308,12 @@ export async function updatePOITags(poiId: string, tags: Record<string, string>)
 }
 
 export async function deletePOI(poiId: string): Promise<void> {
-  db.delete(pois).where(eq(pois.id, poiId)).run();
+  db.transaction((tx) => {
+    tx.delete(starredItems)
+      .where(and(eq(starredItems.entityType, "poi"), eq(starredItems.entityId, poiId)))
+      .run();
+    tx.delete(pois).where(eq(pois.id, poiId)).run();
+  });
 }
 
 export async function hasPOIsForRoute(routeId: string): Promise<boolean> {
@@ -265,6 +338,39 @@ export async function getPOICountsBySource(
     else if (row.source === "osm") osm += row.cnt;
   }
   return { osm, google };
+}
+
+// --- Starred Item CRUD ---
+
+export async function getStarredItems(entityType?: StarredEntityType): Promise<StarredItem[]> {
+  if (entityType) {
+    return db
+      .select()
+      .from(starredItems)
+      .where(eq(starredItems.entityType, entityType))
+      .orderBy(asc(starredItems.createdAt))
+      .all();
+  }
+
+  return db.select().from(starredItems).orderBy(asc(starredItems.createdAt)).all();
+}
+
+export async function setStarredItem(
+  entityType: StarredEntityType,
+  entityId: string,
+  starred: boolean,
+): Promise<void> {
+  if (starred) {
+    db.insert(starredItems)
+      .values({ entityType, entityId, createdAt: new Date().toISOString() })
+      .onConflictDoNothing()
+      .run();
+    return;
+  }
+
+  db.delete(starredItems)
+    .where(and(eq(starredItems.entityType, entityType), eq(starredItems.entityId, entityId)))
+    .run();
 }
 
 // --- Climb CRUD ---

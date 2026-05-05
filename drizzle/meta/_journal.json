@@ -15,6 +15,13 @@
       "when": 1774960400000,
       "tag": "0001_add_climbs",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1777986756000,
+      "tag": "0002_add_starred_items",
+      "breakpoints": true
     }
   ]
 }

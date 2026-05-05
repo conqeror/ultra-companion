@@ -22,10 +22,14 @@ import {
   insertPOIs,
   updatePOITags,
   deletePOI,
+  getStarredItems,
+  setStarredItem,
 } from "@/db/database";
 import { fetchOsmPOIs, fetchGooglePOIs } from "@/services/poiFetcher";
 import { getOpeningHoursStatus } from "@/services/openingHoursParser";
 import { usePanelStore } from "./panelStore";
+
+const LEGACY_STARRED_POI_IDS_KEY = "starredPOIIds";
 
 let storage: MMKV | null = null;
 
@@ -204,11 +208,6 @@ function buildRouteScrubPatch(
   const removedIds = new Set((removed ?? []).map((p) => p.id));
   const nextStarred = new Set([...s.starredPOIIds].filter((id) => !removedIds.has(id)));
   const starredChanged = nextStarred.size !== s.starredPOIIds.size;
-  if (starredChanged) {
-    try {
-      getStorage().set("starredPOIIds", JSON.stringify([...nextStarred]));
-    } catch {}
-  }
 
   let sourceInfo: typeof s.sourceInfo;
   if (mode === "remove") {
@@ -247,6 +246,7 @@ interface POIState {
   selectedPOI: DisplayPOI | null;
 
   // Actions
+  loadStarredItems: () => Promise<void>;
   loadPOIs: (routeId: string) => Promise<void>;
   fetchSource: (
     routeId: string,
@@ -266,7 +266,8 @@ interface POIState {
   setCorridorWidth: (widthM: number) => void;
   setAllCategories: (enabled: boolean) => void;
   toggleShowOpenOnly: () => void;
-  toggleStarred: (poiId: string) => void;
+  setStarred: (poiId: string, starred: boolean) => Promise<void>;
+  toggleStarred: (poiId: string) => Promise<void>;
   isStarred: (poiId: string) => boolean;
   getStarredPOIs: (routeId: string) => POI[];
   clearPOIs: (routeId: string) => Promise<void>;
@@ -287,9 +288,28 @@ export const usePoiStore = create<POIState>((set, get) => ({
   discoveryCategories: parseDiscoveryCategories(readString("discoveryCategories")),
   corridorWidthM: Number(readString("corridorWidthM")) || DEFAULT_CORRIDOR_WIDTH_M,
   showOpenOnly: readString("showOpenOnly") === "true",
-  starredPOIIds: parseStarredIds(readString("starredPOIIds")),
+  starredPOIIds: parseStarredIds(readString(LEGACY_STARRED_POI_IDS_KEY)),
   sourceInfo: {},
   selectedPOI: null,
+
+  loadStarredItems: async () => {
+    const legacyStarredIds = parseStarredIds(readString(LEGACY_STARRED_POI_IDS_KEY));
+    if (legacyStarredIds.size > 0) {
+      try {
+        for (const poiId of legacyStarredIds) {
+          await setStarredItem("poi", poiId, true);
+        }
+        getStorage().remove(LEGACY_STARRED_POI_IDS_KEY);
+      } catch (error) {
+        console.warn("Failed to migrate legacy starred POIs:", error);
+      }
+    }
+
+    const items = await getStarredItems("poi");
+    set({
+      starredPOIIds: new Set([...items.map((item) => item.entityId), ...legacyStarredIds]),
+    });
+  },
 
   loadPOIs: async (routeId) => {
     // Read from DB to derive counts. Merge with in-memory sourceInfo so we
@@ -380,7 +400,7 @@ export const usePoiStore = create<POIState>((set, get) => ({
 
   clearSource: async (routeId, source) => {
     nextFetchGeneration(routeId, source);
-    await deletePOIsBySource(routeId, source);
+    await deletePOIsBySource(routeId, source, { deleteStarredItems: true });
     clearSourceInfo(routeId, source);
 
     // Reload remaining POIs
@@ -388,9 +408,15 @@ export const usePoiStore = create<POIState>((set, get) => ({
     set((s) => {
       const droppedSelection =
         s.selectedPOI?.routeId === routeId && s.selectedPOI?.source === source;
+      const currentRoutePois = s.pois[routeId] ?? [];
+      const removedIds = new Set(
+        currentRoutePois.filter((p) => p.source === source).map((p) => p.id),
+      );
+      const nextStarred = new Set([...s.starredPOIIds].filter((id) => !removedIds.has(id)));
       return {
         pois: { ...s.pois, [routeId]: pois },
         selectedPOI: droppedSelection ? null : s.selectedPOI,
+        starredPOIIds: nextStarred,
         sourceInfo: {
           ...s.sourceInfo,
           [routeId]: {
@@ -404,12 +430,10 @@ export const usePoiStore = create<POIState>((set, get) => ({
 
   addCustomPOI: async (poi) => {
     await insertPOIs([poi]);
+    await setStarredItem("poi", poi.id, true);
     const pois = await getPOIsForRoute(poi.routeId);
     set((s) => {
       const nextStarred = new Set([...s.starredPOIIds, poi.id]);
-      try {
-        getStorage().set("starredPOIIds", JSON.stringify([...nextStarred]));
-      } catch {}
       return {
         pois: { ...s.pois, [poi.routeId]: pois },
         starredPOIIds: nextStarred,
@@ -446,9 +470,6 @@ export const usePoiStore = create<POIState>((set, get) => ({
     set((s) => {
       const nextStarred = new Set(s.starredPOIIds);
       nextStarred.delete(poiId);
-      try {
-        getStorage().set("starredPOIIds", JSON.stringify([...nextStarred]));
-      } catch {}
       return {
         pois: { ...s.pois, [routeId]: pois },
         starredPOIIds: nextStarred,
@@ -523,18 +544,27 @@ export const usePoiStore = create<POIState>((set, get) => ({
     set({ showOpenOnly: next });
   },
 
-  toggleStarred: (poiId) => {
-    const current = get().starredPOIIds;
-    const next = new Set(current);
-    if (next.has(poiId)) {
-      next.delete(poiId);
-    } else {
-      next.add(poiId);
-    }
-    try {
-      getStorage().set("starredPOIIds", JSON.stringify([...next]));
-    } catch {}
+  setStarred: async (poiId, starred) => {
+    const previous = get().starredPOIIds;
+    const next = new Set(previous);
+    if (starred) next.add(poiId);
+    else next.delete(poiId);
+
     set({ starredPOIIds: next });
+    try {
+      await setStarredItem("poi", poiId, starred);
+    } catch (error) {
+      set({ starredPOIIds: previous });
+      throw error;
+    }
+  },
+
+  toggleStarred: async (poiId) => {
+    try {
+      await get().setStarred(poiId, !get().isStarred(poiId));
+    } catch (error) {
+      console.warn("Failed to update starred POI:", error);
+    }
   },
 
   isStarred: (poiId) => get().starredPOIIds.has(poiId),
@@ -548,8 +578,8 @@ export const usePoiStore = create<POIState>((set, get) => ({
 
   clearPOIs: async (routeId) => {
     invalidateRouteFetches(routeId);
-    await deletePOIsBySource(routeId, "google");
-    await deletePOIsBySource(routeId, "osm");
+    await deletePOIsBySource(routeId, "google", { deleteStarredItems: true });
+    await deletePOIsBySource(routeId, "osm", { deleteStarredItems: true });
     clearSourceInfo(routeId, "osm");
     clearSourceInfo(routeId, "google");
     const pois = await getPOIsForRoute(routeId);
@@ -559,9 +589,6 @@ export const usePoiStore = create<POIState>((set, get) => ({
         currentRoutePois.filter((p) => p.source !== "custom").map((p) => p.id),
       );
       const nextStarred = new Set([...s.starredPOIIds].filter((id) => !removedIds.has(id)));
-      try {
-        getStorage().set("starredPOIIds", JSON.stringify([...nextStarred]));
-      } catch {}
       const selectedPOI =
         s.selectedPOI?.routeId === routeId && s.selectedPOI.source !== "custom"
           ? null

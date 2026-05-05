@@ -6,6 +6,7 @@ export default {
     entries: [
       { idx: 0, when: 1774960304141, tag: "0000_misty_true_believers", breakpoints: true },
       { idx: 1, when: 1774960400000, tag: "0001_add_climbs", breakpoints: true },
+      { idx: 2, when: 1777986756000, tag: "0002_add_starred_items", breakpoints: true },
     ],
   },
   migrations: {
@@ -88,6 +89,13 @@ CREATE TABLE \`routes\` (
 );
 --> statement-breakpoint
 CREATE INDEX \`idx_climbs_route_distance\` ON \`climbs\` (\`routeId\`,\`startDistanceMeters\`);
+`,
+    m0002: `CREATE TABLE \`starred_items\` (
+	\`entityType\` text NOT NULL,
+	\`entityId\` text NOT NULL,
+	\`createdAt\` text NOT NULL,
+	PRIMARY KEY(\`entityType\`, \`entityId\`)
+);
 `,
   },
 };

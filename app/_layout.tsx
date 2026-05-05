@@ -12,6 +12,7 @@ import "../global.css";
 import { useOfflineStore } from "@/store/offlineStore";
 import { useRouteStore } from "@/store/routeStore";
 import { useCollectionStore } from "@/store/collectionStore";
+import { usePoiStore } from "@/store/poiStore";
 import { COLORS } from "@/theme";
 
 export { ErrorBoundary } from "expo-router";
@@ -77,6 +78,10 @@ export default function RootLayout() {
       .getState()
       .loadCollectionMetadata()
       .catch((e) => console.warn("Collection prefetch failed:", e));
+    usePoiStore
+      .getState()
+      .loadStarredItems()
+      .catch((e) => console.warn("Starred POI prefetch failed:", e));
   }, []);
 
   // Re-detect climbs if algorithm version changed

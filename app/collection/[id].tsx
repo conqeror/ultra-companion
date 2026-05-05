@@ -3,6 +3,7 @@ import { View, useWindowDimensions, ActivityIndicator, Alert } from "react-nativ
 import { NestableScrollContainer } from "react-native-draggable-flatlist";
 import { useLocalSearchParams, useRouter, Stack } from "expo-router";
 import { Camera, MapView as MapboxMapView } from "@rnmapbox/maps";
+import { Share2 } from "lucide-react-native";
 import { Text } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
 import { useThemeColors } from "@/theme";
@@ -24,6 +25,8 @@ import AddSegmentSheet from "@/components/collection/AddSegmentSheet";
 import CollectionOfflineSection from "@/components/collection/CollectionOfflineSection";
 import AddSavedPOISheet from "@/components/poi/AddSavedPOISheet";
 import type { SavedPOITarget } from "@/services/savedPOIService";
+import { serializeCollectionToGPX } from "@/services/gpxSerializer";
+import { shareGPXFile } from "@/utils/gpxExportShare";
 
 export default function CollectionDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -39,6 +42,7 @@ export default function CollectionDetailScreen() {
   const [stitched, setStitched] = useState<StitchedCollection | null>(null);
   const [loading, setLoading] = useState(true);
   const [isBusy, setIsBusy] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const [showAddSheet, setShowAddSheet] = useState(false);
   const [showAddPOI, setShowAddPOI] = useState(false);
 
@@ -246,6 +250,21 @@ export default function CollectionDetailScreen() {
     return stitchPOIs(stitched.segments, poisByRoute);
   }, [stitched, poisByRouteId, starredPOIIds]);
 
+  const handleExportGPX = useCallback(async () => {
+    if (!collection || !stitched) return;
+    setIsExporting(true);
+    try {
+      const gpx = serializeCollectionToGPX(collection.name, stitched, {
+        poisAsWaypoints: collectionPOIs,
+      });
+      await shareGPXFile(gpx, collection.name);
+    } catch {
+      Alert.alert("Export Failed", "Could not export this collection as GPX.");
+    } finally {
+      setIsExporting(false);
+    }
+  }, [collection, stitched, collectionPOIs]);
+
   const savedPOITargets = useMemo<SavedPOITarget[]>(() => {
     if (!stitched) return [];
     return stitched.segments
@@ -372,8 +391,14 @@ export default function CollectionDetailScreen() {
         </View>
 
         {stitched && stitched.segments.length > 0 && (
-          <View className="px-4 mt-3">
+          <View className="px-4 mt-3 gap-3">
             <Button variant="secondary" onPress={() => setShowAddPOI(true)} label="Add POI" />
+            <Button variant="secondary" onPress={handleExportGPX} disabled={isExporting}>
+              <Share2 size={18} color={colors.accent} />
+              <Text className="ml-2 text-primary font-barlow-semibold text-[15px]">
+                {isExporting ? "Exporting..." : "Export GPX"}
+              </Text>
+            </Button>
           </View>
         )}
 
