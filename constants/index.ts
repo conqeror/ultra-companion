@@ -123,6 +123,16 @@ export const POI_CATEGORIES: POICategoryMeta[] = [
   { key: "other", label: "Other", group: "other", color: "#64748B", iconName: "MapPin" },
 ];
 
+export const POI_MAP_ICON_IMAGE_SIZE = 24;
+export const POI_MAP_ICON_SYMBOL_SIZE = 0.9;
+export const POI_MAP_ICON_INSET = 8;
+export const POI_MAP_ICON_STROKE_WIDTH = 2.4;
+export const POI_MAP_ICON_PREFIX = "poi-lucide-";
+
+export function poiMapIconImageId(iconName: string): string {
+  return `${POI_MAP_ICON_PREFIX}${iconName}`;
+}
+
 export const POI_DISCOVERY_GROUPS: POIDiscoveryGroupMeta[] = [
   {
     key: "water_wc",
@@ -253,6 +263,11 @@ export function poiDiscoveryCategoriesForSource(
 
 /** How far behind the rider a POI remains visible in the list */
 export const POI_BEHIND_THRESHOLD_M = 1000;
+
+export const POI_CLUSTER_MIN_ZOOM = 8;
+export const POI_CLUSTER_MAX_ZOOM = 12;
+export const POI_CLUSTER_RADIUS = 48;
+export const POI_CLUSTER_HITBOX = 44;
 
 export const DEFAULT_CORRIDOR_WIDTH_M = 1000;
 export const MAX_CORRIDOR_WIDTH_M = 10000;
