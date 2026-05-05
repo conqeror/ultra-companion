@@ -168,6 +168,35 @@ describe("weatherService", () => {
     });
   });
 
+  it("keeps weather samples during planned stops at the stop location", async () => {
+    const points = [routePoint(0, 0), routePoint(10_000, 1), routePoint(20_000, 2)];
+    const cumulativeTime = [0, 1800, 3600];
+    mockFetchForecasts.mockResolvedValue(
+      points.map((sample) => forecast(sample.latitude, sample.longitude)),
+    );
+
+    const timeline = await buildWeatherTimeline(points, 0, cumulativeTime, {
+      projectionStartTime: new Date("2026-01-01T00:00:00.000Z"),
+      plannedStops: [
+        {
+          poiId: "stop",
+          distanceMeters: 15_000 as DisplayDistanceMeters,
+          durationSeconds: 7200,
+        },
+      ],
+    });
+
+    expect(timeline).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sampleKind: "hourly",
+          routeDistanceMeters: 15_000,
+          etaTime: "2026-01-01T01:00:00.000Z",
+        }),
+      ]),
+    );
+  });
+
   it("samples the full remaining route for all-route weather coverage", async () => {
     const points = Array.from({ length: 14 }, (_, index) => routePoint(index * 20_000, index));
     const cumulativeTime = points.map((_, index) => index * 3600);

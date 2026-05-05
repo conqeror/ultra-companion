@@ -12,12 +12,12 @@ import {
 } from "@/constants/climbHelpers";
 import { useThemeColors } from "@/theme";
 import { useClimbStore } from "@/store/climbStore";
-import { useCollectionStore } from "@/store/collectionStore";
 import { useEtaStore } from "@/store/etaStore";
 import { usePanelStore } from "@/store/panelStore";
 import { usePoiStore } from "@/store/poiStore";
 import { useRouteStore } from "@/store/routeStore";
 import { useSettingsStore } from "@/store/settingsStore";
+import { useActiveRouteTiming } from "@/hooks/useActiveRouteTiming";
 import { displayPOIsForActiveRoute } from "@/services/activePOIs";
 import {
   buildUpcomingTimeline,
@@ -31,7 +31,6 @@ import {
   plannedStopsFromPOIs,
 } from "@/services/plannedStops";
 import { formatDistance, formatDuration, formatElevation, formatETA } from "@/utils/formatters";
-import { activeRouteTiming } from "@/utils/activeRouteTiming";
 import { resolveActiveRouteProgress } from "@/utils/routeProgress";
 import {
   createRidingHorizonWindow,
@@ -67,11 +66,8 @@ export default function UpcomingTabContent({ activeData }: UpcomingTabContentPro
   const setSelectedClimb = useClimbStore((s) => s.setSelectedClimb);
   const cumulativeTime = useEtaStore((s) => s.cumulativeTime);
   const panelMode = usePanelStore((s) => s.panelMode);
-  const collections = useCollectionStore((s) => s.collections);
-  const timing = useMemo(
-    () => activeRouteTiming(activeData, collections),
-    [activeData, collections],
-  );
+  const setPanelTab = usePanelStore((s) => s.setPanelTab);
+  const timing = useActiveRouteTiming(activeData);
 
   const routeIds = useMemo(() => activeData?.routeIds ?? [], [activeData?.routeIds]);
   const segments = activeData?.segments ?? null;
@@ -168,9 +164,10 @@ export default function UpcomingTabContent({ activeData }: UpcomingTabContentPro
         event.kind === "climb-top"
       ) {
         setSelectedClimb(event.climb);
+        setPanelTab("climbs");
       }
     },
-    [setSelectedClimb, setSelectedPOI],
+    [setPanelTab, setSelectedClimb, setSelectedPOI],
   );
 
   const renderEvent = useCallback<ListRenderItem<UpcomingEvent>>(
@@ -279,11 +276,8 @@ const UpcomingEventRow = React.memo(function UpcomingEventRow({
   const departureTime =
     event.kind === "poi" ? departureTimeAfterPlannedStop(eta, plannedStopMinutes) : null;
   const hasStopInterval = plannedStopMinutes > 0 && eta != null && departureTime != null;
-  const clockLabel = hasStopInterval
-    ? `${formatETA(eta.eta)}-${formatETA(departureTime)}`
-    : eta
-      ? formatETA(eta.eta)
-      : "--:--";
+  const clockLabel = eta ? formatETA(eta.eta) : "--:--";
+  const departureLabel = departureTime ? formatETA(departureTime) : null;
   const ridingTimeLabel =
     eta && eta.ridingTimeSeconds > 0 ? `~${formatDuration(eta.ridingTimeSeconds)}` : "no ETA";
   const isPressable =
@@ -296,6 +290,7 @@ const UpcomingEventRow = React.memo(function UpcomingEventRow({
     content.title,
     content.subtitle,
     eta ? `ETA ${clockLabel}` : null,
+    hasStopInterval && departureLabel ? `depart ${departureLabel}` : null,
     `${distanceLabel} ahead`,
   ]
     .filter(Boolean)
@@ -309,15 +304,15 @@ const UpcomingEventRow = React.memo(function UpcomingEventRow({
       accessibilityRole={isPressable ? "button" : "text"}
       accessibilityLabel={accessibilityLabel}
     >
-      <View className={hasStopInterval ? "w-[92px]" : "w-[70px]"}>
-        <Text
-          className={`${
-            hasStopInterval ? "text-[17px]" : "text-[20px]"
-          } font-barlow-sc-semibold text-foreground`}
-          numberOfLines={1}
-        >
+      <View className="w-[70px]">
+        <Text className="text-[20px] font-barlow-sc-semibold text-foreground" numberOfLines={1}>
           {clockLabel}
         </Text>
+        {hasStopInterval && departureLabel && (
+          <Text className="text-[20px] font-barlow-sc-semibold text-foreground" numberOfLines={1}>
+            {departureLabel}
+          </Text>
+        )}
         <Text className="text-[12px] font-barlow-sc-medium text-muted-foreground" numberOfLines={1}>
           {ridingTimeLabel}
         </Text>
@@ -343,8 +338,13 @@ const UpcomingEventRow = React.memo(function UpcomingEventRow({
         </Text>
       </View>
 
-      <View className="ml-2 items-end w-[62px]">
-        <Text className="text-[18px] font-barlow-sc-semibold text-foreground" numberOfLines={1}>
+      <View className="ml-2 items-end w-[92px]">
+        <Text
+          className="text-[18px] font-barlow-sc-semibold text-foreground"
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.72}
+        >
           {distanceLabel}
         </Text>
         <Text className="text-[11px] font-barlow-medium text-muted-foreground" numberOfLines={1}>
@@ -390,11 +390,7 @@ function eventContent(
       const difficulty = getClimbDifficulty(event.climb.difficultyScore);
       const color = climbDifficultyColor(event.climb.difficultyScore);
       const titlePrefix =
-        event.kind === "climb-start"
-          ? "Climb starts"
-          : event.kind === "climb-top"
-            ? "Climb top"
-            : "Climb";
+        event.kind === "climb-start" ? "START" : event.kind === "climb-top" ? "END" : "Climb";
       return {
         title: `${titlePrefix}: ${event.climb.name ?? "Climb"}`,
         subtitle: `${CLIMB_DIFFICULTY_LABELS[difficulty]} · ${formatDistance(

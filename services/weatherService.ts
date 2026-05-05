@@ -207,24 +207,35 @@ function ridingTimeToRoutePosition(
   }
 
   if (targetElapsedSeconds <= 0) {
-    const start = interpolateRoutePointAtDistance(points, startDist);
-    return start
-      ? {
-          latitude: start.latitude,
-          longitude: start.longitude,
-          distanceAlongRouteM: 0,
-          routeDistanceMeters: startDist,
-          index: start.nearestIndex,
-          segmentIndex: start.segmentIndex,
-        }
-      : null;
+    return waypointAtRouteDistance(points, startDist, startDist);
+  }
+
+  const stopPlan = plannedStops ?? [];
+  for (const stop of stopPlan) {
+    if (stop.distanceMeters <= startDist || stop.distanceMeters >= routeEndMeters) continue;
+    const arrivalEta = etaToDistanceWithStops(
+      cumulativeTime,
+      points,
+      startDist,
+      stop.distanceMeters,
+      stopPlan,
+    );
+    if (!arrivalEta) continue;
+    const stopArrivalSeconds = arrivalEta.ridingTimeSeconds;
+    const stopDepartureSeconds = stopArrivalSeconds + stop.durationSeconds;
+    if (
+      targetElapsedSeconds >= stopArrivalSeconds &&
+      targetElapsedSeconds <= stopDepartureSeconds
+    ) {
+      return waypointAtRouteDistance(points, startDist, stop.distanceMeters);
+    }
   }
 
   let lo = startDist;
   let hi = routeEndMeters;
   for (let i = 0; i < 24; i++) {
     const mid = lo + (hi - lo) / 2;
-    const eta = etaToDistanceWithStops(cumulativeTime, points, startDist, mid, plannedStops);
+    const eta = etaToDistanceWithStops(cumulativeTime, points, startDist, mid, stopPlan);
     if ((eta?.ridingTimeSeconds ?? 0) < targetElapsedSeconds) {
       lo = mid;
     } else {
@@ -255,6 +266,23 @@ function ridingTimeToRoutePosition(
     routeDistanceMeters: routeEndMeters,
     index: finish.nearestIndex,
     segmentIndex: finish.segmentIndex,
+  };
+}
+
+function waypointAtRouteDistance(
+  points: RoutePoint[],
+  startDist: number,
+  routeDistanceMeters: number,
+): WeatherWaypoint | null {
+  const point = interpolateRoutePointAtDistance(points, routeDistanceMeters);
+  if (!point) return null;
+  return {
+    latitude: point.latitude,
+    longitude: point.longitude,
+    distanceAlongRouteM: routeDistanceMeters - startDist,
+    routeDistanceMeters,
+    index: point.nearestIndex,
+    segmentIndex: point.segmentIndex,
   };
 }
 

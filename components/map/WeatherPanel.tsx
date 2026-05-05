@@ -27,6 +27,7 @@ import { useEtaStore } from "@/store/etaStore";
 import { useOfflineStore } from "@/store/offlineStore";
 import { useCollectionStore } from "@/store/collectionStore";
 import { usePoiStore } from "@/store/poiStore";
+import { useActiveRouteTiming } from "@/hooks/useActiveRouteTiming";
 import { formatTimeAgo } from "@/utils/formatters";
 import { activeRouteTiming } from "@/utils/activeRouteTiming";
 import { ridingHorizonMetersForMode } from "@/utils/ridingHorizon";
@@ -413,11 +414,7 @@ function ForecastStatus({
   const lastRefreshOutcome = useWeatherStore((s) => s.lastRefreshOutcome);
   const lastRefreshMessage = useWeatherStore((s) => s.lastRefreshMessage);
   const isConnected = useOfflineStore((s) => s.isConnected);
-  const collections = useCollectionStore((s) => s.collections);
-  const timing = useMemo(
-    () => activeRouteTiming(activeData, collections),
-    [activeData, collections],
-  );
+  const timing = useActiveRouteTiming(activeData);
 
   const statusBase =
     fetchStatus === "fetching"

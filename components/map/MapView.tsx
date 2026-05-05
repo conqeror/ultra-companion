@@ -11,6 +11,7 @@ import { SHEET_COMPACT_RATIO, SHEET_EXPANDED_RATIO } from "@/constants";
 import { useThemeColors } from "@/theme";
 import { useMapStyle } from "@/hooks/useMapStyle";
 import { useRouteGeometryZoom } from "@/hooks/useRouteGeometryZoom";
+import { useActiveRouteTiming } from "@/hooks/useActiveRouteTiming";
 import { GPS_STALE_THRESHOLD_MS } from "@/constants";
 import MapControls from "./MapControls";
 import RouteLayer from "./RouteLayer";
@@ -23,7 +24,6 @@ import { displayPOIsForActiveRoute } from "@/services/activePOIs";
 import { resolveActiveClimb } from "@/utils/climbSelect";
 import { getClimbMapBounds, getZoomLevelToFitBounds } from "@/utils/climbGeometry";
 import { isClimbAtLeastDifficulty } from "@/constants/climbHelpers";
-import { activeRouteTiming } from "@/utils/activeRouteTiming";
 import { resolveActiveRouteProgress } from "@/utils/routeProgress";
 import { plannedStopsFromPOIs } from "@/services/plannedStops";
 import {
@@ -110,11 +110,7 @@ export default function MapScreen() {
   // Unified active context — works for both standalone routes and collections
   const activeData = useActiveRouteData();
   const activeRoutePoints = activeData?.points ?? null;
-  const collections = useCollectionStore((s) => s.collections);
-  const timing = useMemo(
-    () => activeRouteTiming(activeData, collections),
-    [activeData, collections],
-  );
+  const timing = useActiveRouteTiming(activeData);
   const activeRouteIds = useMemo(() => activeData?.routeIds ?? [], [activeData?.routeIds]);
   const plannedStops = useMemo(
     () =>
