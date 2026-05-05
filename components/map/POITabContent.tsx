@@ -47,12 +47,15 @@ import POIFilterBar from "@/components/map/POIFilterBar";
 import POIListItem from "@/components/poi/POIListItem";
 import AddSavedPOISheet from "@/components/poi/AddSavedPOISheet";
 import type { ActiveRouteData, DisplayPOI, POI, StitchedSegmentInfo } from "@/types";
+import { getPOINotes, isGoogleDerivedPOI, type SavedPOITarget } from "@/services/savedPOIService";
 import {
-  getGoogleMapsUrlForPOI,
-  getPOINotes,
-  isGoogleDerivedPOI,
-  type SavedPOITarget,
-} from "@/services/savedPOIService";
+  buildPhoneUrl,
+  getPoiAddress,
+  getPoiExtraDetailFields,
+  getPoiMapUrl,
+  getPoiPhone,
+  getPoiWebsiteUrl,
+} from "@/utils/poiActions";
 
 interface POITabContentProps {
   activeData: ActiveRouteData | null;
@@ -604,21 +607,13 @@ function InlinePOIDetail({
     return isOpenAt(openingHoursRaw, etaResult.eta);
   }, [etaResult, openingHoursRaw]);
 
-  const address = useMemo(() => {
-    const t = poi.tags;
-    if (t.formatted_address) return t.formatted_address;
-    const parts: string[] = [];
-    if (t["addr:street"]) {
-      const num = t["addr:housenumber"] ? ` ${t["addr:housenumber"]}` : "";
-      parts.push(`${t["addr:street"]}${num}`);
-    }
-    if (t["addr:city"]) parts.push(t["addr:city"]);
-    return parts.length > 0 ? parts.join(", ") : null;
-  }, [poi]);
-
-  const phone = poi.tags?.phone ?? poi.tags?.["contact:phone"] ?? null;
+  const address = useMemo(() => getPoiAddress(poi), [poi]);
+  const phone = useMemo(() => getPoiPhone(poi), [poi]);
+  const phoneUrl = useMemo(() => (phone ? buildPhoneUrl(phone) : null), [phone]);
+  const websiteUrl = useMemo(() => getPoiWebsiteUrl(poi), [poi]);
+  const extraDetailFields = useMemo(() => getPoiExtraDetailFields(poi), [poi]);
   const notes = getPOINotes(poi);
-  const googleMapsUrl = useMemo(() => getGoogleMapsUrlForPOI(poi), [poi]);
+  const mapUrl = useMemo(() => getPoiMapUrl(poi), [poi]);
 
   const handleEditNotes = useCallback(() => {
     Alert.prompt(
@@ -651,12 +646,25 @@ function InlinePOIDetail({
     ]);
   }, [deleteCustomPOI, poi.id, poi.routeId]);
 
-  const handleOpenGoogleMaps = useCallback(() => {
-    if (!googleMapsUrl) return;
-    Linking.openURL(googleMapsUrl).catch(() => {
-      Alert.alert("Open Failed", "Could not open Google Maps.");
+  const handleOpenMaps = useCallback(() => {
+    Linking.openURL(mapUrl).catch(() => {
+      Alert.alert("Open Failed", "Could not open this POI in Maps.");
     });
-  }, [googleMapsUrl]);
+  }, [mapUrl]);
+
+  const handleCallPhone = useCallback(() => {
+    if (!phoneUrl) return;
+    Linking.openURL(phoneUrl).catch(() => {
+      Alert.alert("Call Failed", "Could not start a call for this POI.");
+    });
+  }, [phoneUrl]);
+
+  const handleOpenWebsite = useCallback(() => {
+    if (!websiteUrl) return;
+    Linking.openURL(websiteUrl).catch(() => {
+      Alert.alert("Open Failed", "Could not open this POI website.");
+    });
+  }, [websiteUrl]);
 
   return (
     <ScrollView className="flex-1 px-3 pt-1">
@@ -768,12 +776,45 @@ function InlinePOIDetail({
         </View>
       )}
 
-      {phone && (
+      {phone && !phoneUrl && (
         <View className="flex-row items-center mt-2">
           <Phone size={13} color={colors.textSecondary} />
           <Text className="ml-1.5 text-[13px] text-muted-foreground font-barlow">{phone}</Text>
         </View>
       )}
+
+      {phone && phoneUrl && (
+        <TouchableOpacity
+          className="flex-row items-center min-h-[48px] mt-1"
+          onPress={handleCallPhone}
+          accessibilityLabel={`Call ${phone}`}
+        >
+          <Phone size={13} color={colors.textSecondary} />
+          <Text className="ml-1.5 text-[13px] text-primary font-barlow-semibold">{phone}</Text>
+        </TouchableOpacity>
+      )}
+
+      {websiteUrl && (
+        <TouchableOpacity
+          className="flex-row items-center min-h-[48px] mt-1"
+          onPress={handleOpenWebsite}
+          accessibilityLabel="Open POI website"
+        >
+          <ExternalLink size={14} color={colors.accent} />
+          <Text className="ml-2 text-[14px] font-barlow-medium text-primary">Website</Text>
+        </TouchableOpacity>
+      )}
+
+      {extraDetailFields.map((field) => (
+        <View key={`${field.label}:${field.value}`} className="mt-2 flex-row">
+          <Text className="w-[84px] text-[12px] font-barlow-semibold text-muted-foreground">
+            {field.label}
+          </Text>
+          <Text className="flex-1 text-[12px] font-barlow-medium text-foreground">
+            {field.value}
+          </Text>
+        </View>
+      ))}
 
       {notes ? (
         <View className="mt-3">
@@ -782,18 +823,14 @@ function InlinePOIDetail({
         </View>
       ) : null}
 
-      {googleMapsUrl && (
-        <TouchableOpacity
-          className="flex-row items-center min-h-[48px] mt-2"
-          onPress={handleOpenGoogleMaps}
-          accessibilityLabel="Open in Google Maps"
-        >
-          <ExternalLink size={14} color={colors.accent} />
-          <Text className="ml-2 text-[14px] font-barlow-medium text-primary">
-            Open in Google Maps
-          </Text>
-        </TouchableOpacity>
-      )}
+      <TouchableOpacity
+        className="flex-row items-center min-h-[48px] mt-2"
+        onPress={handleOpenMaps}
+        accessibilityLabel="Open in Maps"
+      >
+        <ExternalLink size={14} color={colors.accent} />
+        <Text className="ml-2 text-[14px] font-barlow-medium text-primary">Open in Maps</Text>
+      </TouchableOpacity>
 
       {poi.source === "custom" && (
         <View className="mt-1">

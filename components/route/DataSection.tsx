@@ -1,8 +1,9 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { View, Alert } from "react-native";
 import { Text } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
 import type { POIFetchedSource, RoutePoint } from "@/types";
+import { poiDiscoveryCategoriesForSource } from "@/constants";
 import { usePoiStore, DEFAULT_SOURCE_INFO, type SourceInfo } from "@/store/poiStore";
 import { useOfflineStore } from "@/store/offlineStore";
 import { formatFileSize } from "@/utils/formatters";
@@ -42,12 +43,21 @@ export default function DataSection({ routeId, points }: DataSectionProps) {
   // POI state — subscribe to raw state so Zustand re-renders on changes
   const osmInfo = usePoiStore((s) => s.sourceInfo[routeId]?.osm) ?? DEFAULT_SOURCE_INFO;
   const googleInfo = usePoiStore((s) => s.sourceInfo[routeId]?.google) ?? DEFAULT_SOURCE_INFO;
+  const discoveryCategories = usePoiStore((s) => s.discoveryCategories);
   const fetchSource = usePoiStore((s) => s.fetchSource);
   const clearSource = usePoiStore((s) => s.clearSource);
+  const googleDiscoveryEnabled = useMemo(
+    () => poiDiscoveryCategoriesForSource(discoveryCategories, "google").length > 0,
+    [discoveryCategories],
+  );
+  const osmDiscoveryEnabled = useMemo(
+    () => poiDiscoveryCategoriesForSource(discoveryCategories, "osm").length > 0,
+    [discoveryCategories],
+  );
   const osmFetching = osmInfo.status === "fetching";
   const googleFetching = googleInfo.status === "fetching";
-  const osmReady = isSourceReady(osmInfo);
-  const googleReady = isSourceReady(googleInfo);
+  const osmReady = !osmDiscoveryEnabled || isSourceReady(osmInfo);
+  const googleReady = !googleDiscoveryEnabled || isSourceReady(googleInfo);
   const routeOfflineReady = tilesReady && osmReady && googleReady;
   const hasBusySource = osmFetching || googleFetching;
   const prepBusy = isPreparingOffline || tilesDownloading || hasBusySource;
@@ -93,8 +103,8 @@ export default function DataSection({ routeId, points }: DataSectionProps) {
           </Text>
           <Text className="text-[13px] text-muted-foreground font-barlow mt-1">
             {routeOfflineReady
-              ? "Map tiles, Google Places, and OpenStreetMap ready"
-              : "Map tiles + missing Google Places and OpenStreetMap"}
+              ? "Map tiles and enabled POI sources ready"
+              : "Map tiles + missing enabled POI sources"}
           </Text>
         </View>
         <Button
@@ -162,6 +172,7 @@ export default function DataSection({ routeId, points }: DataSectionProps) {
         onFetch={() => fetchSource(routeId, "google", points)}
         onDelete={() => handleDeleteSource("google", "Google Places data")}
         isConnected={isConnected}
+        discoveryEnabled={googleDiscoveryEnabled}
       />
 
       {/* OSM / Overpass */}
@@ -171,6 +182,7 @@ export default function DataSection({ routeId, points }: DataSectionProps) {
         onFetch={() => fetchSource(routeId, "osm", points)}
         onDelete={() => handleDeleteSource("osm", "OSM data")}
         isConnected={isConnected}
+        discoveryEnabled={osmDiscoveryEnabled}
       />
     </View>
   );
@@ -221,12 +233,14 @@ function SourceRow({
   onFetch,
   onDelete,
   isConnected,
+  discoveryEnabled,
 }: {
   title: string;
   info: SourceInfo;
   onFetch: () => void;
   onDelete: () => void;
   isConnected: boolean;
+  discoveryEnabled: boolean;
 }) {
   const isFetching = info.status === "fetching";
   const hasData = isSourceReady(info);
@@ -243,7 +257,9 @@ function SourceRow({
               : "Fetching..."
             : hasData
               ? `${info.count} POIs`
-              : "Not fetched"
+              : discoveryEnabled
+                ? "Not fetched"
+                : "Disabled in settings"
         }
         timestamp={info.fetchedAt ? formatDate(info.fetchedAt) : null}
         error={info.status === "error" ? info.error : null}
@@ -253,7 +269,7 @@ function SourceRow({
           <Button
             size="sm"
             variant={hasData ? "secondary" : "default"}
-            disabled={isFetching || !isConnected}
+            disabled={isFetching || !isConnected || !discoveryEnabled}
             onPress={onFetch}
             label={isFetching ? "Fetching..." : hasData ? "Refresh" : "Fetch"}
           />

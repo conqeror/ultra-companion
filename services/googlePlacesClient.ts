@@ -1,6 +1,10 @@
+import Constants from "expo-constants";
 import type { RoutePoint, POICategory } from "@/types";
+import { GOOGLE_POI_DISCOVERY_CATEGORIES } from "@/constants";
 import { downsampleRoutePointsByDistance, splitRoutePointsByDistance } from "@/utils/geo";
 import type { ClassifiedPOI } from "./poiClassifier";
+
+const BUNDLE_ID = Constants.expoConfig?.ios?.bundleIdentifier ?? "";
 
 // --- Google Places API response types ---
 
@@ -101,9 +105,28 @@ export function inferPOICategoryFromGoogleTypes(types: string[]): POICategory {
     return "groceries";
   }
   if (t.has("bakery")) return "bakery";
+  if (t.has("cafe") || t.has("coffee_shop")) return "coffee";
+  if (
+    t.has("restaurant") ||
+    t.has("meal_takeaway") ||
+    t.has("fast_food_restaurant") ||
+    t.has("pizza_restaurant")
+  ) {
+    return "restaurant";
+  }
+  if (t.has("bar") || t.has("pub") || t.has("wine_bar")) return "bar_pub";
   if (t.has("drinking_water")) return "water";
   if (t.has("public_bathroom") || t.has("restroom")) return "toilet_shower";
-  if (t.has("lodging") || t.has("campground") || t.has("rv_park")) return "shelter";
+  if (t.has("campground") || t.has("rv_park")) return "camp_site";
+  if (t.has("lodging")) return "shelter";
+  if (t.has("pharmacy") || t.has("drugstore")) return "pharmacy";
+  if (t.has("hospital") || t.has("emergency_room")) return "hospital_er";
+  if (t.has("bicycle_store")) return "bike_shop";
+  if (t.has("train_station") || t.has("transit_station") || t.has("subway_station")) {
+    return "train_station";
+  }
+  if (t.has("school")) return "school";
+  if (t.has("athletic_field") || t.has("fitness_center") || t.has("gym")) return "sports";
   return "other";
 }
 
@@ -140,7 +163,21 @@ const SEARCHES: { textQuery: string; includedType?: string; category: POICategor
   { textQuery: "gas station", includedType: "gas_station", category: "gas_station" },
   { textQuery: "grocery store", category: "groceries" },
   { textQuery: "bakery", category: "bakery" },
+  { textQuery: "cafe", includedType: "cafe", category: "coffee" },
+  { textQuery: "restaurant", includedType: "restaurant", category: "restaurant" },
+  { textQuery: "bar or pub", includedType: "bar", category: "bar_pub" },
+  { textQuery: "pharmacy", includedType: "pharmacy", category: "pharmacy" },
+  { textQuery: "bicycle shop", category: "bike_shop" },
 ];
+
+function googlePlacesHeaders(apiKey: string, fieldMask: string): Record<string, string> {
+  return {
+    "Content-Type": "application/json",
+    "X-Goog-Api-Key": apiKey,
+    "X-Goog-FieldMask": fieldMask,
+    ...(BUNDLE_ID ? { "X-Ios-Bundle-Identifier": BUNDLE_ID } : {}),
+  };
+}
 
 /** Fetch all pages of a Text Search Along Route query (max 60 results) */
 async function searchAlongRoute(
@@ -165,11 +202,7 @@ async function searchAlongRoute(
 
     const response = await fetch("https://places.googleapis.com/v1/places:searchText", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Goog-Api-Key": apiKey,
-        "X-Goog-FieldMask": FIELD_MASK,
-      },
+      headers: googlePlacesHeaders(apiKey, FIELD_MASK),
       body: JSON.stringify(body),
     });
 
@@ -199,11 +232,7 @@ export async function fetchGooglePlaceDetails(
 ): Promise<GooglePlace> {
   const response = await fetch(`https://places.googleapis.com/v1/places/${placeId}`, {
     method: "GET",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Goog-Api-Key": apiKey,
-      "X-Goog-FieldMask": DETAILS_FIELD_MASK,
-    },
+    headers: googlePlacesHeaders(apiKey, DETAILS_FIELD_MASK),
   });
 
   if (!response.ok) {
@@ -220,11 +249,7 @@ export async function fetchGooglePlaceTextSearch(
 ): Promise<GooglePlace | null> {
   const response = await fetch("https://places.googleapis.com/v1/places:searchText", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Goog-Api-Key": apiKey,
-      "X-Goog-FieldMask": FIELD_MASK,
-    },
+    headers: googlePlacesHeaders(apiKey, FIELD_MASK),
     body: JSON.stringify({ textQuery, pageSize: 1 }),
   });
 
@@ -254,14 +279,22 @@ function samePolylinePoint(
 export async function fetchGooglePlacesPOIs(
   routePoints: RoutePoint[],
   apiKey: string,
+  discoveryCategories: POICategory[] = GOOGLE_POI_DISCOVERY_CATEGORIES,
   onProgress?: (done: number, total: number) => void,
 ): Promise<ClassifiedPOI[]> {
+  const enabled = new Set(discoveryCategories);
+  const searches = SEARCHES.filter((search) => enabled.has(search.category));
+  if (searches.length === 0 || routePoints.length === 0) {
+    onProgress?.(0, 0);
+    return [];
+  }
+
   const segments = splitRoutePointsByDistance(routePoints, {
     maxSegmentLengthMeters: MAX_SEGMENT_M,
     balanceSegments: true,
     includeShortRoute: true,
   });
-  const totalSteps = segments.length * SEARCHES.length;
+  const totalSteps = segments.length * searches.length;
   let step = 0;
 
   const seen = new Set<string>();
@@ -279,7 +312,7 @@ export async function fetchGooglePlacesPOIs(
 
     // Run all search types in parallel within each segment
     const searchResults = await Promise.all(
-      SEARCHES.map((search) =>
+      searches.map((search) =>
         searchAlongRoute(search.textQuery, search.includedType, encodedPolyline, apiKey).then(
           (places) => ({ places, category: search.category }),
         ),
@@ -302,7 +335,7 @@ export async function fetchGooglePlacesPOIs(
       }
     }
 
-    step += SEARCHES.length;
+    step += searches.length;
   }
 
   onProgress?.(totalSteps, totalSteps);

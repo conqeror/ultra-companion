@@ -1,13 +1,14 @@
 import React, { useState, useMemo, useCallback } from "react";
 import { View, TouchableOpacity, ScrollView, TextInput } from "react-native";
 import { Text } from "@/components/ui/text";
-import { ChevronDown, ChevronUp } from "lucide-react-native";
+import { Check, ChevronDown, ChevronUp } from "lucide-react-native";
 import { cn } from "@/lib/cn";
 import { useThemeColors } from "@/theme";
 import { useSettingsStore } from "@/store/settingsStore";
 import { useEtaStore } from "@/store/etaStore";
 import { usePoiStore } from "@/store/poiStore";
 import { solveVelocity } from "@/services/powerModel";
+import { POI_DISCOVERY_GROUPS } from "@/constants";
 import type { UnitSystem } from "@/types";
 import StorageSection from "@/components/offline/StorageSection";
 
@@ -102,6 +103,43 @@ function NumericInput({
   );
 }
 
+function DiscoveryGroupRow({
+  label,
+  detail,
+  enabled,
+  onPress,
+}: {
+  label: string;
+  detail: string;
+  enabled: boolean;
+  onPress: () => void;
+}) {
+  const colors = useThemeColors();
+
+  return (
+    <TouchableOpacity
+      className="min-h-[64px] flex-row items-center py-3"
+      onPress={onPress}
+      accessibilityRole="switch"
+      accessibilityState={{ checked: enabled }}
+      accessibilityLabel={`${enabled ? "Disable" : "Enable"} ${label} POI discovery`}
+    >
+      <View
+        className={cn(
+          "w-[28px] h-[28px] rounded-full items-center justify-center border",
+          enabled ? "bg-primary border-primary" : "bg-transparent border-border",
+        )}
+      >
+        {enabled && <Check size={16} color={colors.accentForeground} />}
+      </View>
+      <View className="flex-1 ml-3">
+        <Text className="text-[15px] font-barlow-semibold text-foreground">{label}</Text>
+        <Text className="text-[12px] font-barlow text-muted-foreground mt-0.5">{detail}</Text>
+      </View>
+    </TouchableOpacity>
+  );
+}
+
 export default function SettingsScreen() {
   const { units, setUnits } = useSettingsStore();
   const colors = useThemeColors();
@@ -109,7 +147,19 @@ export default function SettingsScreen() {
   const updatePowerConfig = useEtaStore((s) => s.updatePowerConfig);
   const corridorWidthM = usePoiStore((s) => s.corridorWidthM);
   const setCorridorWidth = usePoiStore((s) => s.setCorridorWidth);
+  const discoveryCategories = usePoiStore((s) => s.discoveryCategories);
+  const setDiscoveryGroupEnabled = usePoiStore((s) => s.setDiscoveryGroupEnabled);
+  const resetDiscoveryCategories = usePoiStore((s) => s.resetDiscoveryCategories);
   const [showAdvanced, setShowAdvanced] = useState(false);
+
+  const discoverySet = useMemo(() => new Set(discoveryCategories), [discoveryCategories]);
+  const enabledDiscoveryGroupCount = useMemo(
+    () =>
+      POI_DISCOVERY_GROUPS.filter((group) =>
+        group.categories.every((category) => discoverySet.has(category)),
+      ).length,
+    [discoverySet],
+  );
 
   const flatSpeedKmh = useMemo(() => {
     const v = solveVelocity(0, powerConfig);
@@ -129,6 +179,38 @@ export default function SettingsScreen() {
         value={String(corridorWidthM)}
         onChange={(v) => setCorridorWidth(Number(v))}
       />
+
+      <View className="flex-row items-end justify-between mt-6 mb-3">
+        <View>
+          <Text className="text-[22px] font-barlow-semibold text-foreground">POI Discovery</Text>
+          <Text className="text-[12px] text-muted-foreground font-barlow mt-0.5">
+            {enabledDiscoveryGroupCount}/{POI_DISCOVERY_GROUPS.length} groups enabled
+          </Text>
+        </View>
+        <TouchableOpacity
+          className="min-h-[48px] px-3 items-center justify-center"
+          onPress={resetDiscoveryCategories}
+          accessibilityLabel="Reset POI discovery defaults"
+        >
+          <Text className="text-[14px] font-barlow-semibold text-primary">Reset</Text>
+        </TouchableOpacity>
+      </View>
+      <View className="bg-card rounded-xl px-4">
+        {POI_DISCOVERY_GROUPS.map((group, index) => {
+          const enabled = group.categories.every((category) => discoverySet.has(category));
+          return (
+            <React.Fragment key={group.key}>
+              {index > 0 && <View className="border-b border-border" />}
+              <DiscoveryGroupRow
+                label={group.label}
+                detail={group.detail}
+                enabled={enabled}
+                onPress={() => setDiscoveryGroupEnabled(group.categories, !enabled)}
+              />
+            </React.Fragment>
+          );
+        })}
+      </View>
 
       <Text className="text-[22px] font-barlow-semibold text-foreground mt-8 mb-1">
         ETA Calculator
