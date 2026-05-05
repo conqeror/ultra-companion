@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { poiMapIconImageId } from "@/constants";
+import {
+  POI_CLUSTER_SUMMARY_CATEGORIES,
+  POI_CLUSTER_SUMMARY_PRIORITY_PROPERTY,
+  poiClusterSummaryProperty,
+  poiMapIconImageId,
+} from "@/constants";
 import { buildPoi } from "@/tests/fixtures/poi";
-import { buildPOIMapFeatureCollections } from "@/utils/poiMapFeatures";
+import { buildPOIClusterProperties, buildPOIMapFeatureCollections } from "@/utils/poiMapFeatures";
 import type { DisplayPOI } from "@/types";
 
 function buildDisplayPoi(id: string, overrides: Parameters<typeof buildPoi>[3] = {}): DisplayPOI {
@@ -36,6 +41,7 @@ describe("buildPOIMapFeatureCollections", () => {
         category: "water",
         color: "#3B82F6",
         iconImage: poiMapIconImageId("Droplets"),
+        clusterSummaryPriority: 4,
         name: "",
         starred: 0,
       },
@@ -50,6 +56,7 @@ describe("buildPOIMapFeatureCollections", () => {
         category: "gas_station",
         color: "#F97316",
         iconImage: poiMapIconImageId("Fuel"),
+        clusterSummaryPriority: 1,
         name: "Fuel Stop",
         starred: 1,
       },
@@ -58,5 +65,29 @@ describe("buildPOIMapFeatureCollections", () => {
         coordinates: [17.2, 48.2],
       },
     });
+  });
+});
+
+describe("buildPOIClusterProperties", () => {
+  it("aggregates prioritized category counts for cluster summaries", () => {
+    const result = buildPOIClusterProperties();
+
+    expect(Object.keys(result)).toEqual([
+      POI_CLUSTER_SUMMARY_PRIORITY_PROPERTY,
+      ...POI_CLUSTER_SUMMARY_CATEGORIES.map((category) => poiClusterSummaryProperty(category)),
+    ]);
+    expect(result[POI_CLUSTER_SUMMARY_PRIORITY_PROPERTY]).toEqual([
+      "min",
+      ["get", "clusterSummaryPriority"],
+    ]);
+    expect(result[poiClusterSummaryProperty("gas_station")]).toEqual([
+      "+",
+      ["case", ["==", ["get", "category"], "gas_station"], 1, 0],
+    ]);
+    expect(POI_CLUSTER_SUMMARY_CATEGORIES.slice(0, 3)).toEqual([
+      "groceries",
+      "gas_station",
+      "bakery",
+    ]);
   });
 });

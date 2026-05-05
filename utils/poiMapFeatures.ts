@@ -1,14 +1,24 @@
-import { POI_CATEGORIES, poiMapIconImageId } from "@/constants";
+import {
+  POI_CATEGORIES,
+  POI_CLUSTER_SUMMARY_CATEGORIES,
+  POI_CLUSTER_SUMMARY_PRIORITY_PROPERTY,
+  poiClusterSummaryProperty,
+  poiMapIconImageIdForCategory,
+} from "@/constants";
 import type { DisplayPOI, POICategory } from "@/types";
 
 const categoryColorMap = Object.fromEntries(POI_CATEGORIES.map((c) => [c.key, c.color]));
-const categoryIconMap = Object.fromEntries(POI_CATEGORIES.map((c) => [c.key, c.iconName]));
+const categorySummaryPriorityMap = Object.fromEntries(
+  POI_CLUSTER_SUMMARY_CATEGORIES.map((category, index) => [category, index]),
+);
+const fallbackSummaryPriority = POI_CLUSTER_SUMMARY_CATEGORIES.length;
 
 export interface POIMapFeatureProperties {
   poiId: string;
   category: POICategory;
   color: string;
   iconImage: string;
+  clusterSummaryPriority: number;
   name: string;
   starred: 0 | 1;
 }
@@ -40,7 +50,8 @@ export function buildPOIMapFeature(poi: DisplayPOI, starred: boolean): POIMapFea
       poiId: poi.id,
       category: poi.category,
       color,
-      iconImage: poiMapIconImageId(categoryIconMap[poi.category] ?? "MapPin"),
+      iconImage: poiMapIconImageIdForCategory(poi.category),
+      clusterSummaryPriority: clusterSummaryPriorityForCategory(poi.category),
       name: poi.name ?? "",
       starred: starred ? 1 : 0,
     },
@@ -49,6 +60,22 @@ export function buildPOIMapFeature(poi: DisplayPOI, starred: boolean): POIMapFea
       coordinates: [poi.longitude, poi.latitude],
     },
   };
+}
+
+export function buildPOIClusterProperties(): Record<string, unknown[]> {
+  return {
+    [POI_CLUSTER_SUMMARY_PRIORITY_PROPERTY]: ["min", ["get", "clusterSummaryPriority"]],
+    ...Object.fromEntries(
+      POI_CLUSTER_SUMMARY_CATEGORIES.map((category) => [
+        poiClusterSummaryProperty(category),
+        ["+", ["case", ["==", ["get", "category"], category], 1, 0]],
+      ]),
+    ),
+  };
+}
+
+function clusterSummaryPriorityForCategory(category: POICategory): number {
+  return categorySummaryPriorityMap[category] ?? fallbackSummaryPriority;
 }
 
 export function buildPOIMapFeatureCollections(

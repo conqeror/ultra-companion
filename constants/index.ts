@@ -133,6 +133,46 @@ export function poiMapIconImageId(iconName: string): string {
   return `${POI_MAP_ICON_PREFIX}${iconName}`;
 }
 
+export function poiMapIconImageIdForCategory(category: POICategory): string {
+  const meta = POI_CATEGORIES.find((c) => c.key === category);
+  return poiMapIconImageId(meta?.iconName ?? "MapPin");
+}
+
+export const POI_CLUSTER_SUMMARY_CATEGORIES = [
+  "groceries",
+  "gas_station",
+  "bakery",
+  "toilet_shower",
+  "water",
+  "shelter",
+  "bus_stop",
+  "camp_site",
+  "bike_shop",
+  "repair_station",
+  "pump_air",
+  "pharmacy",
+  "hospital_er",
+  "defibrillator",
+  "emergency_phone",
+  "ambulance_station",
+  "train_station",
+  "coffee",
+  "restaurant",
+  "bar_pub",
+  "sports",
+  "cemetery",
+  "school",
+  "other",
+] as const satisfies readonly POICategory[];
+
+export const POI_CLUSTER_SUMMARY_ICON_SYMBOL_SIZE = 0.82;
+export const POI_CLUSTER_SUMMARY_PROPERTY_PREFIX = "poi_cluster_summary_";
+export const POI_CLUSTER_SUMMARY_PRIORITY_PROPERTY = "poi_cluster_summary_priority";
+
+export function poiClusterSummaryProperty(category: POICategory): string {
+  return `${POI_CLUSTER_SUMMARY_PROPERTY_PREFIX}${category}`;
+}
+
 export const POI_DISCOVERY_GROUPS: POIDiscoveryGroupMeta[] = [
   {
     key: "water_wc",

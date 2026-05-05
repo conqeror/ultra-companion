@@ -9,12 +9,18 @@ import {
   POI_CLUSTER_MAX_ZOOM,
   POI_CLUSTER_MIN_ZOOM,
   POI_CLUSTER_RADIUS,
+  POI_CLUSTER_SUMMARY_CATEGORIES,
+  POI_CLUSTER_SUMMARY_ICON_SYMBOL_SIZE,
+  POI_CLUSTER_SUMMARY_PRIORITY_PROPERTY,
   POI_MAP_ICON_SYMBOL_SIZE,
+  poiClusterSummaryProperty,
+  poiMapIconImageId,
+  poiMapIconImageIdForCategory,
 } from "@/constants";
 import { haversineDistance } from "@/utils/geo";
 import { toDisplayPOIs } from "@/services/displayDistance";
 import { stitchPOIs } from "@/services/stitchingService";
-import { buildPOIMapFeatureCollections } from "@/utils/poiMapFeatures";
+import { buildPOIClusterProperties, buildPOIMapFeatureCollections } from "@/utils/poiMapFeatures";
 import POIMapImages from "./POIMapImages";
 import {
   createRidingHorizonWindow,
@@ -26,6 +32,10 @@ import type { DisplayPOI, POI, StitchedSegmentInfo } from "@/types";
 const CLUSTER_FILTER = ["has", "point_count"] as const;
 const UNCLUSTERED_FILTER = ["!", ["has", "point_count"]] as const;
 const POI_ICON_COLOR = "#FFFFFF";
+const CLUSTER_OVERFLOW_TEXT_OFFSET = [0.45, 0];
+const POI_CLUSTER_PROPERTIES = buildPOIClusterProperties();
+
+type MapboxExpression = unknown[];
 
 interface ShapeSourcePressEvent {
   features?: GeoJSON.Feature[];
@@ -86,6 +96,74 @@ function findPressedPOI(
 
   const id = features[0]?.properties?.poiId;
   return typeof id === "string" ? pois.find((p) => p.id === id) : undefined;
+}
+
+function clusterCategoryCountExpression(category: (typeof POI_CLUSTER_SUMMARY_CATEGORIES)[number]) {
+  return ["coalesce", ["get", poiClusterSummaryProperty(category)], 0];
+}
+
+function clusterHasCategoryExpression(category: (typeof POI_CLUSTER_SUMMARY_CATEGORIES)[number]) {
+  return [">", clusterCategoryCountExpression(category), 0];
+}
+
+function countExpressions(expressions: MapboxExpression[]): number | MapboxExpression {
+  if (expressions.length === 0) return 0;
+  if (expressions.length === 1) return expressions[0];
+  return ["+", ...expressions];
+}
+
+function clusterPresentCategoryCountExpression(): number | MapboxExpression {
+  return countExpressions(
+    POI_CLUSTER_SUMMARY_CATEGORIES.map((category) => [
+      "case",
+      clusterHasCategoryExpression(category),
+      1,
+      0,
+    ]),
+  );
+}
+
+const CLUSTER_SUMMARY_TOTAL_EXPRESSION = clusterPresentCategoryCountExpression();
+const CLUSTER_SUMMARY_PRIORITY_EXPRESSION = [
+  "coalesce",
+  ["get", POI_CLUSTER_SUMMARY_PRIORITY_PROPERTY],
+  POI_CLUSTER_SUMMARY_CATEGORIES.length,
+];
+const CLUSTER_SUMMARY_ICON_OFFSET = [
+  "case",
+  [">", CLUSTER_SUMMARY_TOTAL_EXPRESSION, 1],
+  ["literal", [-4, 0]],
+  ["literal", [0, 0]],
+];
+
+function clusterSummaryIconExpression(): MapboxExpression {
+  const expression: MapboxExpression = ["match", CLUSTER_SUMMARY_PRIORITY_EXPRESSION];
+
+  POI_CLUSTER_SUMMARY_CATEGORIES.forEach((category, index) => {
+    expression.push(index);
+    expression.push(poiMapIconImageIdForCategory(category));
+  });
+
+  expression.push(poiMapIconImageId("MapPin"));
+  return expression;
+}
+
+function renderClusterSummaryIconLayer(): React.ReactElement {
+  return (
+    <SymbolLayer
+      id="poi-cluster-summary-icon"
+      filter={CLUSTER_FILTER}
+      style={{
+        iconImage: clusterSummaryIconExpression() as never,
+        iconSize: POI_CLUSTER_SUMMARY_ICON_SYMBOL_SIZE,
+        iconOffset: CLUSTER_SUMMARY_ICON_OFFSET as never,
+        iconColor: POI_ICON_COLOR,
+        iconAllowOverlap: true,
+        iconIgnorePlacement: true,
+      }}
+      minZoomLevel={POI_CLUSTER_MIN_ZOOM}
+    />
+  );
 }
 
 export default function POILayer({
@@ -196,27 +274,37 @@ export default function POILayer({
           cluster
           clusterRadius={POI_CLUSTER_RADIUS}
           clusterMaxZoomLevel={POI_CLUSTER_MAX_ZOOM}
+          clusterProperties={POI_CLUSTER_PROPERTIES}
           onPress={handleClusteredPress}
           hitbox={{ width: POI_CLUSTER_HITBOX, height: POI_CLUSTER_HITBOX }}
         >
           <CircleLayer
-            id="poi-clusters"
+            id="poi-clusters-outline"
             filter={CLUSTER_FILTER}
             style={{
-              circleRadius: ["step", ["get", "point_count"], 13, 10, 16, 50, 19],
-              circleColor: colors.accent,
-              circleStrokeWidth: 2,
-              circleStrokeColor: colors.surface,
+              circleRadius: ["step", ["get", "point_count"], 17, 10, 20, 50, 23],
+              circleColor: colors.surface,
             }}
             minZoomLevel={POI_CLUSTER_MIN_ZOOM}
           />
-          <SymbolLayer
-            id="poi-cluster-count"
+          <CircleLayer
+            id="poi-clusters-fill"
             filter={CLUSTER_FILTER}
             style={{
-              textField: ["get", "point_count_abbreviated"],
-              textSize: 12,
+              circleRadius: ["step", ["get", "point_count"], 14, 10, 17, 50, 20],
+              circleColor: colors.accent,
+            }}
+            minZoomLevel={POI_CLUSTER_MIN_ZOOM}
+          />
+          {renderClusterSummaryIconLayer()}
+          <SymbolLayer
+            id="poi-cluster-summary-overflow"
+            filter={["all", CLUSTER_FILTER, [">", CLUSTER_SUMMARY_TOTAL_EXPRESSION, 1]] as never}
+            style={{
+              textField: "+",
+              textSize: 13,
               textColor: colors.accentForeground,
+              textOffset: CLUSTER_OVERFLOW_TEXT_OFFSET,
               textAllowOverlap: true,
               textIgnorePlacement: true,
             }}
