@@ -20,8 +20,8 @@ export const ELEVATION_CHART_MAX_POINTS = 500;
 export const SHEET_COMPACT_RATIO = 0.3;
 export const SHEET_EXPANDED_RATIO = 0.75;
 
-/** Fraction of chart width to show behind current position */
-export const LOOK_BACK_RATIO = 0.25;
+/** Fraction of the selected upcoming horizon to show behind current position */
+export const LOOK_BACK_RATIO = 0.2;
 
 /** Panel modes in cycle order */
 export const PANEL_MODES = [

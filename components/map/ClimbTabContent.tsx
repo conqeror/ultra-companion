@@ -273,6 +273,37 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
   const climbPositionLabel =
     climbIndex >= 0 ? `${climbIndex + 1}/${filteredClimbs.length}` : `-/${filteredClimbs.length}`;
   const climbTitle = `${climbPositionLabel}: ${climb.name ?? "Climb"}`;
+  const compactDistanceText =
+    distToStart == null
+      ? null
+      : distToStart >= 0
+        ? `in ${formatDistance(distToStart, units)}`
+        : distToStart > -climb.lengthMeters
+          ? "on it"
+          : `${formatDistance(Math.abs(distToStart), units)} past`;
+  const compactClimbTitle = compactDistanceText
+    ? `${climbTitle} (${compactDistanceText})`
+    : climbTitle;
+  const statsRow = (
+    <View className="flex-row items-center px-3 mt-1">
+      <StatItem label="Gain" value={`${formatElevation(climb.totalAscentMeters, units)} ↑`} />
+      <StatItem label="Length" value={formatDistance(climb.lengthMeters, units)} />
+      <StatItem label="Avg" value={`${climb.averageGradientPercent}%`} />
+      <StatItem label="Max" value={`${climb.maxGradientPercent}%`} />
+      {distToStart != null && (
+        <View className="flex-1 items-end">
+          <Text className="text-[10px] text-muted-foreground font-barlow">Dist</Text>
+          <Text className="text-[13px] font-barlow-sc-semibold text-foreground">
+            {distToStart >= 0
+              ? `${formatDistance(distToStart, units)}`
+              : distToStart > -climb.lengthMeters
+                ? "On it"
+                : `${formatDistance(Math.abs(distToStart), units)} ←`}
+          </Text>
+        </View>
+      )}
+    </View>
+  );
 
   return (
     <View className="flex-1">
@@ -290,6 +321,7 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
           direction="previous"
           disabled={climbIndex <= 0}
           onPress={() => handleNavigateClimb(-1)}
+          compact={!isExpanded}
         />
 
         <View className="flex-1 mx-2">
@@ -335,20 +367,27 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
               <Pencil size={10} color={colors.textTertiary} style={{ marginLeft: 4 }} />
             </TouchableOpacity>
           ) : (
-            <Text className="text-[15px] font-barlow-semibold text-foreground" numberOfLines={1}>
-              {climbTitle}
+            <Text className="text-[14px] font-barlow-semibold text-foreground" numberOfLines={1}>
+              {compactClimbTitle}
             </Text>
           )}
           <View className="flex-row items-center">
-            <Mountain size={11} color={diffColor} />
-            <Text className="ml-1 text-[11px] font-barlow-medium" style={{ color: diffColor }}>
+            <Mountain size={isExpanded ? 11 : 10} color={diffColor} />
+            <Text
+              className={cn("ml-1 font-barlow-medium", isExpanded ? "text-[11px]" : "text-[10px]")}
+              style={{ color: diffColor }}
+            >
               {CLIMB_DIFFICULTY_LABELS[difficulty]} · {Math.round(climb.difficultyScore)}
             </Text>
             {!isExpanded && (
-              <CompactDifficultyFilter
-                activeFilter={minimumDifficulty}
-                count={difficultyCounts[minimumDifficulty]}
-              />
+              <>
+                <Text className="ml-2 text-[10px] font-barlow-sc-semibold text-foreground">
+                  +{formatElevation(climb.totalAscentMeters, units)}
+                </Text>
+                <Text className="ml-2 text-[10px] font-barlow-sc-semibold text-foreground">
+                  {climb.averageGradientPercent}% avg
+                </Text>
+              </>
             )}
           </View>
         </View>
@@ -357,52 +396,37 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
           direction="next"
           disabled={climbIndex < 0 || climbIndex >= filteredClimbs.length - 1}
           onPress={() => handleNavigateClimb(1)}
+          compact={!isExpanded}
         />
       </View>
 
       {/* Elevation profile */}
       {climbProfile && (
         <View
-          className="flex-1 mx-3 rounded-lg overflow-hidden"
-          onLayout={(e) => setGraphHeight(Math.round(e.nativeEvent.layout.height))}
+          className={cn("flex-1", isExpanded ? "mx-3" : "mx-2")}
+          style={!isExpanded ? { paddingBottom: Math.max(4, safeBottom - 8) } : undefined}
         >
-          {graphHeight > 0 && (
-            <ElevationProfile
-              points={climbProfile.points}
-              units={units}
-              width={screenWidth - 24}
-              height={graphHeight}
-              showLegend={false}
-              distanceOffsetMeters={climbProfile.offsetMeters}
-              currentPointIndex={climbProfile.currentIdxInSlice}
-              currentDistanceMeters={climbProfile.currentDistanceInSliceMeters}
-            />
-          )}
+          <View
+            className="flex-1 rounded-lg overflow-hidden"
+            onLayout={(e) => setGraphHeight(Math.round(e.nativeEvent.layout.height))}
+          >
+            {graphHeight > 0 && (
+              <ElevationProfile
+                points={climbProfile.points}
+                units={units}
+                width={screenWidth - (isExpanded ? 24 : 16)}
+                height={graphHeight}
+                showLegend={false}
+                distanceOffsetMeters={climbProfile.offsetMeters}
+                currentPointIndex={climbProfile.currentIdxInSlice}
+                currentDistanceMeters={climbProfile.currentDistanceInSliceMeters}
+              />
+            )}
+          </View>
         </View>
       )}
 
-      {/* Stats row */}
-      <View
-        className="flex-row items-center px-3 mt-1"
-        style={!isExpanded ? { paddingBottom: safeBottom } : undefined}
-      >
-        <StatItem label="Gain" value={`${formatElevation(climb.totalAscentMeters, units)} ↑`} />
-        <StatItem label="Length" value={formatDistance(climb.lengthMeters, units)} />
-        <StatItem label="Avg" value={`${climb.averageGradientPercent}%`} />
-        <StatItem label="Max" value={`${climb.maxGradientPercent}%`} />
-        {distToStart != null && (
-          <View className="flex-1 items-end">
-            <Text className="text-[10px] text-muted-foreground font-barlow">Dist</Text>
-            <Text className="text-[13px] font-barlow-sc-semibold text-foreground">
-              {distToStart >= 0
-                ? `${formatDistance(distToStart, units)}`
-                : distToStart > -climb.lengthMeters
-                  ? "On it"
-                  : `${formatDistance(Math.abs(distToStart), units)} ←`}
-            </Text>
-          </View>
-        )}
-      </View>
+      {isExpanded && statsRow}
 
       {/* Expanded: scrollable climb list */}
       {isExpanded && (
@@ -437,10 +461,12 @@ function ClimbArrowButton({
   direction,
   disabled,
   onPress,
+  compact = false,
 }: {
   direction: "previous" | "next";
   disabled: boolean;
   onPress: () => void;
+  compact?: boolean;
 }) {
   const colors = useThemeColors();
   const Icon = direction === "previous" ? ChevronLeft : ChevronRight;
@@ -448,37 +474,22 @@ function ClimbArrowButton({
   return (
     <TouchableOpacity
       className={cn(
-        "w-[48px] h-[48px] items-center justify-center rounded-full border",
+        "items-center justify-center rounded-full border",
+        compact ? "w-[40px] h-[40px]" : "w-[48px] h-[48px]",
         disabled ? "border-transparent" : "bg-muted border-border",
       )}
       style={disabled ? { opacity: 0.4 } : undefined}
+      hitSlop={compact ? 4 : undefined}
       disabled={disabled}
       onPress={onPress}
       accessibilityLabel={direction === "previous" ? "Previous climb" : "Next climb"}
       accessibilityState={{ disabled }}
     >
-      <Icon size={22} color={disabled ? colors.textTertiary : colors.textSecondary} />
+      <Icon
+        size={compact ? 20 : 22}
+        color={disabled ? colors.textTertiary : colors.textSecondary}
+      />
     </TouchableOpacity>
-  );
-}
-
-function CompactDifficultyFilter({
-  activeFilter,
-  count,
-}: {
-  activeFilter: ClimbDifficulty;
-  count: number;
-}) {
-  const filter = DIFFICULTY_FILTERS.find((item) => item.key === activeFilter);
-  const color = climbDifficultyColor(DIFFICULTY_FILTER_COLOR_SCORE[activeFilter]);
-
-  return (
-    <View className="ml-2 flex-row items-center rounded-full border border-border bg-muted px-2 min-h-[22px]">
-      <View className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: color }} />
-      <Text className="ml-1 text-[10px] font-barlow-medium text-muted-foreground">
-        {filter?.label ?? CLIMB_DIFFICULTY_LABELS[activeFilter]} {count}
-      </Text>
-    </View>
   );
 }
 

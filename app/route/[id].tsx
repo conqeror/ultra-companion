@@ -160,6 +160,7 @@ export default function RouteDetailScreen() {
             compassEnabled={false}
             scaleBarEnabled={false}
             rotateEnabled={false}
+            pitchEnabled={false}
             scrollEnabled={true}
             zoomEnabled={true}
             onCameraChanged={handleCameraChanged}

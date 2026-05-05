@@ -376,6 +376,7 @@ export default function CollectionDetailScreen() {
               compassEnabled={false}
               scaleBarEnabled={false}
               rotateEnabled={false}
+              pitchEnabled={false}
               scrollEnabled={true}
               zoomEnabled={true}
               onCameraChanged={handleCameraChanged}

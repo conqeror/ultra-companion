@@ -63,21 +63,11 @@ export default function UpcomingElevation({
     );
     const totalDist = points[points.length - 1].distanceFromStartMeters;
 
-    // Window is the selected range total, split 25/75 behind/ahead of the rider.
-    // Near route edges, shift the split instead of shrinking the window — the
-    // horizontal scale stays constant across ticks on the zoom selector.
-    const totalWindow = Math.min(lookAhead, totalDist);
-    const desiredBack = totalWindow * LOOK_BACK_RATIO;
-    const desiredAhead = totalWindow - desiredBack;
-
-    let startDist: number;
-    if (currentDist - desiredBack < 0) {
-      startDist = 0;
-    } else if (currentDist + desiredAhead > totalDist) {
-      startDist = totalDist - totalWindow;
-    } else {
-      startDist = currentDist - desiredBack;
-    }
+    // Keep the selected horizon as the upcoming distance, with a smaller
+    // lookback for context: 10 km => 2 km back, 100 km => 20 km back, etc.
+    const desiredBack = lookAhead * LOOK_BACK_RATIO;
+    const startDist = Math.max(0, currentDist - desiredBack);
+    const endDist = Math.min(totalDist, currentDist + lookAhead);
 
     const firstAtOrAfterStart = findFirstPointAtOrAfterDistance(points, startDist);
     const startIdx =
@@ -86,7 +76,7 @@ export default function UpcomingElevation({
         : Math.max(0, firstAtOrAfterStart - 1);
 
     const sliceOffsetMeters = points[startIdx].distanceFromStartMeters;
-    const totalSliceM = totalWindow;
+    const totalSliceM = Math.max(0, endDist - sliceOffsetMeters);
     const sliced = extractRouteSlice(points, startIdx, totalSliceM);
     const distanceInSliceMeters = hasCurrentDistance ? currentDist - sliceOffsetMeters : undefined;
     const idxInSlice =
@@ -99,7 +89,7 @@ export default function UpcomingElevation({
       currentIdxInSlice: idxInSlice,
       currentDistanceInSliceMeters: distanceInSliceMeters,
       offsetMeters: sliceOffsetMeters,
-      sliceEndDist: sliceOffsetMeters + totalSliceM,
+      sliceEndDist: endDist,
     };
   }, [points, currentDistanceMeters, lookAhead]);
 

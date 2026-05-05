@@ -187,6 +187,7 @@ export default function ProfileTabContent({ activeData, width, height }: Profile
   const showClimbBar = isExpanded && showClimbZoom && !!climbProgressText;
   const showStats = isExpanded && !showClimbZoom && !!statsText;
   const showClimbsAhead = isExpanded && !showClimbZoom && climbsAhead.length > 0;
+  const isFullRouteHorizon = panelMode === "full-route";
 
   const climbsAheadHeight = showClimbsAhead
     ? Math.min(climbsAhead.length, MAX_CLIMBS_AHEAD) * CLIMB_ROW_HEIGHT + 24
@@ -197,6 +198,14 @@ export default function ProfileTabContent({ activeData, width, height }: Profile
 
   const chartHeight = height - headerBlockHeight - safeBottom;
   const chartWidth = width - HORIZONTAL_PADDING * 2;
+  const fullProfileCurrentPointIndex =
+    currentDistanceMeters != null
+      ? findNearestPointIndexAtDistance(activeRoutePoints, currentDistanceMeters)
+      : undefined;
+  const segmentBoundaries = activeSegments?.slice(1).map((segment) => ({
+    distanceMeters: segment.distanceOffsetMeters,
+    label: segment.routeName,
+  }));
 
   return (
     <View style={{ height }}>
@@ -259,6 +268,22 @@ export default function ProfileTabContent({ activeData, width, height }: Profile
             distanceOffsetMeters={climbSlice!.offsetMeters}
             climbs={climbsForChart}
             fitToWidth
+          />
+        ) : isFullRouteHorizon ? (
+          <ElevationProfile
+            points={activeRoutePoints}
+            units={units}
+            width={chartWidth}
+            height={chartHeight}
+            currentPointIndex={fullProfileCurrentPointIndex}
+            currentDistanceMeters={currentDistanceMeters ?? undefined}
+            showLegend={false}
+            pois={poisForChart}
+            climbs={climbsForChart}
+            segmentBoundaries={segmentBoundaries}
+            onPOIPress={(poi) => {
+              setSelectedPOI(poi);
+            }}
           />
         ) : (
           <UpcomingElevation

@@ -535,6 +535,7 @@ export default function MapScreen() {
         compassEnabled={false}
         scaleBarEnabled={false}
         rotateEnabled={false}
+        pitchEnabled={false}
         onTouchStart={handleTouchStart}
         onCameraChanged={handleCameraChanged}
       >
@@ -591,13 +592,14 @@ export default function MapScreen() {
           points={activeRoutePoints ?? []}
           showDistanceMarkers={showDistanceMarkers}
         />
-        {showPOIs && activeRouteIds.length > 0 && (
+        {(showPOIs || selectedPOI) && activeRouteIds.length > 0 && (
           <POILayer
             key={`pois-${overlayStackKey}`}
             routeIds={activeRouteIds}
             segments={activeData?.segments ?? null}
             currentDistanceMeters={currentPOIDistanceMeters}
             onClusterPress={handlePOIClusterPress}
+            showOnlySelected={!showPOIs}
           />
         )}
         <LocationPuck

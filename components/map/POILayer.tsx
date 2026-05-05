@@ -50,6 +50,7 @@ interface POILayerProps {
   segments: StitchedSegmentInfo[] | null;
   currentDistanceMeters: number | null;
   onClusterPress: (center: [number, number], zoomLevel: number) => void;
+  showOnlySelected?: boolean;
 }
 
 function isClusterFeature(feature: GeoJSON.Feature): boolean {
@@ -171,17 +172,26 @@ export default function POILayer({
   segments,
   currentDistanceMeters,
   onClusterPress,
+  showOnlySelected = false,
 }: POILayerProps) {
   const clusteredSourceRef = useRef<ShapeSource>(null);
   const getVisiblePOIs = usePoiStore((s) => s.getVisiblePOIs);
   const enabledCategories = usePoiStore((s) => s.enabledCategories);
   const starredPOIIds = usePoiStore((s) => s.starredPOIIds);
   const allPois = usePoiStore((s) => s.pois);
+  const selectedPOI = usePoiStore((s) => s.selectedPOI);
   const setSelectedPOI = usePoiStore((s) => s.setSelectedPOI);
   const panelMode = usePanelStore((s) => s.panelMode);
   const colors = useThemeColors();
 
   const visiblePOIs = useMemo(() => {
+    const canShowSelected =
+      selectedPOI != null && (routeIds.length === 0 || routeIds.includes(selectedPOI.routeId));
+
+    if (showOnlySelected) {
+      return canShowSelected ? [selectedPOI] : [];
+    }
+
     const distanceWindow = createRidingHorizonWindow(
       currentDistanceMeters,
       ridingHorizonMetersForMode(panelMode),
@@ -193,7 +203,11 @@ export default function POILayer({
       for (const routeId of routeIds) {
         poisByRoute[routeId] = getVisiblePOIs(routeId);
       }
-      return stitchPOIs(segments, poisByRoute, distanceWindow);
+      const stitched = stitchPOIs(segments, poisByRoute, distanceWindow);
+      if (canShowSelected && !stitched.some((poi) => poi.id === selectedPOI.id)) {
+        return [...stitched, selectedPOI];
+      }
+      return stitched;
     }
 
     const combined: DisplayPOI[] = [];
@@ -202,6 +216,9 @@ export default function POILayer({
         isDistanceInWindow(poi.distanceAlongRouteMeters, distanceWindow),
       );
       combined.push(...toDisplayPOIs(routePois));
+    }
+    if (canShowSelected && !combined.some((poi) => poi.id === selectedPOI.id)) {
+      combined.push(selectedPOI);
     }
     return combined;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -213,6 +230,8 @@ export default function POILayer({
     allPois,
     enabledCategories,
     starredPOIIds,
+    selectedPOI,
+    showOnlySelected,
   ]);
 
   const { clustered, starred } = useMemo(
