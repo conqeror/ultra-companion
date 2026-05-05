@@ -6,6 +6,11 @@ import {
 } from "@/constants";
 import { fetchForecasts, type HourlyForecast } from "./weatherClient";
 import { getETAToDistanceFromDistance } from "./etaCalculator";
+import {
+  applyPlannedStopOffsetToETA,
+  plannedStopOffsetSecondsBeforeDistance,
+  type PlannedStop,
+} from "./plannedStops";
 import { computeBearing, interpolateRoutePointAtDistance } from "@/utils/geo";
 
 const POST_FINISH_FORECAST_HOURS = 5;
@@ -30,6 +35,7 @@ type WeatherDisplaySample = WeatherWaypoint & {
 
 export interface WeatherTimelineOptions {
   projectionStartTime?: Date;
+  plannedStops?: readonly PlannedStop[];
 }
 
 export interface WeatherTimelineBuildResult {
@@ -158,41 +164,85 @@ function ridingTimeToRoutePosition(
   cumulativeTime: number[],
   points: RoutePoint[],
   fromDistanceAlongRouteM: number,
-  ridingTimeSeconds: number,
+  elapsedTimeSeconds: number,
+  plannedStops?: readonly PlannedStop[],
 ): WeatherWaypoint | null {
   if (points.length === 0 || cumulativeTime.length === 0) return null;
   const startDist = validRouteStartDistance(points, fromDistanceAlongRouteM);
   if (startDist == null) return null;
 
   const routeEndMeters = points[points.length - 1].distanceFromStartMeters;
-  const fromTime = getRouteTimeAtDistance(cumulativeTime, points, startDist);
-  if (fromTime == null) return null;
-  const targetTime = fromTime + Math.max(0, ridingTimeSeconds);
+  const targetElapsedSeconds = Math.max(0, elapsedTimeSeconds);
+  if (!plannedStops?.length) {
+    const fromTime = getRouteTimeAtDistance(cumulativeTime, points, startDist);
+    if (fromTime == null) return null;
+    const targetTime = fromTime + targetElapsedSeconds;
 
-  for (let index = 1; index < points.length; index++) {
-    const prevTime = cumulativeTime[index - 1];
-    const nextTime = cumulativeTime[index];
-    if (nextTime < targetTime) continue;
+    for (let index = 1; index < points.length; index++) {
+      const prevTime = cumulativeTime[index - 1];
+      const nextTime = cumulativeTime[index];
+      if (nextTime < targetTime) continue;
 
-    const prevPoint = points[index - 1];
-    const nextPoint = points[index];
-    const timeDelta = nextTime - prevTime;
-    const progress = timeDelta > 0 ? (targetTime - prevTime) / timeDelta : 0;
-    const clampedProgress = Math.max(0, Math.min(1, progress));
-    const routeDistanceMeters =
-      prevPoint.distanceFromStartMeters +
-      (nextPoint.distanceFromStartMeters - prevPoint.distanceFromStartMeters) * clampedProgress;
+      const prevPoint = points[index - 1];
+      const nextPoint = points[index];
+      const timeDelta = nextTime - prevTime;
+      const progress = timeDelta > 0 ? (targetTime - prevTime) / timeDelta : 0;
+      const clampedProgress = Math.max(0, Math.min(1, progress));
+      const routeDistanceMeters =
+        prevPoint.distanceFromStartMeters +
+        (nextPoint.distanceFromStartMeters - prevPoint.distanceFromStartMeters) * clampedProgress;
 
-    if (routeDistanceMeters < startDist) continue;
+      if (routeDistanceMeters < startDist) continue;
 
+      return {
+        latitude: prevPoint.latitude + (nextPoint.latitude - prevPoint.latitude) * clampedProgress,
+        longitude:
+          prevPoint.longitude + (nextPoint.longitude - prevPoint.longitude) * clampedProgress,
+        distanceAlongRouteM: routeDistanceMeters - startDist,
+        routeDistanceMeters,
+        index,
+        segmentIndex: Math.max(0, index - 1),
+      };
+    }
+  }
+
+  if (targetElapsedSeconds <= 0) {
+    const start = interpolateRoutePointAtDistance(points, startDist);
+    return start
+      ? {
+          latitude: start.latitude,
+          longitude: start.longitude,
+          distanceAlongRouteM: 0,
+          routeDistanceMeters: startDist,
+          index: start.nearestIndex,
+          segmentIndex: start.segmentIndex,
+        }
+      : null;
+  }
+
+  let lo = startDist;
+  let hi = routeEndMeters;
+  for (let i = 0; i < 24; i++) {
+    const mid = lo + (hi - lo) / 2;
+    const eta = etaToDistanceWithStops(cumulativeTime, points, startDist, mid, plannedStops);
+    if ((eta?.ridingTimeSeconds ?? 0) < targetElapsedSeconds) {
+      lo = mid;
+    } else {
+      hi = mid;
+    }
+  }
+
+  const routeDistanceMeters = hi;
+  if (routeDistanceMeters < routeEndMeters) {
+    const point = interpolateRoutePointAtDistance(points, routeDistanceMeters);
+    if (!point) return null;
     return {
-      latitude: prevPoint.latitude + (nextPoint.latitude - prevPoint.latitude) * clampedProgress,
-      longitude:
-        prevPoint.longitude + (nextPoint.longitude - prevPoint.longitude) * clampedProgress,
+      latitude: point.latitude,
+      longitude: point.longitude,
       distanceAlongRouteM: routeDistanceMeters - startDist,
       routeDistanceMeters,
-      index,
-      segmentIndex: Math.max(0, index - 1),
+      index: point.nearestIndex,
+      segmentIndex: point.segmentIndex,
     };
   }
 
@@ -221,10 +271,11 @@ function routeDisplaySamples(
   cumulativeTime: number[],
   points: RoutePoint[],
   fromDistanceAlongRouteM: number,
-  finishRidingTimeSeconds: number,
+  finishElapsedTimeSeconds: number,
+  plannedStops?: readonly PlannedStop[],
 ): WeatherDisplaySample[] {
   const samples: WeatherDisplaySample[] = [];
-  const finishSeconds = Math.max(0, finishRidingTimeSeconds);
+  const finishSeconds = Math.max(0, finishElapsedTimeSeconds);
   const routeEndMeters = points[points.length - 1]?.distanceFromStartMeters ?? 0;
 
   const addSample = (ridingTimeSeconds: number, sampleKind: WeatherSampleKind) => {
@@ -233,6 +284,7 @@ function routeDisplaySamples(
       points,
       fromDistanceAlongRouteM,
       ridingTimeSeconds,
+      plannedStops,
     );
     if (!position) return;
     const distanceKey = Math.round(position.routeDistanceMeters / 100);
@@ -259,11 +311,12 @@ function routeDisplaySamples(
     routeDistanceMeters < routeEndMeters;
     routeDistanceMeters += ROUTE_DISPLAY_SAMPLE_DISTANCE_M
   ) {
-    const eta = getETAToDistanceFromDistance(
+    const eta = etaToDistanceWithStops(
       cumulativeTime,
       points,
       fromDistanceAlongRouteM,
       routeDistanceMeters,
+      plannedStops,
     );
     if (eta) addSample(eta.ridingTimeSeconds, "distance");
   }
@@ -276,6 +329,27 @@ function routeDisplaySamples(
   }
 
   return samples.sort((a, b) => a.routeDistanceMeters - b.routeDistanceMeters);
+}
+
+function etaToDistanceWithStops(
+  cumulativeTime: number[],
+  points: RoutePoint[],
+  fromDistanceAlongRouteM: number,
+  targetDistanceAlongRouteM: number,
+  plannedStops?: readonly PlannedStop[],
+) {
+  const eta = getETAToDistanceFromDistance(
+    cumulativeTime,
+    points,
+    fromDistanceAlongRouteM,
+    targetDistanceAlongRouteM,
+  );
+  const offsetSeconds = plannedStopOffsetSecondsBeforeDistance(
+    plannedStops,
+    fromDistanceAlongRouteM,
+    targetDistanceAlongRouteM,
+  );
+  return applyPlannedStopOffsetToETA(eta, offsetSeconds);
 }
 
 function hasForecastCoverage(
@@ -324,21 +398,23 @@ export async function fetchWeatherForecastsForRoute(
   if (waypoints.length === 0) return [];
 
   const routeEndMeters = points[points.length - 1].distanceFromStartMeters;
-  const finishEta = getETAToDistanceFromDistance(
+  const finishEta = etaToDistanceWithStops(
     cumulativeTime,
     points,
     fromDistanceAlongRouteM,
     routeEndMeters,
+    options.plannedStops,
   );
   const maxRidingTimeSeconds =
     finishEta?.ridingTimeSeconds ??
     Math.max(
       ...waypoints.map((waypoint) => {
-        const eta = getETAToDistanceFromDistance(
+        const eta = etaToDistanceWithStops(
           cumulativeTime,
           points,
           fromDistanceAlongRouteM,
           waypoint.routeDistanceMeters,
+          options.plannedStops,
         );
         return eta?.ridingTimeSeconds ?? 0;
       }),
@@ -364,11 +440,12 @@ export function buildWeatherTimelineFromForecasts(
   if (waypoints.length === 0 || forecasts.length === 0) return emptyBuildResult(forecasts);
 
   const waypointETAs = waypoints.map((waypoint) => {
-    const eta = getETAToDistanceFromDistance(
+    const eta = etaToDistanceWithStops(
       cumulativeTime,
       points,
       startDist,
       waypoint.routeDistanceMeters,
+      options.plannedStops,
     );
     return {
       waypoint,
@@ -378,7 +455,13 @@ export function buildWeatherTimelineFromForecasts(
   });
 
   const routeEndMeters = points[points.length - 1].distanceFromStartMeters;
-  const finishEta = getETAToDistanceFromDistance(cumulativeTime, points, startDist, routeEndMeters);
+  const finishEta = etaToDistanceWithStops(
+    cumulativeTime,
+    points,
+    startDist,
+    routeEndMeters,
+    options.plannedStops,
+  );
   const maxRidingTimeSeconds =
     finishEta?.ridingTimeSeconds ?? Math.max(...waypointETAs.map((wp) => wp.ridingTimeSeconds));
 
@@ -401,6 +484,7 @@ export function buildWeatherTimelineFromForecasts(
     points,
     startDist,
     maxRidingTimeSeconds,
+    options.plannedStops,
   );
 
   for (let index = 0; index < displaySamples.length; index++) {

@@ -34,6 +34,16 @@ What's implemented. For the "why" behind these, see `usage-context.md`.
 - Elevation profile follows the global riding horizon
 - Segment boundary markers for stitched collections
 
+## Upcoming Timeline
+
+- ETA-first bottom-panel tab for important events in the selected riding horizon
+- Shows starred and saved POIs, climbs, collection segment transitions, and route/collection finish
+- Keeps V1 quiet by excluding unstarred POIs and category focus/search controls
+- Uses the same 10km / 25km / 50km / 100km / 200km / FULL horizon as the ride view
+- Displays clock ETA and riding time when available, with distance-first fallback when ETA is unavailable
+- Includes POIs with planned stop durations even when unstarred, so downstream ETA shifts are visible
+- Models climbs as spans, splitting moderate/hard climbs or climbs with important POIs into start/top context
+
 ## Climb Detection
 
 - Auto-detected from elevation data on import
@@ -56,6 +66,7 @@ What's implemented. For the "why" behind these, see `usage-context.md`.
 - POI text search (filter by name)
 - Starred POIs persisted in SQLite
 - Saved custom POIs from iOS share sheet or manual coordinates, route-scoped and starred by default
+- Planned stop duration presets on POI detail for rider-intended stop time
 - Opening hours: open/closed status, color-coded, "open now" filter
 - Category filters (multi-select)
 
@@ -65,6 +76,7 @@ What's implemented. For the "why" behind these, see `usage-context.md`.
 - Terrain-aware — accounts for climbs, descents, flats
 - Configurable: power output, total weight, advanced params (CdA, Crr, max descent speed)
 - ETA displayed on POI cards, POI list items, and climb list
+- Downstream ETAs include prior planned POI stop durations while preserving arrival ETA to the stop itself
 - Fully offline — pure math on elevation data
 
 ## Weather
@@ -72,6 +84,7 @@ What's implemented. For the "why" behind these, see `usage-context.md`.
 - Current weather at position
 - Forecast at waypoints along route (~50km spacing)
 - Weather timeline — conditions at estimated future positions within the selected riding horizon (uses ETA calculator)
+- Route weather projections include prior planned POI stop durations
 - Wind indicator: headwind/tailwind/crosswind relative to route direction
 - Cached when online, shows "last updated" timestamp
 

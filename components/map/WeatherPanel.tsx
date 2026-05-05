@@ -26,7 +26,9 @@ import { useRouteStore } from "@/store/routeStore";
 import { useEtaStore } from "@/store/etaStore";
 import { useOfflineStore } from "@/store/offlineStore";
 import { useCollectionStore } from "@/store/collectionStore";
+import { usePoiStore } from "@/store/poiStore";
 import { formatTimeAgo } from "@/utils/formatters";
+import { activeRouteTiming } from "@/utils/activeRouteTiming";
 import { ridingHorizonMetersForMode } from "@/utils/ridingHorizon";
 import { temperatureGradientColor } from "@/utils/temperatureOverlay";
 import {
@@ -37,6 +39,8 @@ import {
   type WeatherSeverity,
 } from "@/utils/weatherCodes";
 import { classifyWind } from "@/services/weatherService";
+import { displayPOIsForActiveRoute } from "@/services/activePOIs";
+import { plannedStopsFromPOIs } from "@/services/plannedStops";
 import type { ActiveRouteData, WeatherPoint, WindRelative } from "@/types";
 
 type TimelineListItem =
@@ -371,16 +375,17 @@ function buildRefreshContext(activeData: ActiveRouteData | null) {
   if (!activeData?.points.length) return null;
   const cumulativeTime = useEtaStore.getState().cumulativeTime;
   if (!cumulativeTime) return null;
-  const activeCollection = useCollectionStore
-    .getState()
-    .collections.find((collection) => collection.id === activeData.id && collection.isActive);
-  const plannedStartMs =
-    activeData.type === "collection" ? (activeCollection?.plannedStartMs ?? null) : null;
-  const forecastStartMs =
-    plannedStartMs != null && plannedStartMs > Date.now() ? plannedStartMs : null;
+  const timing = activeRouteTiming(activeData, useCollectionStore.getState().collections);
+  const plannedStops = plannedStopsFromPOIs(
+    displayPOIsForActiveRoute(
+      activeData.routeIds,
+      activeData.segments,
+      usePoiStore.getState().pois,
+    ),
+  );
   const snapped = useRouteStore.getState().snappedPosition;
   const isValidSnap =
-    forecastStartMs == null &&
+    timing.futureStartMs == null &&
     snapped?.routeId === activeData.id &&
     snapped.distanceFromRouteMeters <= 1000;
 
@@ -389,7 +394,8 @@ function buildRefreshContext(activeData: ActiveRouteData | null) {
     points: activeData.points,
     fromDistanceAlongRouteMeters: isValidSnap ? snapped.distanceAlongRouteMeters : 0,
     cumulativeTime,
-    plannedStartMs: forecastStartMs,
+    plannedStartMs: timing.futureStartMs,
+    plannedStops,
   };
 }
 
@@ -407,11 +413,11 @@ function ForecastStatus({
   const lastRefreshOutcome = useWeatherStore((s) => s.lastRefreshOutcome);
   const lastRefreshMessage = useWeatherStore((s) => s.lastRefreshMessage);
   const isConnected = useOfflineStore((s) => s.isConnected);
-  const activeCollection = useCollectionStore((s) =>
-    s.collections.find((collection) => collection.id === activeData?.id && collection.isActive),
+  const collections = useCollectionStore((s) => s.collections);
+  const timing = useMemo(
+    () => activeRouteTiming(activeData, collections),
+    [activeData, collections],
   );
-  const plannedStartMs =
-    activeData?.type === "collection" ? (activeCollection?.plannedStartMs ?? null) : null;
 
   const statusBase =
     fetchStatus === "fetching"
@@ -435,8 +441,8 @@ function ForecastStatus({
       <View className="flex-row items-center px-3">
         <View className="flex-1 flex-row min-w-0">
           <Text className="text-[13px] font-barlow-medium text-muted-foreground" numberOfLines={1}>
-            {plannedStartMs != null
-              ? `${statusBase} · start ${formatStartLabel(plannedStartMs)}`
+            {timing.plannedStartMs != null
+              ? `${statusBase} · start ${formatStartLabel(timing.plannedStartMs)}`
               : statusBase}
           </Text>
           {statusSuffix && (
@@ -582,6 +588,7 @@ export default function WeatherPanel({ activeData }: { activeData: ActiveRouteDa
       context.fromDistanceAlongRouteMeters,
       context.cumulativeTime,
       context.plannedStartMs,
+      context.plannedStops,
     );
   }, [activeData, recordManualRefreshUnavailable, refreshWeatherNow]);
 

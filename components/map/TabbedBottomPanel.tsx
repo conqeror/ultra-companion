@@ -14,6 +14,7 @@ import { useThemeColors } from "@/theme";
 import { usePanelStore } from "@/store/panelStore";
 import { SHEET_COMPACT_RATIO, SHEET_EXPANDED_RATIO } from "@/constants";
 import ProfileTabContent from "./ProfileTabContent";
+import UpcomingTabContent from "./UpcomingTabContent";
 import WeatherPanel from "./WeatherPanel";
 import ClimbTabContent from "./ClimbTabContent";
 import POITabContent from "./POITabContent";
@@ -36,6 +37,7 @@ interface TabDef {
 
 const ALL_TABS: TabDef[] = [
   { key: "profile", label: "Profile" },
+  { key: "upcoming", label: "Upcoming" },
   { key: "weather", label: "Weather" },
   { key: "climbs", label: "Climbs" },
   { key: "pois", label: "POIs" },
@@ -163,6 +165,9 @@ export default function TabbedBottomPanel({ activeData }: TabbedBottomPanelProps
                       <Text
                         className="text-[15px] font-barlow-semibold"
                         style={{ color: isActive ? colors.accent : colors.textTertiary }}
+                        numberOfLines={1}
+                        adjustsFontSizeToFit
+                        minimumFontScale={0.82}
                       >
                         {tab.label}
                       </Text>
@@ -189,6 +194,7 @@ export default function TabbedBottomPanel({ activeData }: TabbedBottomPanelProps
               height={effectiveContentHeight}
             />
           )}
+          {panelTab === "upcoming" && <UpcomingTabContent activeData={activeData} />}
           {panelTab === "weather" && <WeatherPanel activeData={activeData} />}
           {panelTab === "climbs" && <ClimbTabContent activeData={activeData} />}
           {panelTab === "pois" && <POITabContent activeData={activeData} />}

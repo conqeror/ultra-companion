@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildWeatherTimeline, sampleWaypoints } from "@/services/weatherService";
 import type { HourlyForecast } from "@/services/weatherClient";
-import type { RoutePoint } from "@/types";
+import type { DisplayDistanceMeters, RoutePoint } from "@/types";
 
 const { mockFetchForecasts } = vi.hoisted(() => ({
   mockFetchForecasts: vi.fn(),
@@ -138,6 +138,34 @@ describe("weatherService", () => {
       ]),
     );
     expect(mockFetchForecasts).toHaveBeenLastCalledWith(expect.any(Array), 24);
+  });
+
+  it("includes prior planned stop durations in route weather ETA times", async () => {
+    const points = [routePoint(0, 0), routePoint(10_000, 1), routePoint(20_000, 2)];
+    const cumulativeTime = [0, 3600, 7200];
+    mockFetchForecasts.mockResolvedValue(
+      points.map((sample) => forecast(sample.latitude, sample.longitude)),
+    );
+
+    const timeline = await buildWeatherTimeline(points, 0, cumulativeTime, {
+      projectionStartTime: new Date("2026-01-01T00:30:00.000Z"),
+      plannedStops: [
+        {
+          poiId: "stop",
+          distanceMeters: 10_000 as DisplayDistanceMeters,
+          durationSeconds: 1800,
+        },
+      ],
+    });
+
+    const finish = timeline.find(
+      (weatherPoint) =>
+        weatherPoint.phase === "route" && weatherPoint.sampleKinds.includes("finish"),
+    );
+    expect(finish).toMatchObject({
+      routeDistanceMeters: 20_000,
+      etaTime: "2026-01-01T03:00:00.000Z",
+    });
   });
 
   it("samples the full remaining route for all-route weather coverage", async () => {
