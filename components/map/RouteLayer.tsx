@@ -16,27 +16,28 @@ interface RouteLayerProps {
 export default function RouteLayer({ route, points, zoomLevel, dimmed }: RouteLayerProps) {
   const colors = useThemeColors();
   const geoJSON = useMemo(() => routeToMapGeoJSON(points, zoomLevel), [points, zoomLevel]);
+  const isDark = colors.background === "#0E0E0C";
 
   const outlineStyle = useMemo(
     () => ({
-      lineColor: colors.surface,
-      lineWidth: 6,
-      lineOpacity: route.isActive ? 0.8 : 0.4,
+      lineColor: route.isActive && isDark ? colors.background : colors.surface,
+      lineWidth: route.isActive ? (isDark ? 9 : 7) : 6,
+      lineOpacity: route.isActive ? (isDark ? 0.95 : 0.85) : 0.4,
       lineCap: "round" as const,
       lineJoin: "round" as const,
     }),
-    [colors.surface, route.isActive],
+    [colors.background, colors.surface, isDark, route.isActive],
   );
 
   const lineStyle = useMemo(
     () => ({
       lineColor: route.isActive && !dimmed ? ACTIVE_ROUTE_COLOR : INACTIVE_ROUTE_COLOR,
-      lineWidth: 4,
+      lineWidth: route.isActive ? (isDark ? 5.5 : 4.5) : 4,
       lineOpacity: route.isActive && !dimmed ? 1 : 0.6,
       lineCap: "round" as const,
       lineJoin: "round" as const,
     }),
-    [route.isActive, dimmed],
+    [route.isActive, dimmed, isDark],
   );
 
   if (points.length < 2) return null;

@@ -44,7 +44,7 @@ iPhone 15 Pro has OLED — use near-black base for battery efficiency, with very
 | `surfaceRaised` | `#2A2924` | Floating controls             |
 | `textPrimary`   | `#F0EDE8` | Headings, primary data values |
 | `textSecondary` | `#9C958E` | Labels, secondary info        |
-| `textTertiary`  | `#6B6560` | Placeholders, disabled        |
+| `textTertiary`  | `#8A837C` | Placeholders, disabled        |
 | `border`        | `#2A2924` | Card borders, dividers        |
 | `borderSubtle`  | `#1C1B18` | Light separators              |
 
@@ -119,6 +119,17 @@ Downhills are always green regardless of steepness.
 | `labelSmall`    | Barlow Semi Condensed | 500 (Medium)   | 11   | Unit labels (km, m), axis labels              |
 
 All `data*` styles use tabular figures (`fontVariant: ['tabular-nums']` in RN).
+
+### Ride-Mode Readability
+
+Ride surfaces are optimized for a phone mounted on aerobars at night, after severe fatigue.
+
+- Keep critical ride data at 14px or larger.
+- Primary ride values should generally be 18-24px, use `font-barlow-sc-semibold`, and use tabular figures where React Native allows.
+- Do not use opacity-reduced text for active ride data.
+- Reserve `textTertiary` for disabled, placeholder, and decorative labels. Use `textSecondary`/`muted-foreground` or semantic colors for currently relevant metadata.
+- Treat semantic color as an enhancement, not the only differentiator. Pair status colors with text, icons, size, or shape.
+- Visible controls used while riding should be 48dp minimum where practical, not only expanded through hit slop.
 
 ### Font Files to Bundle
 

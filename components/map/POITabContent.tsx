@@ -503,51 +503,106 @@ const CompactPOIRow = React.memo(function CompactPOIRow({
     return key ? colors[key] : undefined;
   }, [ohStatus, colors]);
 
+  const distanceLabel =
+    distAhead != null
+      ? distAhead >= 0
+        ? `${formatDistance(distAhead, units)} ahead`
+        : `${formatDistance(Math.abs(distAhead), units)} behind`
+      : null;
+  const ridingTimeLabel =
+    ridingTimeSeconds != null ? `${formatDuration(ridingTimeSeconds)} riding` : null;
+  const offRouteLabel =
+    poi.distanceFromRouteMeters > 50 ? `${Math.round(poi.distanceFromRouteMeters)} m off` : null;
+  const accessibilityLabel = [
+    poi.name ?? catMeta?.label ?? "POI",
+    distanceLabel,
+    ridingTimeLabel,
+    ohStatus?.label,
+    offRouteLabel,
+  ]
+    .filter(Boolean)
+    .join(", ");
+
   return (
     <TouchableOpacity
-      className="flex-row items-center px-3 py-2"
+      className="flex-row items-center px-3 py-2.5"
       onPress={() => onPress(poi)}
-      accessibilityLabel={poi.name ?? catMeta?.label ?? "POI"}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
     >
       <View
-        className="w-[28px] h-[28px] rounded-full items-center justify-center"
+        className="w-[42px] h-[42px] rounded-full items-center justify-center"
         style={{ backgroundColor: (catMeta?.color ?? colors.textTertiary) + "1A" }}
       >
-        {IconComp && <IconComp size={15} color={catMeta?.color ?? colors.textPrimary} />}
+        {IconComp && <IconComp size={20} color={catMeta?.color ?? colors.textPrimary} />}
       </View>
 
-      <View className="flex-1 ml-2.5">
-        <Text className="text-[14px] font-barlow-medium text-foreground" numberOfLines={1}>
+      <View className="flex-1 ml-3 min-w-0">
+        <View className="flex-row items-baseline">
+          {distAhead != null && (
+            <Text className="text-[20px] font-barlow-sc-semibold text-foreground">
+              {distAhead >= 0
+                ? formatDistance(distAhead, units)
+                : `-${formatDistance(Math.abs(distAhead), units)}`}
+            </Text>
+          )}
+          {ridingTimeSeconds != null && (
+            <Text className="ml-2 text-[18px] text-foreground font-barlow-sc-semibold">
+              ~{formatDuration(ridingTimeSeconds)}
+            </Text>
+          )}
+        </View>
+        <View className="flex-row items-center mt-0.5 min-w-0">
+          {ohStatus && (
+            <>
+              <View className="w-[5px] h-[5px] rounded-full" style={{ backgroundColor: ohColor }} />
+              <Text className="ml-1 text-[14px] font-barlow-medium" style={{ color: ohColor }}>
+                {ohStatus.label}
+                {ohStatus.detail ? ` · ${ohStatus.detail}` : ""}
+              </Text>
+            </>
+          )}
+          {offRouteLabel && (
+            <Text className="ml-2 text-[14px] text-muted-foreground font-barlow-sc-medium">
+              {offRouteLabel}
+            </Text>
+          )}
+        </View>
+      </View>
+
+      <View className="items-end ml-2 max-w-[42%]">
+        <Text
+          className="text-[14px] font-barlow-medium text-foreground text-right"
+          numberOfLines={1}
+        >
           {poi.name ?? catMeta?.label ?? "Unnamed"}
         </Text>
-        {ohStatus && (
-          <View className="flex-row items-center mt-1">
-            <View className="w-[5px] h-[5px] rounded-full" style={{ backgroundColor: ohColor }} />
-            <Text className="ml-1 text-[11px] font-barlow-medium" style={{ color: ohColor }}>
-              {ohStatus.label}
-              {ohStatus.detail ? ` · ${ohStatus.detail}` : ""}
-            </Text>
-          </View>
-        )}
-      </View>
-
-      <View className="items-end ml-2">
-        {distAhead != null && (
-          <Text className="text-[14px] font-barlow-sc-semibold text-foreground">
-            {distAhead >= 0
-              ? formatDistance(distAhead, units)
-              : `-${formatDistance(Math.abs(distAhead), units)}`}
-          </Text>
-        )}
-        {ridingTimeSeconds != null && (
-          <Text className="text-[10px] text-muted-foreground font-barlow-sc-medium">
-            ~{formatDuration(ridingTimeSeconds)}
+        {catMeta && (
+          <Text
+            className="text-[13px] font-barlow-medium text-right"
+            style={{ color: catMeta.color }}
+            numberOfLines={1}
+          >
+            {catMeta.label}
           </Text>
         )}
       </View>
     </TouchableOpacity>
   );
 });
+
+function POIDetailStat({ label, value }: { label: string; value: string }) {
+  return (
+    <View className="flex-1 min-h-[58px] justify-center rounded-lg bg-muted px-2">
+      <Text className="text-[12px] font-barlow-medium text-muted-foreground" numberOfLines={1}>
+        {label}
+      </Text>
+      <Text className="text-[20px] font-barlow-sc-semibold text-foreground" numberOfLines={1}>
+        {value}
+      </Text>
+    </View>
+  );
+}
 
 function InlinePOIDetail({
   poi,
@@ -596,6 +651,15 @@ function InlinePOIDetail({
     if (ohStatus.detail === "24/7") return "Open 24/7";
     return ohStatus.detail ? `${ohStatus.label} · ${ohStatus.detail}` : ohStatus.label;
   }, [ohStatus]);
+  const distAheadText =
+    distAhead == null
+      ? "--"
+      : distAhead >= 0
+        ? formatDistance(distAhead, units)
+        : `-${formatDistance(Math.abs(distAhead), units)}`;
+  const distAheadLabel = distAhead == null ? "distance" : distAhead >= 0 ? "ahead" : "behind";
+  const offRouteText =
+    poi.distanceFromRouteMeters > 50 ? `${Math.round(poi.distanceFromRouteMeters)} m` : "on route";
 
   const daySchedules = useMemo(
     () => (openingHoursRaw ? getDaySchedules(openingHoursRaw) : null),
@@ -671,14 +735,13 @@ function InlinePOIDetail({
       {/* Header: back + name + star */}
       <View className="flex-row items-center">
         <TouchableOpacity
-          className="w-[32px] h-[32px] items-center justify-center"
-          hitSlop={8}
+          className="w-[48px] h-[48px] items-center justify-center rounded-full bg-muted"
           onPress={onBack}
           accessibilityLabel="Back to POI list"
         >
-          <ChevronLeft size={20} color={colors.textSecondary} />
+          <ChevronLeft size={24} color={colors.textSecondary} />
         </TouchableOpacity>
-        <View className="flex-1 mx-1">
+        <View className="flex-1 mx-2">
           <Text className="text-[16px] font-barlow-semibold text-foreground" numberOfLines={1}>
             {poi.name ?? catMeta?.label ?? "Unnamed"}
           </Text>
@@ -695,49 +758,40 @@ function InlinePOIDetail({
           )}
         </View>
         <TouchableOpacity
-          className="w-[32px] h-[32px] items-center justify-center"
-          hitSlop={8}
+          className="w-[48px] h-[48px] items-center justify-center rounded-full bg-muted"
           onPress={() => toggleStarred(poi.id)}
           accessibilityLabel={isStarred ? "Unstar POI" : "Star POI"}
+          accessibilityState={{ selected: isStarred }}
         >
           <Star
-            size={18}
+            size={22}
             color={isStarred ? colors.warning : colors.textTertiary}
             fill={isStarred ? colors.warning : "none"}
           />
         </TouchableOpacity>
       </View>
 
-      {/* Distance + ETA */}
-      <View className="flex-row items-center mt-2">
-        <MapPin size={13} color={colors.textSecondary} />
-        <Text className="ml-1.5 text-[13px] text-muted-foreground font-barlow">
-          {Math.round(poi.distanceFromRouteMeters)} m off route
-        </Text>
-        {distAhead != null && (
-          <Text className="ml-2 text-[13px] font-barlow-sc-semibold text-foreground">
-            {distAhead >= 0
-              ? `${formatDistance(distAhead, units)} ahead`
-              : `${formatDistance(Math.abs(distAhead), units)} behind`}
-          </Text>
-        )}
+      {/* Riding decision summary */}
+      <View className="flex-row gap-2 mt-3">
+        <POIDetailStat label={distAheadLabel} value={distAheadText} />
+        <POIDetailStat
+          label={
+            etaResult && etaResult.ridingTimeSeconds > 0
+              ? `ETA ${formatETA(etaResult.eta)}`
+              : "riding"
+          }
+          value={
+            etaResult && etaResult.ridingTimeSeconds > 0
+              ? `~${formatDuration(etaResult.ridingTimeSeconds)}`
+              : "--"
+          }
+        />
+        <POIDetailStat label="off route" value={offRouteText} />
       </View>
-
-      {etaResult && etaResult.ridingTimeSeconds > 0 && (
-        <View className="flex-row items-center mt-1">
-          <Clock size={13} color={colors.accent} />
-          <Text className="ml-1.5 text-[13px] font-barlow-sc-semibold text-foreground">
-            ~{formatDuration(etaResult.ridingTimeSeconds)}
-          </Text>
-          <Text className="ml-1.5 text-[13px] font-barlow-medium text-muted-foreground">
-            ETA {formatETA(etaResult.eta)}
-          </Text>
-        </View>
-      )}
 
       {etaOpenStatus !== null && (
         <Text
-          className="text-[12px] font-barlow ml-5 mt-1"
+          className="text-[14px] font-barlow-semibold mt-2"
           style={{ color: etaOpenStatus ? colors.positive : colors.destructive }}
         >
           {etaOpenStatus ? "Open when you arrive" : "Closed at ETA"}
@@ -746,9 +800,9 @@ function InlinePOIDetail({
 
       {/* Opening hours */}
       {ohText && (
-        <View className="flex-row items-center mt-2">
-          <Clock size={13} color={ohColor} />
-          <Text className="ml-1.5 text-[13px] font-barlow" style={{ color: ohColor }}>
+        <View className="flex-row items-center mt-3">
+          <Clock size={16} color={ohColor} />
+          <Text className="ml-1.5 text-[15px] font-barlow-semibold" style={{ color: ohColor }}>
             {ohText}
           </Text>
         </View>
@@ -758,10 +812,10 @@ function InlinePOIDetail({
         <View className="ml-5 mt-1">
           {daySchedules.map((ds) => (
             <View key={ds.label} className="flex-row items-center">
-              <Text className="text-[12px] text-muted-foreground font-barlow-medium w-[60px]">
+              <Text className="text-[13px] text-muted-foreground font-barlow-medium w-[60px]">
                 {ds.label}
               </Text>
-              <Text className="text-[12px] text-muted-foreground font-barlow-sc-medium">
+              <Text className="text-[13px] text-muted-foreground font-barlow-sc-medium">
                 {ds.hours}
               </Text>
             </View>
@@ -771,15 +825,15 @@ function InlinePOIDetail({
 
       {address && (
         <View className="flex-row items-center mt-2">
-          <MapPin size={13} color={colors.textSecondary} />
-          <Text className="ml-1.5 text-[13px] text-muted-foreground font-barlow">{address}</Text>
+          <MapPin size={14} color={colors.textSecondary} />
+          <Text className="ml-1.5 text-[14px] text-muted-foreground font-barlow">{address}</Text>
         </View>
       )}
 
       {phone && !phoneUrl && (
         <View className="flex-row items-center mt-2">
-          <Phone size={13} color={colors.textSecondary} />
-          <Text className="ml-1.5 text-[13px] text-muted-foreground font-barlow">{phone}</Text>
+          <Phone size={14} color={colors.textSecondary} />
+          <Text className="ml-1.5 text-[14px] text-muted-foreground font-barlow">{phone}</Text>
         </View>
       )}
 

@@ -317,23 +317,30 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
   const compactClimbTitle = compactDistanceText
     ? `${climbTitle} (${compactDistanceText})`
     : climbTitle;
+  const expandedDistanceLabel =
+    distToStart == null
+      ? null
+      : distToStart >= 0
+        ? "To start"
+        : distToStart > -climb.lengthMeters
+          ? "Position"
+          : "Past";
+  const expandedDistanceValue =
+    distToStart == null
+      ? null
+      : distToStart >= 0
+        ? formatDistance(distToStart, units)
+        : distToStart > -climb.lengthMeters
+          ? "On it"
+          : formatDistance(Math.abs(distToStart), units);
   const statsRow = (
-    <View className="flex-row items-center px-3 mt-1">
-      <StatItem label="Gain" value={`${formatElevation(climb.totalAscentMeters, units)} ↑`} />
-      <StatItem label="Length" value={formatDistance(climb.lengthMeters, units)} />
-      <StatItem label="Avg" value={`${climb.averageGradientPercent}%`} />
-      <StatItem label="Max" value={`${climb.maxGradientPercent}%`} />
-      {distToStart != null && (
-        <View className="flex-1 items-end">
-          <Text className="text-[10px] text-muted-foreground font-barlow">Dist</Text>
-          <Text className="text-[13px] font-barlow-sc-semibold text-foreground">
-            {distToStart >= 0
-              ? `${formatDistance(distToStart, units)}`
-              : distToStart > -climb.lengthMeters
-                ? "On it"
-                : `${formatDistance(Math.abs(distToStart), units)} ←`}
-          </Text>
-        </View>
+    <View className="flex-row gap-2 px-3 mt-2 mb-2">
+      <StatCard label="Gain" value={`+${formatElevation(climb.totalAscentMeters, units)}`} />
+      <StatCard label="Length" value={formatDistance(climb.lengthMeters, units)} />
+      <StatCard label="Avg" value={`${climb.averageGradientPercent}%`} />
+      <StatCard label="Max" value={`${climb.maxGradientPercent}%`} />
+      {expandedDistanceLabel && expandedDistanceValue && (
+        <StatCard label={expandedDistanceLabel} value={expandedDistanceValue} />
       )}
     </View>
   );
@@ -405,23 +412,13 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
             </Text>
           )}
           <View className="flex-row items-center">
-            <Mountain size={isExpanded ? 11 : 10} color={diffColor} />
+            <Mountain size={isExpanded ? 13 : 14} color={diffColor} />
             <Text
-              className={cn("ml-1 font-barlow-medium", isExpanded ? "text-[11px]" : "text-[10px]")}
+              className={cn("ml-1 font-barlow-medium", isExpanded ? "text-[13px]" : "text-[13px]")}
               style={{ color: diffColor }}
             >
               {CLIMB_DIFFICULTY_LABELS[difficulty]} · {Math.round(climb.difficultyScore)}
             </Text>
-            {!isExpanded && (
-              <>
-                <Text className="ml-2 text-[10px] font-barlow-sc-semibold text-foreground">
-                  +{formatElevation(climb.totalAscentMeters, units)}
-                </Text>
-                <Text className="ml-2 text-[10px] font-barlow-sc-semibold text-foreground">
-                  {climb.averageGradientPercent}% avg
-                </Text>
-              </>
-            )}
           </View>
         </View>
 
@@ -510,18 +507,17 @@ function ClimbArrowButton({
     <TouchableOpacity
       className={cn(
         "items-center justify-center rounded-full border",
-        compact ? "w-[40px] h-[40px]" : "w-[48px] h-[48px]",
+        "w-[48px] h-[48px]",
         disabled ? "border-transparent" : "bg-muted border-border",
       )}
       style={disabled ? { opacity: 0.4 } : undefined}
-      hitSlop={compact ? 4 : undefined}
       disabled={disabled}
       onPress={onPress}
       accessibilityLabel={direction === "previous" ? "Previous climb" : "Next climb"}
       accessibilityState={{ disabled }}
     >
       <Icon
-        size={compact ? 20 : 22}
+        size={compact ? 21 : 22}
         color={disabled ? colors.textTertiary : colors.textSecondary}
       />
     </TouchableOpacity>
@@ -601,11 +597,20 @@ function DifficultyFilterBar({
   );
 }
 
-function StatItem({ label, value }: { label: string; value: string }) {
+function StatCard({ label, value }: { label: string; value: string }) {
   return (
-    <View className="flex-1">
-      <Text className="text-[10px] text-muted-foreground font-barlow">{label}</Text>
-      <Text className="text-[13px] font-barlow-sc-semibold text-foreground">{value}</Text>
+    <View className="flex-1 min-h-[58px] justify-center rounded-lg bg-muted px-2">
+      <Text className="text-[12px] text-muted-foreground font-barlow-medium" numberOfLines={1}>
+        {label}
+      </Text>
+      <Text
+        className="text-[18px] font-barlow-sc-semibold text-foreground"
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.78}
+      >
+        {value}
+      </Text>
     </View>
   );
 }

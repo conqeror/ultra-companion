@@ -247,40 +247,51 @@ const WeatherRow = React.memo(function WeatherRow({ point }: { point: WeatherPoi
   const precip = precipitationLabel(point);
   const wind = Math.round(point.windSpeedKmh);
   const gust = Math.round(point.windGustKmh);
+  const windLabel = windRel ?? "wind";
+  const riskLabel = risk ? `${risk.hazard}. ${risk.impact} ${risk.action}` : null;
+  const accessibilityLabel = [
+    formatHour(point.etaTime),
+    formatDistanceKm(point.routeDistanceMeters),
+    weatherInfo.label,
+    formatTemp(displayTempC),
+    precip ? `precipitation ${precip}` : "no precipitation expected",
+    `${windLabel} ${wind} kilometers per hour, gust ${gust}`,
+    riskLabel,
+  ]
+    .filter(Boolean)
+    .join(", ");
 
   return (
     <View
-      className="px-3 py-1.5"
+      className="px-3 py-2"
       style={{
         borderBottomWidth: StyleSheet.hairlineWidth,
         borderBottomColor: colors.borderSubtle,
       }}
-      accessibilityLabel={`${formatHour(point.etaTime)}, ${formatDistanceKm(
-        point.routeDistanceMeters,
-      )}, ${weatherInfo.label}, ${formatTemp(displayTempC)}, wind ${wind} kilometers per hour`}
+      accessibilityLabel={accessibilityLabel}
     >
-      <View className="min-h-[44px] flex-row items-center">
-        <View className="w-[48px]">
+      <View className="min-h-[52px] flex-row items-center">
+        <View className="w-[52px]">
           <Text className="text-[15px] font-barlow-sc-semibold text-foreground" numberOfLines={1}>
             {formatHour(point.etaTime)}
           </Text>
           <Text
-            className="text-[12px] font-barlow-sc-semibold text-muted-foreground"
+            className="text-[13px] font-barlow-sc-semibold text-muted-foreground"
             numberOfLines={1}
           >
             {formatDistanceKm(point.routeDistanceMeters)}
           </Text>
         </View>
         <Text
-          className="text-[22px] font-barlow-sc-semibold text-right"
-          style={{ width: 42, color: tempColor }}
+          className="text-[24px] font-barlow-sc-semibold text-right"
+          style={{ width: 46, color: tempColor }}
         >
           {formatTemp(displayTempC)}
         </Text>
         <View className="flex-1 flex-row items-center min-w-0 ml-2">
-          <WeatherIcon point={point} size={22} />
+          <WeatherIcon point={point} size={24} />
           <Text
-            className="ml-1.5 text-[12px] font-barlow-semibold text-foreground flex-shrink"
+            className="ml-1.5 text-[14px] font-barlow-semibold text-foreground flex-shrink"
             numberOfLines={1}
           >
             {weatherInfo.label}
@@ -294,7 +305,7 @@ const WeatherRow = React.memo(function WeatherRow({ point }: { point: WeatherPoi
         <View className="w-[58px] items-center">
           {precip && (
             <Text
-              className="text-[12px] font-barlow-sc-semibold text-center"
+              className="text-[14px] font-barlow-sc-semibold text-center"
               style={{ color: colors.info }}
               numberOfLines={2}
               adjustsFontSizeToFit
@@ -304,12 +315,12 @@ const WeatherRow = React.memo(function WeatherRow({ point }: { point: WeatherPoi
             </Text>
           )}
         </View>
-        <View className="w-[70px] flex-row items-center justify-end">
+        <View className="w-[74px] flex-row items-center justify-end">
           <View style={{ transform: [{ rotate: `${rotation}deg` }] }}>
-            <ArrowUp size={15} color={wColor} />
+            <ArrowUp size={17} color={wColor} />
           </View>
           <Text
-            className="text-[18px] font-barlow-sc-semibold ml-1"
+            className="text-[20px] font-barlow-sc-semibold ml-1"
             style={{ color: wColor }}
             numberOfLines={1}
             adjustsFontSizeToFit
@@ -317,7 +328,7 @@ const WeatherRow = React.memo(function WeatherRow({ point }: { point: WeatherPoi
           >
             {wind}{" "}
             <Text
-              className="text-[15px] font-barlow-sc-semibold"
+              className="text-[16px] font-barlow-sc-semibold"
               style={{ color: gustColor(gust, wind, colors) }}
             >
               ({gust})
@@ -337,7 +348,7 @@ const WeatherRow = React.memo(function WeatherRow({ point }: { point: WeatherPoi
               {risk.hazard}
             </Text>
           </View>
-          <Text className="text-[13px] font-barlow-medium text-muted-foreground mt-1 text-center">
+          <Text className="text-[14px] font-barlow-medium text-muted-foreground mt-1 text-center">
             {risk.impact} {risk.action}
           </Text>
         </View>
@@ -423,14 +434,14 @@ function ForecastStatus({
     >
       <View className="flex-row items-center px-3">
         <View className="flex-1 flex-row min-w-0">
-          <Text className="text-[11px] font-barlow-medium text-muted-foreground" numberOfLines={1}>
+          <Text className="text-[13px] font-barlow-medium text-muted-foreground" numberOfLines={1}>
             {plannedStartMs != null
               ? `${statusBase} · start ${formatStartLabel(plannedStartMs)}`
               : statusBase}
           </Text>
           {statusSuffix && (
             <Text
-              className="text-[11px] font-barlow-medium flex-shrink"
+              className="text-[13px] font-barlow-medium flex-shrink"
               style={{ color: fetchStatus === "error" ? colors.destructive : colors.warning }}
               numberOfLines={1}
             >
@@ -442,7 +453,7 @@ function ForecastStatus({
           <View className="flex-row items-center ml-2">
             <AlertTriangle size={13} color={colors.warning} />
             <Text
-              className="text-[11px] font-barlow-sc-semibold ml-1"
+              className="text-[13px] font-barlow-sc-semibold ml-1"
               style={{ color: colors.warning }}
             >
               {warningCount}
@@ -585,16 +596,16 @@ export default function WeatherPanel({ activeData }: { activeData: ActiveRouteDa
         }}
         accessibilityRole="header"
       >
-        <Text className="w-[90px] text-[10px] text-muted-foreground font-barlow-medium">
+        <Text className="w-[98px] text-[12px] text-muted-foreground font-barlow-medium">
           Time · km
         </Text>
-        <Text className="flex-1 text-[10px] text-muted-foreground font-barlow-medium">
+        <Text className="flex-1 text-[12px] text-muted-foreground font-barlow-medium">
           Condition
         </Text>
-        <Text className="w-[58px] text-center text-[10px] text-muted-foreground font-barlow-medium">
+        <Text className="w-[58px] text-center text-[12px] text-muted-foreground font-barlow-medium">
           Rain
         </Text>
-        <Text className="w-[70px] text-right text-[10px] text-muted-foreground font-barlow-medium">
+        <Text className="w-[74px] text-right text-[12px] text-muted-foreground font-barlow-medium">
           Wind
         </Text>
       </View>

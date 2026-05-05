@@ -335,8 +335,9 @@ export default function POILayer({
             id="poi-circles-outline"
             filter={UNCLUSTERED_FILTER}
             style={{
-              circleRadius: 13,
+              circleRadius: 12,
               circleColor: colors.surface,
+              circleOpacity: 0.78,
             }}
             minZoomLevel={10}
           />
@@ -344,8 +345,9 @@ export default function POILayer({
             id="poi-circles"
             filter={UNCLUSTERED_FILTER}
             style={{
-              circleRadius: 10,
+              circleRadius: 8,
               circleColor: ["get", "color"],
+              circleOpacity: 0.72,
             }}
             minZoomLevel={10}
           />
@@ -358,6 +360,7 @@ export default function POILayer({
               iconColor: POI_ICON_COLOR,
               iconHaloColor: colors.surface,
               iconHaloWidth: 1,
+              iconOpacity: 0.82,
               iconAllowOverlap: true,
               iconIgnorePlacement: true,
             }}
@@ -377,7 +380,7 @@ export default function POILayer({
           <CircleLayer
             id="poi-starred-outline"
             style={{
-              circleRadius: 14,
+              circleRadius: 17,
               circleColor: colors.warning,
             }}
             minZoomLevel={8}
@@ -385,7 +388,7 @@ export default function POILayer({
           <CircleLayer
             id="poi-starred-fill"
             style={{
-              circleRadius: 10,
+              circleRadius: 11,
               circleColor: ["get", "color"],
             }}
             minZoomLevel={8}

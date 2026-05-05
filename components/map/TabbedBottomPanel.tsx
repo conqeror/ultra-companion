@@ -21,7 +21,7 @@ import RidingHorizonSelector, { RIDING_HORIZON_SELECTOR_OFFSET } from "./RidingH
 import type { ActiveRouteData, PanelTab } from "@/types";
 
 /** Combined handle + tabs height */
-const HEADER_HEIGHT = 44;
+const HEADER_HEIGHT = 52;
 
 /** No bounce — clamp at snap points */
 const SPRING_CONFIG = { damping: 28, stiffness: 300, overshootClamping: true };
@@ -157,9 +157,11 @@ export default function TabbedBottomPanel({ activeData }: TabbedBottomPanelProps
                       className="flex-1 items-center justify-center h-full"
                       onPress={() => setPanelTab(tab.key)}
                       accessibilityLabel={`${tab.label} tab`}
+                      accessibilityRole="tab"
+                      accessibilityState={{ selected: isActive }}
                     >
                       <Text
-                        className="text-[13px] font-barlow-semibold"
+                        className="text-[15px] font-barlow-semibold"
                         style={{ color: isActive ? colors.accent : colors.textTertiary }}
                       >
                         {tab.label}

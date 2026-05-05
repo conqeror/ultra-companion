@@ -43,20 +43,64 @@ function POIListItem({ poi, currentDistAlongRoute, onPress }: POIListItemProps) 
     return key ? colors[key] : undefined;
   }, [ohStatus, colors]);
 
+  const distanceLabel =
+    distAhead != null
+      ? distAhead >= 0
+        ? `${formatDistance(distAhead, units)} ahead`
+        : `${formatDistance(Math.abs(distAhead), units)} behind`
+      : null;
+  const etaLabel =
+    etaResult && etaResult.ridingTimeSeconds > 0
+      ? `${formatDuration(etaResult.ridingTimeSeconds)}, ETA ${formatETA(etaResult.eta)}`
+      : null;
+  const offRouteLabel =
+    poi.distanceFromRouteMeters > 50
+      ? `${Math.round(poi.distanceFromRouteMeters)} meters off route`
+      : "on route";
+  const accessibilityLabel = [
+    poi.name ?? catMeta?.label ?? "POI",
+    distanceLabel,
+    etaLabel,
+    ohStatus?.label,
+    offRouteLabel,
+    isStarred ? "starred" : null,
+  ]
+    .filter(Boolean)
+    .join(", ");
+
   return (
     <TouchableOpacity
-      className="flex-row items-center px-4 py-3 border-b border-border"
+      className="flex-row items-center px-4 py-3.5 border-b border-border"
       onPress={() => onPress(poi)}
-      accessibilityLabel={poi.name ?? catMeta?.label ?? "POI"}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
     >
       <View
-        className="w-[32px] h-[32px] rounded-full items-center justify-center"
+        className="w-[40px] h-[40px] rounded-full items-center justify-center"
         style={{ backgroundColor: (catMeta?.color ?? colors.textTertiary) + "1A" }}
       >
-        {IconComp && <IconComp size={18} color={catMeta?.color ?? colors.textPrimary} />}
+        {IconComp && <IconComp size={20} color={catMeta?.color ?? colors.textPrimary} />}
       </View>
 
       <View className="flex-1 ml-3">
+        <View className="flex-row items-baseline">
+          {distAhead != null && (
+            <Text className="text-[18px] font-barlow-sc-semibold text-foreground">
+              {distAhead >= 0
+                ? formatDistance(distAhead, units)
+                : `-${formatDistance(Math.abs(distAhead), units)}`}
+            </Text>
+          )}
+          {etaResult && etaResult.ridingTimeSeconds > 0 ? (
+            <Text className="ml-2 text-[15px] font-barlow-sc-semibold text-foreground">
+              ~{formatDuration(etaResult.ridingTimeSeconds)}
+            </Text>
+          ) : distAhead != null ? (
+            <Text className="ml-2 text-[14px] font-barlow-medium text-muted-foreground">
+              {distAhead >= 0 ? "ahead" : "behind"}
+            </Text>
+          ) : null}
+        </View>
         <View className="flex-row items-center">
           {isStarred && (
             <Star
@@ -67,7 +111,7 @@ function POIListItem({ poi, currentDistAlongRoute, onPress }: POIListItemProps) 
             />
           )}
           <Text
-            className="text-[15px] font-barlow-medium text-foreground flex-shrink"
+            className="text-[14px] font-barlow-medium text-foreground flex-shrink"
             numberOfLines={1}
           >
             {poi.name ?? catMeta?.label ?? "Unnamed"}
@@ -77,42 +121,23 @@ function POIListItem({ poi, currentDistAlongRoute, onPress }: POIListItemProps) 
           {ohStatus && (
             <View className="flex-row items-center">
               <View className="w-[6px] h-[6px] rounded-full" style={{ backgroundColor: ohColor }} />
-              <Text className="ml-1 text-[12px] font-barlow-medium" style={{ color: ohColor }}>
+              <Text className="ml-1 text-[14px] font-barlow-medium" style={{ color: ohColor }}>
                 {ohStatus.label}
                 {ohStatus.detail ? ` · ${ohStatus.detail}` : ""}
               </Text>
             </View>
           )}
           {ohStatus && poi.distanceFromRouteMeters > 50 && (
-            <Text className="text-[11px] text-muted-foreground/60 font-barlow ml-2">
+            <Text className="text-[14px] text-muted-foreground font-barlow ml-2">
               {Math.round(poi.distanceFromRouteMeters)} m off
             </Text>
           )}
           {!ohStatus && poi.distanceFromRouteMeters > 50 && (
-            <Text className="text-[11px] text-muted-foreground/60 font-barlow">
+            <Text className="text-[14px] text-muted-foreground font-barlow">
               {Math.round(poi.distanceFromRouteMeters)} m off route
             </Text>
           )}
         </View>
-      </View>
-
-      <View className="items-end ml-2">
-        {distAhead != null && (
-          <Text className="text-[15px] font-barlow-sc-semibold text-foreground">
-            {distAhead >= 0
-              ? formatDistance(distAhead, units)
-              : `-${formatDistance(Math.abs(distAhead), units)}`}
-          </Text>
-        )}
-        {etaResult && etaResult.ridingTimeSeconds > 0 ? (
-          <Text className="text-[11px] text-muted-foreground font-barlow-sc-medium">
-            ~{formatDuration(etaResult.ridingTimeSeconds)} · {formatETA(etaResult.eta)}
-          </Text>
-        ) : distAhead != null ? (
-          <Text className="text-[11px] text-muted-foreground font-barlow">
-            {distAhead >= 0 ? "ahead" : "behind"}
-          </Text>
-        ) : null}
       </View>
     </TouchableOpacity>
   );

@@ -22,7 +22,7 @@ export const COLORS = {
     surfaceRaised: "#2A2924",
     textPrimary: "#F0EDE8",
     textSecondary: "#9C958E",
-    textTertiary: "#6B6560",
+    textTertiary: "#8A837C",
     border: "#2A2924",
     borderSubtle: "#1C1B18",
     accent: "#14B8A6",

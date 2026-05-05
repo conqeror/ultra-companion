@@ -20,12 +20,12 @@ import { formatDistance, formatElevation } from "@/utils/formatters";
 import { climbDifficultyColor } from "@/constants/climbHelpers";
 import { stitchPOIs } from "@/services/stitchingService";
 import { toDisplayPOIs } from "@/services/displayDistance";
-import { ridingHorizonMetersForMode } from "@/utils/ridingHorizon";
+import { ridingHorizonMetersForMode, ridingHorizonScopeLabelForMode } from "@/utils/ridingHorizon";
 import UpcomingElevation from "./UpcomingElevation";
 import ElevationProfile from "@/components/elevation/ElevationProfile";
 import type { POI, ActiveRouteData, DisplayClimb } from "@/types";
 
-const STATS_HEIGHT = 28;
+const STATS_HEIGHT = 44;
 const CLIMB_ROW_HEIGHT = 36;
 const MAX_CLIMBS_AHEAD = 4;
 const HORIZONTAL_PADDING = 8;
@@ -46,6 +46,7 @@ export default function ProfileTabContent({ activeData, width, height }: Profile
   const activeTotalDistance = activeData?.totalDistanceMeters ?? 0;
 
   const panelMode = usePanelStore((s) => s.panelMode);
+  const horizonScopeLabel = ridingHorizonScopeLabelForMode(panelMode);
   const setPanelTab = usePanelStore((s) => s.setPanelTab);
   const isExpanded = usePanelStore((s) => s.isExpanded);
   const snappedPosition = useRouteStore((s) => s.snappedPosition);
@@ -161,6 +162,7 @@ export default function ProfileTabContent({ activeData, width, height }: Profile
     );
     return `↑ ${formatElevation(asc, units)}  ·  ↓ ${formatElevation(desc, units)}`;
   }, [isSnapped, activeRoutePoints, windowStartDist, windowEndDist, units]);
+  const horizonSummaryText = statsText ? `${horizonScopeLabel}: ${statsText}` : null;
 
   const climbsAhead = useMemo<DisplayClimb[]>(() => {
     if (climbsForChart.length === 0) return [];
@@ -184,8 +186,8 @@ export default function ProfileTabContent({ activeData, width, height }: Profile
 
   const lookAhead = ridingHorizonMetersForMode(panelMode) ?? activeTotalDistance;
 
-  const showClimbBar = isExpanded && showClimbZoom && !!climbProgressText;
-  const showStats = isExpanded && !showClimbZoom && !!statsText;
+  const showClimbBar = showClimbZoom && !!climbProgressText;
+  const showStats = !showClimbZoom && !!horizonSummaryText;
   const showClimbsAhead = isExpanded && !showClimbZoom && climbsAhead.length > 0;
   const isFullRouteHorizon = panelMode === "full-route";
 
@@ -232,12 +234,10 @@ export default function ProfileTabContent({ activeData, width, height }: Profile
             { height: STATS_HEIGHT },
             { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
           ]}
+          accessibilityLabel={`Profile summary for ${horizonScopeLabel}, ${statsText}`}
         >
-          <Text
-            className="text-[13px] text-muted-foreground font-barlow-sc-medium"
-            numberOfLines={1}
-          >
-            {statsText}
+          <Text className="text-[18px] text-foreground font-barlow-sc-semibold" numberOfLines={1}>
+            {horizonSummaryText}
           </Text>
         </View>
       )}
