@@ -119,7 +119,7 @@ export type PanelMode =
   | "upcoming-200"
   | "full-route";
 
-export type PanelTab = "profile" | "weather" | "climbs" | "pois";
+export type PanelTab = "profile" | "upcoming" | "weather" | "climbs" | "pois";
 
 // --- Phase 3: POI types ---
 

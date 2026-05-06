@@ -33,6 +33,10 @@ import { POI_ICON_MAP } from "@/constants/poiIcons";
 import { getCategoryMeta, ohStatusColorKey } from "@/constants/poiHelpers";
 import { formatDistance, formatDuration, formatETA } from "@/utils/formatters";
 import { getOpeningHoursStatus, isOpenAt, getDaySchedules } from "@/services/openingHoursParser";
+import {
+  departureTimeAfterPlannedStop,
+  getPlannedStopDurationMinutes,
+} from "@/services/plannedStops";
 import { stitchPOIs } from "@/services/stitchingService";
 import { toDisplayPOIForSegments, toDisplayPOIs } from "@/services/displayDistance";
 import { getETAToDistanceFromDistance as resolveETAToDistance } from "@/services/etaCalculator";
@@ -597,9 +601,74 @@ function POIDetailStat({ label, value }: { label: string; value: string }) {
       <Text className="text-[12px] font-barlow-medium text-muted-foreground" numberOfLines={1}>
         {label}
       </Text>
-      <Text className="text-[20px] font-barlow-sc-semibold text-foreground" numberOfLines={1}>
+      <Text
+        className="text-[20px] font-barlow-sc-semibold text-foreground"
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.75}
+      >
         {value}
       </Text>
+    </View>
+  );
+}
+
+function parsePlannedStopMinutes(value: string): number | null {
+  const trimmed = value.trim();
+  if (!trimmed) return 0;
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed) || parsed < 0) return null;
+  return Math.round(parsed);
+}
+
+function PlannedStopMinutesInput({
+  valueMinutes,
+  onCommit,
+}: {
+  valueMinutes: number;
+  onCommit: (minutes: number) => void;
+}) {
+  const colors = useThemeColors();
+  const [draft, setDraft] = useState(valueMinutes > 0 ? String(valueMinutes) : "");
+
+  useEffect(() => {
+    setDraft(valueMinutes > 0 ? String(valueMinutes) : "");
+  }, [valueMinutes]);
+
+  const commitDraft = useCallback(() => {
+    const minutes = parsePlannedStopMinutes(draft);
+    if (minutes == null) {
+      Alert.alert("Invalid Stop Time", "Enter a non-negative number of minutes.");
+      setDraft(valueMinutes > 0 ? String(valueMinutes) : "");
+      return;
+    }
+    setDraft(minutes > 0 ? String(minutes) : "");
+    if (minutes !== valueMinutes) onCommit(minutes);
+  }, [draft, onCommit, valueMinutes]);
+
+  return (
+    <View className="mt-3">
+      <Text className="text-[12px] font-barlow-semibold text-muted-foreground mb-1">
+        Planned stop
+      </Text>
+      <View
+        className="min-h-[48px] flex-row items-center rounded-lg border bg-background px-3"
+        style={{ borderColor: colors.border }}
+      >
+        <RNTextInput
+          className="flex-1 min-h-[48px] text-[22px] font-barlow-sc-semibold text-foreground"
+          value={draft}
+          onChangeText={(text) => setDraft(text.replace(/[^0-9]/g, ""))}
+          onBlur={commitDraft}
+          onSubmitEditing={commitDraft}
+          keyboardType="number-pad"
+          returnKeyType="done"
+          placeholder="0"
+          placeholderTextColor={colors.textTertiary}
+          accessibilityLabel="Planned stop minutes"
+        />
+        <Text className="text-[14px] font-barlow-semibold text-muted-foreground ml-2">min</Text>
+      </View>
     </View>
   );
 }
@@ -622,6 +691,7 @@ function InlinePOIDetail({
   const updatePOINotes = usePoiStore((s) => s.updatePOINotes);
   const deleteCustomPOI = usePoiStore((s) => s.deleteCustomPOI);
   const getETAToPOI = useEtaStore((s) => s.getETAToPOI);
+  const updatePlannedStopDuration = usePoiStore((s) => s.updatePlannedStopDuration);
 
   const catMeta = POI_CATEGORIES.find((c) => c.key === poi.category);
   const IconComp = catMeta ? POI_ICON_MAP[catMeta.iconName] : null;
@@ -636,6 +706,8 @@ function InlinePOIDetail({
     () => (displayPOI ? getETAToPOI(displayPOI) : null),
     [displayPOI, getETAToPOI],
   );
+  const plannedStopMinutes = getPlannedStopDurationMinutes(poi);
+  const plannedDepartureTime = departureTimeAfterPlannedStop(etaResult, plannedStopMinutes);
 
   const openingHoursRaw = poi.tags?.opening_hours;
   const ohStatus = useMemo(
@@ -660,6 +732,7 @@ function InlinePOIDetail({
   const distAheadLabel = distAhead == null ? "distance" : distAhead >= 0 ? "ahead" : "behind";
   const offRouteText =
     poi.distanceFromRouteMeters > 50 ? `${Math.round(poi.distanceFromRouteMeters)} m` : "on route";
+  const plannedStopText = plannedStopMinutes > 0 ? `${plannedStopMinutes}m` : "none";
 
   const daySchedules = useMemo(
     () => (openingHoursRaw ? getDaySchedules(openingHoursRaw) : null),
@@ -730,6 +803,13 @@ function InlinePOIDetail({
     });
   }, [websiteUrl]);
 
+  const handlePlannedStopCommit = useCallback(
+    (minutes: number) => {
+      updatePlannedStopDuration(poi.routeId, poi.id, minutes);
+    },
+    [poi.id, poi.routeId, updatePlannedStopDuration],
+  );
+
   return (
     <ScrollView className="flex-1 px-3 pt-1">
       {/* Header: back + name + star */}
@@ -787,7 +867,19 @@ function InlinePOIDetail({
           }
         />
         <POIDetailStat label="off route" value={offRouteText} />
+        <POIDetailStat label="stop" value={plannedStopText} />
       </View>
+
+      {plannedStopMinutes > 0 && plannedDepartureTime && (
+        <Text className="text-[13px] font-barlow-medium text-muted-foreground mt-2">
+          Stop {plannedStopMinutes}m · depart {formatETA(plannedDepartureTime)}
+        </Text>
+      )}
+
+      <PlannedStopMinutesInput
+        valueMinutes={plannedStopMinutes}
+        onCommit={handlePlannedStopCommit}
+      />
 
       {etaOpenStatus !== null && (
         <Text

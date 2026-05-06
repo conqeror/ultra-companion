@@ -27,6 +27,7 @@ import {
 } from "@/db/database";
 import { fetchOsmPOIs, fetchGooglePOIs } from "@/services/poiFetcher";
 import { getOpeningHoursStatus } from "@/services/openingHoursParser";
+import { setPlannedStopDurationTag } from "@/services/plannedStops";
 import { usePanelStore } from "./panelStore";
 
 const LEGACY_STARRED_POI_IDS_KEY = "starredPOIIds";
@@ -256,6 +257,11 @@ interface POIState {
   clearSource: (routeId: string, source: POIFetchedSource) => Promise<void>;
   addCustomPOI: (poi: POI) => Promise<void>;
   updatePOINotes: (routeId: string, poiId: string, notes: string) => Promise<void>;
+  updatePlannedStopDuration: (
+    routeId: string,
+    poiId: string,
+    durationMinutes: number,
+  ) => Promise<void>;
   deleteCustomPOI: (routeId: string, poiId: string) => Promise<void>;
   toggleCategory: (category: POICategory) => void;
   setEnabledCategories: (categories: POICategory[]) => void;
@@ -451,6 +457,25 @@ export const usePoiStore = create<POIState>((set, get) => ({
     if (trimmed) nextTags.notes = trimmed;
     else delete nextTags.notes;
 
+    await updatePOITags(poiId, nextTags);
+    const pois = await getPOIsForRoute(routeId);
+
+    set((s) => {
+      const selectedPOI =
+        s.selectedPOI?.id === poiId ? { ...s.selectedPOI, tags: nextTags } : s.selectedPOI;
+      return {
+        pois: { ...s.pois, [routeId]: pois },
+        selectedPOI,
+      };
+    });
+  },
+
+  updatePlannedStopDuration: async (routeId, poiId, durationMinutes) => {
+    const routePois = get().pois[routeId] ?? (await getPOIsForRoute(routeId));
+    const poi = routePois.find((p) => p.id === poiId);
+    if (!poi) return;
+
+    const nextTags = setPlannedStopDurationTag(poi.tags, durationMinutes);
     await updatePOITags(poiId, nextTags);
     const pois = await getPOIsForRoute(routeId);
 

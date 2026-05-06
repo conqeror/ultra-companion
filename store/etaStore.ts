@@ -8,11 +8,19 @@ import type {
   DisplayPOI,
 } from "@/types";
 import { DEFAULT_POWER_CONFIG } from "@/constants";
+import { displayPOIsForActiveRoute } from "@/services/activePOIs";
 import { computeRouteETA, getETAToDistanceFromDistance } from "@/services/etaCalculator";
 import { toDisplayPOIForSegments } from "@/services/displayDistance";
+import { futureStartMs } from "@/utils/activeRouteTiming";
+import {
+  applyPlannedStopOffsetToETA,
+  plannedStopOffsetSecondsBeforeDistance,
+  plannedStopsFromPOIs,
+} from "@/services/plannedStops";
 import { resolveRouteProgress } from "@/utils/routeProgress";
 import { useRouteStore } from "./routeStore";
 import { useCollectionStore } from "./collectionStore";
+import { usePoiStore } from "./poiStore";
 
 let storage: MMKV | null = null;
 
@@ -37,6 +45,24 @@ function plannedStartForRoute(routeId: string): number | null {
   if (stitched?.collectionId !== routeId) return null;
   const collection = collectionState.collections.find((c) => c.id === routeId);
   return collection?.plannedStartMs ?? null;
+}
+
+function plannedStopsForRoute(routeId: string) {
+  const poiState = usePoiStore.getState();
+  const collectionState = useCollectionStore.getState();
+  const stitched = collectionState.activeStitchedCollection;
+
+  if (stitched?.collectionId === routeId) {
+    return plannedStopsFromPOIs(
+      displayPOIsForActiveRoute(
+        stitched.segments.map((segment) => segment.routeId),
+        stitched.segments,
+        poiState.pois,
+      ),
+    );
+  }
+
+  return plannedStopsFromPOIs(displayPOIsForActiveRoute([routeId], null, poiState.pois));
 }
 
 interface ETAState {
@@ -115,13 +141,22 @@ export const useEtaStore = create<ETAState>((set, get) => ({
     );
     if (!result) return null;
 
-    if (plannedStartMs != null && plannedStartMs > Date.now()) {
+    const etaStartMs = futureStartMs(plannedStartMs);
+    const stopOffsetSeconds = plannedStopOffsetSecondsBeforeDistance(
+      plannedStopsForRoute(routeId),
+      routeProgress.distanceAlongRouteMeters,
+      targetDistM,
+    );
+    const withStops = applyPlannedStopOffsetToETA(result, stopOffsetSeconds, etaStartMs);
+    if (!withStops) return null;
+
+    if (etaStartMs != null) {
       return {
-        ...result,
-        eta: new Date(plannedStartMs + result.ridingTimeSeconds * 1000),
+        ...withStops,
+        eta: new Date(etaStartMs + withStops.ridingTimeSeconds * 1000),
       };
     }
 
-    return result;
+    return withStops;
   },
 }));

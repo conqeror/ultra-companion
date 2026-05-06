@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { usePoiStore } from "@/store/poiStore";
 import { databaseMocks } from "@/tests/mocks/database";
 import { buildPoi } from "@/tests/fixtures/poi";
+import { toDisplayPOI } from "@/services/displayDistance";
 
 function resetPoiStoreState() {
   usePoiStore.setState({
@@ -87,5 +88,36 @@ describe("poiStore starred POIs", () => {
       deleteStarredItems: true,
     });
     expect([...usePoiStore.getState().starredPOIIds]).toEqual(["google-1"]);
+  });
+
+  it("updates planned stop duration tags", async () => {
+    const poi = buildPoi("poi-1", "route-1", 500, { tags: { notes: "shop" } });
+    const updated = buildPoi("poi-1", "route-1", 500, {
+      tags: { notes: "shop", planned_stop_duration_minutes: "15" },
+    });
+    usePoiStore.setState({ pois: { "route-1": [poi] }, selectedPOI: toDisplayPOI(poi) });
+    databaseMocks.getPOIsForRoute.mockResolvedValueOnce([updated]);
+
+    await usePoiStore.getState().updatePlannedStopDuration("route-1", "poi-1", 15);
+
+    expect(databaseMocks.updatePOITags).toHaveBeenCalledWith("poi-1", {
+      notes: "shop",
+      planned_stop_duration_minutes: "15",
+    });
+    expect(usePoiStore.getState().pois["route-1"]).toEqual([updated]);
+    expect(usePoiStore.getState().selectedPOI?.tags.planned_stop_duration_minutes).toBe("15");
+  });
+
+  it("clears planned stop duration tags", async () => {
+    const poi = buildPoi("poi-1", "route-1", 500, {
+      tags: { notes: "shop", planned_stop_duration_minutes: "15" },
+    });
+    const updated = buildPoi("poi-1", "route-1", 500, { tags: { notes: "shop" } });
+    usePoiStore.setState({ pois: { "route-1": [poi] } });
+    databaseMocks.getPOIsForRoute.mockResolvedValueOnce([updated]);
+
+    await usePoiStore.getState().updatePlannedStopDuration("route-1", "poi-1", 0);
+
+    expect(databaseMocks.updatePOITags).toHaveBeenCalledWith("poi-1", { notes: "shop" });
   });
 });

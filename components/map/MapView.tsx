@@ -11,6 +11,7 @@ import { SHEET_COMPACT_RATIO, SHEET_EXPANDED_RATIO } from "@/constants";
 import { useThemeColors } from "@/theme";
 import { useMapStyle } from "@/hooks/useMapStyle";
 import { useRouteGeometryZoom } from "@/hooks/useRouteGeometryZoom";
+import { useActiveRouteTiming } from "@/hooks/useActiveRouteTiming";
 import { GPS_STALE_THRESHOLD_MS } from "@/constants";
 import MapControls from "./MapControls";
 import RouteLayer from "./RouteLayer";
@@ -19,10 +20,12 @@ import POILayer from "./POILayer";
 import ClimbHighlightLayer from "./ClimbHighlightLayer";
 import TemperatureRouteOverlay from "./TemperatureRouteOverlay";
 import TabbedBottomPanel from "./TabbedBottomPanel";
+import { displayPOIsForActiveRoute } from "@/services/activePOIs";
 import { resolveActiveClimb } from "@/utils/climbSelect";
 import { getClimbMapBounds, getZoomLevelToFitBounds } from "@/utils/climbGeometry";
 import { isClimbAtLeastDifficulty } from "@/constants/climbHelpers";
 import { resolveActiveRouteProgress } from "@/utils/routeProgress";
+import { plannedStopsFromPOIs } from "@/services/plannedStops";
 import {
   createRidingHorizonWindow,
   filterClimbsToRidingHorizon,
@@ -94,6 +97,7 @@ export default function MapScreen() {
   const recordSnapHistory = useRouteStore((s) => s.recordSnapHistory);
   const clearRouteProgress = useRouteStore((s) => s.clearRouteProgress);
   const loadCollections = useCollectionStore((s) => s.loadCollections);
+  const allPois = usePoiStore((s) => s.pois);
   const loadPOIs = usePoiStore((s) => s.loadPOIs);
   const computeETAForRoute = useEtaStore((s) => s.computeETAForRoute);
   const cumulativeTime = useEtaStore((s) => s.cumulativeTime);
@@ -106,22 +110,22 @@ export default function MapScreen() {
   // Unified active context — works for both standalone routes and collections
   const activeData = useActiveRouteData();
   const activeRoutePoints = activeData?.points ?? null;
-  const activeCollection = useCollectionStore((s) =>
-    activeData?.type === "collection"
-      ? s.collections.find((collection) => collection.id === activeData.id)
-      : null,
-  );
-  const activePlannedStartMs = activeCollection?.plannedStartMs ?? null;
-  const activeForecastStartMs =
-    activePlannedStartMs != null && activePlannedStartMs > Date.now() ? activePlannedStartMs : null;
+  const timing = useActiveRouteTiming(activeData);
   const activeRouteIds = useMemo(() => activeData?.routeIds ?? [], [activeData?.routeIds]);
+  const plannedStops = useMemo(
+    () =>
+      plannedStopsFromPOIs(
+        displayPOIsForActiveRoute(activeRouteIds, activeData?.segments ?? null, allPois),
+      ),
+    [activeRouteIds, activeData?.segments, allPois],
+  );
   const activeRouteIdsKey = useMemo(() => activeRouteIds.join(","), [activeRouteIds]);
   const activeRouteProgress = useMemo(
     () =>
       resolveActiveRouteProgress(activeData, snappedPosition, {
-        plannedStartMs: activePlannedStartMs,
+        plannedStartMs: timing.plannedStartMs,
       }),
-    [activeData, snappedPosition, activePlannedStartMs],
+    [activeData, snappedPosition, timing.plannedStartMs],
   );
   const activeProgressDistanceMeters = activeRouteProgress?.distanceAlongRouteMeters ?? null;
   const climbHorizonWindow = useMemo(
@@ -206,7 +210,8 @@ export default function MapScreen() {
         activeRoutePoints,
         activeRouteProgress.distanceAlongRouteMeters,
         cumulativeTime,
-        activeForecastStartMs,
+        timing.futureStartMs,
+        plannedStops,
       );
     }
     // Intentional: fire on id/progress changes, not full object identities
@@ -217,7 +222,8 @@ export default function MapScreen() {
     isConnected,
     cumulativeTime,
     fetchWeather,
-    activeForecastStartMs,
+    timing.futureStartMs,
+    plannedStops,
   ]);
 
   const applyRouteSnap = useCallback(

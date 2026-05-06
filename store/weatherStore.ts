@@ -7,10 +7,11 @@ import {
   fetchWeatherForecastsForRoute,
 } from "@/services/weatherService";
 import type { HourlyForecast } from "@/services/weatherClient";
+import type { PlannedStop } from "@/services/plannedStops";
 import { useOfflineStore } from "./offlineStore";
 
 let storage: MMKV | null = null;
-const WEATHER_CACHE_VERSION = 2;
+const WEATHER_CACHE_VERSION = 3;
 
 function getStorage(): MMKV {
   if (!storage) {
@@ -33,6 +34,7 @@ interface CachedWeather {
   fetchedAt: number;
   routeId: string;
   plannedStartMs: number | null;
+  plannedStopSignature: string;
   fromDistanceAlongRouteMeters: number;
   forecastFromMs: number | null;
   forecastUntilMs: number | null;
@@ -69,8 +71,20 @@ function isFresh(fetchAt: number | null): boolean {
   return fetchAt != null && Date.now() - fetchAt < WEATHER_STALE_MS;
 }
 
-function contextKey(routeId: string, plannedStartMs: number | null, fromDistanceMeters: number) {
-  return `${routeId}:${plannedStartMs ?? "now"}:${Math.round(fromDistanceMeters / 100)}`;
+function plannedStopSignature(plannedStops: readonly PlannedStop[] | null | undefined): string {
+  if (!plannedStops?.length) return "none";
+  return plannedStops
+    .map((stop) => `${Math.round(stop.distanceMeters)}:${stop.durationSeconds}`)
+    .join(",");
+}
+
+function contextKey(
+  routeId: string,
+  plannedStartMs: number | null,
+  fromDistanceMeters: number,
+  stopSignature: string,
+) {
+  return `${routeId}:${plannedStartMs ?? "now"}:${Math.round(fromDistanceMeters / 100)}:${stopSignature}`;
 }
 
 function cacheMatchesContext(
@@ -78,10 +92,12 @@ function cacheMatchesContext(
   routeId: string,
   plannedStartMs: number | null,
   fromDistanceMeters: number,
+  stopSignature: string,
 ): boolean {
   return (
     cache?.routeId === routeId &&
     cache.plannedStartMs === plannedStartMs &&
+    cache.plannedStopSignature === stopSignature &&
     Math.abs(cache.fromDistanceAlongRouteMeters - fromDistanceMeters) < 100
   );
 }
@@ -100,8 +116,13 @@ function rebuildCachedWeather(
   fromDistanceAlongRouteMeters: number,
   cumulativeTime: number[],
   plannedStartMs: number | null,
+  plannedStops: readonly PlannedStop[],
+  stopSignature: string,
 ): CachedWeather | null {
-  const options = plannedStartMs ? { projectionStartTime: new Date(plannedStartMs) } : {};
+  const options = {
+    ...(plannedStartMs ? { projectionStartTime: new Date(plannedStartMs) } : {}),
+    plannedStops,
+  };
   const buildResult = buildWeatherTimelineFromForecasts(
     points,
     fromDistanceAlongRouteMeters,
@@ -113,6 +134,7 @@ function rebuildCachedWeather(
   return {
     ...cache,
     timeline: buildResult.timeline,
+    plannedStopSignature: stopSignature,
     fromDistanceAlongRouteMeters,
     forecastFromMs: buildResult.forecastFromMs,
     forecastUntilMs: buildResult.forecastUntilMs,
@@ -136,6 +158,7 @@ interface WeatherState {
   routeCoverageUntilMeters: number | null;
   routeId: string | null;
   plannedStartMs: number | null;
+  plannedStopSignature: string;
   fromDistanceAlongRouteMeters: number | null;
 
   fetchWeather: (
@@ -144,6 +167,7 @@ interface WeatherState {
     fromDistanceAlongRouteMeters: number,
     cumulativeTime: number[],
     plannedStartMs?: number | null,
+    plannedStops?: readonly PlannedStop[],
   ) => Promise<void>;
   refreshWeatherNow: (
     routeId: string,
@@ -151,6 +175,7 @@ interface WeatherState {
     fromDistanceAlongRouteMeters: number,
     cumulativeTime: number[],
     plannedStartMs?: number | null,
+    plannedStops?: readonly PlannedStop[],
   ) => Promise<void>;
   recordManualRefreshUnavailable: (message?: string) => void;
   clearWeather: () => void;
@@ -167,6 +192,7 @@ export const useWeatherStore = create<WeatherState>((set, get) => {
     cumulativeTime: number[],
     mode: "automatic" | "manual",
     plannedStartMs: number | null = null,
+    plannedStops: readonly PlannedStop[] = [],
   ): Promise<void> {
     const state = get();
     if (state.fetchStatus === "fetching") {
@@ -179,15 +205,25 @@ export const useWeatherStore = create<WeatherState>((set, get) => {
       return;
     }
 
-    const currentContextKey = contextKey(routeId, plannedStartMs, fromDistanceAlongRouteMeters);
+    const stopSignature = plannedStopSignature(plannedStops);
+    const currentContextKey = contextKey(
+      routeId,
+      plannedStartMs,
+      fromDistanceAlongRouteMeters,
+      stopSignature,
+    );
     const cachedData = loadCache();
 
     if (
       mode === "automatic" &&
       state.timeline.length > 0 &&
       state.routeId != null &&
-      contextKey(state.routeId, state.plannedStartMs, state.fromDistanceAlongRouteMeters ?? 0) ===
-        currentContextKey &&
+      contextKey(
+        state.routeId,
+        state.plannedStartMs,
+        state.fromDistanceAlongRouteMeters ?? 0,
+        state.plannedStopSignature,
+      ) === currentContextKey &&
       isFresh(state.lastSuccessfulFetchAtMs)
     ) {
       return;
@@ -195,7 +231,13 @@ export const useWeatherStore = create<WeatherState>((set, get) => {
 
     if (
       mode === "automatic" &&
-      cacheMatchesContext(cachedData, routeId, plannedStartMs, fromDistanceAlongRouteMeters) &&
+      cacheMatchesContext(
+        cachedData,
+        routeId,
+        plannedStartMs,
+        fromDistanceAlongRouteMeters,
+        stopSignature,
+      ) &&
       isFresh(cachedData?.fetchedAt ?? null)
     ) {
       set({
@@ -210,6 +252,7 @@ export const useWeatherStore = create<WeatherState>((set, get) => {
         routeCoverageUntilMeters: cachedData?.routeCoverageUntilMeters ?? null,
         routeId,
         plannedStartMs,
+        plannedStopSignature: stopSignature,
         fromDistanceAlongRouteMeters,
       });
       return;
@@ -226,6 +269,8 @@ export const useWeatherStore = create<WeatherState>((set, get) => {
         fromDistanceAlongRouteMeters,
         cumulativeTime,
         plannedStartMs,
+        plannedStops,
+        stopSignature,
       );
       if (rebuiltCache) {
         persistCache(rebuiltCache);
@@ -241,6 +286,7 @@ export const useWeatherStore = create<WeatherState>((set, get) => {
           routeCoverageUntilMeters: rebuiltCache.routeCoverageUntilMeters,
           routeId,
           plannedStartMs,
+          plannedStopSignature: stopSignature,
           fromDistanceAlongRouteMeters,
         });
         return;
@@ -249,7 +295,13 @@ export const useWeatherStore = create<WeatherState>((set, get) => {
 
     if (
       mode === "manual" &&
-      cacheMatchesContext(cachedData, routeId, plannedStartMs, fromDistanceAlongRouteMeters) &&
+      cacheMatchesContext(
+        cachedData,
+        routeId,
+        plannedStartMs,
+        fromDistanceAlongRouteMeters,
+        stopSignature,
+      ) &&
       isFresh(cachedData?.fetchedAt ?? null) &&
       state.lastSuccessfulFetchAtMs != null &&
       Date.now() - state.lastSuccessfulFetchAtMs < WEATHER_MANUAL_REFRESH_THROTTLE_MS
@@ -270,6 +322,7 @@ export const useWeatherStore = create<WeatherState>((set, get) => {
           cachedData?.routeCoverageUntilMeters ?? state.routeCoverageUntilMeters,
         routeId,
         plannedStartMs,
+        plannedStopSignature: stopSignature,
         fromDistanceAlongRouteMeters,
       });
       return;
@@ -300,7 +353,10 @@ export const useWeatherStore = create<WeatherState>((set, get) => {
     }
 
     try {
-      const options = plannedStartMs ? { projectionStartTime: new Date(plannedStartMs) } : {};
+      const options = {
+        ...(plannedStartMs ? { projectionStartTime: new Date(plannedStartMs) } : {}),
+        plannedStops,
+      };
       const forecasts = await fetchWeatherForecastsForRoute(
         points,
         fromDistanceAlongRouteMeters,
@@ -326,6 +382,7 @@ export const useWeatherStore = create<WeatherState>((set, get) => {
         fetchedAt,
         routeId,
         plannedStartMs,
+        plannedStopSignature: stopSignature,
         fromDistanceAlongRouteMeters,
         forecastFromMs: buildResult.forecastFromMs,
         forecastUntilMs: buildResult.forecastUntilMs,
@@ -379,6 +436,7 @@ export const useWeatherStore = create<WeatherState>((set, get) => {
     routeCoverageUntilMeters: hasCachedTimeline ? (cached?.routeCoverageUntilMeters ?? null) : null,
     routeId: hasCachedTimeline ? (cached?.routeId ?? null) : null,
     plannedStartMs: hasCachedTimeline ? (cached?.plannedStartMs ?? null) : null,
+    plannedStopSignature: hasCachedTimeline ? (cached?.plannedStopSignature ?? "none") : "none",
     fromDistanceAlongRouteMeters: hasCachedTimeline
       ? (cached?.fromDistanceAlongRouteMeters ?? null)
       : null,
@@ -389,6 +447,7 @@ export const useWeatherStore = create<WeatherState>((set, get) => {
       fromDistanceAlongRouteMeters,
       cumulativeTime,
       plannedStartMs = null,
+      plannedStops = [],
     ) => {
       await runFetch(
         routeId,
@@ -397,6 +456,7 @@ export const useWeatherStore = create<WeatherState>((set, get) => {
         cumulativeTime,
         "automatic",
         plannedStartMs,
+        plannedStops,
       );
     },
 
@@ -406,6 +466,7 @@ export const useWeatherStore = create<WeatherState>((set, get) => {
       fromDistanceAlongRouteMeters,
       cumulativeTime,
       plannedStartMs = null,
+      plannedStops = [],
     ) => {
       await runFetch(
         routeId,
@@ -414,6 +475,7 @@ export const useWeatherStore = create<WeatherState>((set, get) => {
         cumulativeTime,
         "manual",
         plannedStartMs,
+        plannedStops,
       );
     },
 
@@ -441,6 +503,7 @@ export const useWeatherStore = create<WeatherState>((set, get) => {
         routeCoverageUntilMeters: null,
         routeId: null,
         plannedStartMs: null,
+        plannedStopSignature: "none",
         fromDistanceAlongRouteMeters: null,
       });
     },

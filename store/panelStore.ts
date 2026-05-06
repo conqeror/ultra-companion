@@ -36,7 +36,13 @@ interface PanelState {
 
 const DEFAULT_PANEL_MODE: PanelMode = "upcoming-50";
 
-const PANEL_TABS: ReadonlySet<PanelTab> = new Set(["profile", "weather", "climbs", "pois"]);
+const PANEL_TABS: ReadonlySet<PanelTab> = new Set([
+  "profile",
+  "upcoming",
+  "weather",
+  "climbs",
+  "pois",
+]);
 
 function readPanelMode(): PanelMode {
   const raw = readString("panelMode");
