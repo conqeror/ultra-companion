@@ -441,7 +441,7 @@ export default function MapScreen() {
   }, [activeData, activeRoutePoints?.length]);
 
   // RNMapbox inserts native layers in mount order. Key upper overlay tiers so they remount
-  // above lower tiers when route/climb/visibility state changes.
+  // above lower tiers when route/climb/weather/visibility state changes.
   const routeStackKey = useMemo(() => {
     const ids = renderedRoutes.map(
       (route) => `${route.id}:${visibleRoutePoints[route.id]?.length ?? 0}`,
@@ -482,9 +482,15 @@ export default function MapScreen() {
   ]);
 
   const climbStackKey = `${routeStackKey}-${highlightedClimb?.id ?? "none"}`;
+  const hasWeatherTemperatureOverlay =
+    panelTab === "weather" &&
+    activeRoutePoints != null &&
+    weatherRouteId === activeData?.id &&
+    weatherTimeline.length > 1;
+  const weatherStackKey = hasWeatherTemperatureOverlay ? "weather:on" : "weather:off";
   const overlayStackKey = `${climbStackKey}-${activeContextKey ?? "none"}-markers:${
     showDistanceMarkers ? "on" : "off"
-  }-pois:${showPOIs ? "on" : "off"}`;
+  }-${weatherStackKey}-pois:${showPOIs ? "on" : "off"}`;
 
   // Center highlighted climbs without increasing zoom; zoom out only when the climb cannot fit.
   useEffect(() => {
@@ -582,17 +588,14 @@ export default function MapScreen() {
             points={activeRoutePoints}
           />
         )}
-        {panelTab === "weather" &&
-          activeRoutePoints &&
-          weatherRouteId === activeData?.id &&
-          weatherTimeline.length > 1 && (
-            <TemperatureRouteOverlay
-              key={`weather-temperature-${overlayStackKey}`}
-              points={activeRoutePoints}
-              timeline={weatherTimeline}
-              temperatureMode={weatherTemperatureMode}
-            />
-          )}
+        {hasWeatherTemperatureOverlay && activeRoutePoints && (
+          <TemperatureRouteOverlay
+            key={`weather-temperature-${overlayStackKey}`}
+            points={activeRoutePoints}
+            timeline={weatherTimeline}
+            temperatureMode={weatherTemperatureMode}
+          />
+        )}
         <RouteMarkerLayer
           key={`route-markers-${overlayStackKey}`}
           points={activeRoutePoints ?? []}
