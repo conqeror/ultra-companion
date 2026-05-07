@@ -20,6 +20,7 @@ interface Route {
   totalDistanceMeters: number;
   totalAscentMeters: number;
   totalDescentMeters: number;
+  pointCount: number;
   points: RoutePoint[];
   createdAt: string;
 }
@@ -99,16 +100,16 @@ ETA computation: for each route segment, solve `P = (Crr × m × g × cos(θ) + 
 
 ### Map Tiles
 
-- On route import, compute bounding corridor (route + 10km buffer)
-- Download vector tiles for zoom 6–15 via Mapbox `OfflineManager`
-- Enable predictive caching along route geometry
-- ~50–150 MB per 1000 km route
+- Tile downloads are explicit: route/collection detail exposes map-tile-only actions and broader "Prepare for Offline" actions
+- Native offline tile regions are downloaded along a downsampled LineString corridor
+- Zoom range is 10–14 (`OFFLINE_MIN_ZOOM` / `OFFLINE_MAX_ZOOM`)
+- Size estimate is intentionally rough at ~0.5 MB/km; actual Mapbox vector-tile size varies by terrain/city density
 
 ### POI Data
 
-- Overpass API for OSM categories, Google Places for gas stations and groceries
-- Route split into ~50km segments for Overpass queries, ~8km sampling for Google
-- Stored in SQLite with spatial indexing
+- Overpass API for OSM categories, Google Places for food/supplies, pharmacy, and bike shops
+- Route split into ~50km segments for Overpass and Google queries; query polylines are downsampled to ~1km points
+- POIs are associated to route distance during fetch, then stored in SQLite with route/source/category/distance indexes
 - ~1–5 MB per 1000 km route corridor
 - Saved custom POIs use `source: "custom"` and store notes, Google place IDs, and Google Maps links in `tags`. They can be created from the iOS share sheet or manual coordinates, and are not removed by clearing or refetching fetched OSM/Google data.
 - Starred fetched/custom POIs are stored separately in SQLite so they persist across app restarts and can be exported.
@@ -131,11 +132,11 @@ ETA computation: for each route segment, solve `P = (Crr × m × g × cos(θ) + 
 
 ### SQLite over AsyncStorage for POIs
 
-Spatial queries ("find POIs within X meters of route") need indexed range queries across thousands of POIs. AsyncStorage is key-value only.
+POI data needs structured route/source/category/distance queries across thousands of records. AsyncStorage is key-value only and would make refresh/delete/source-state workflows awkward.
 
 ### Two POI sources (Overpass + Google Places)
 
-OSM opening hours are often missing or wrong for gas stations and groceries — the two categories where open/closed matters most. Google Places has user-reported, verified hours. Other categories stay on Overpass (free, no API key, good coverage for water/bakery/toilet/shower/shelter).
+OSM opening hours are often missing or wrong for the categories where open/closed matters most. Google Places has user-reported, verified hours for groceries, gas stations, bakeries, pharmacies, and bike shops. Infrastructure categories stay on Overpass (free, no API key, good coverage for water, toilets/showers, shelters, campsites, repair stands, and pumps).
 
 ### Collections and Stitching
 

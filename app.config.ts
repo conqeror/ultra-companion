@@ -27,8 +27,6 @@ export default (_: ConfigContext): ExpoConfig => ({
     infoPlist: {
       NSLocationWhenInUseUsageDescription:
         "Ultra Companion needs your location to show your position on the map during rides.",
-      NSLocationAlwaysAndWhenInUseUsageDescription:
-        "Ultra Companion uses background location to track your position during ultra-distance rides.",
       CFBundleDocumentTypes: [
         {
           CFBundleTypeName: "GPX File",
@@ -78,8 +76,6 @@ export default (_: ConfigContext): ExpoConfig => ({
       {
         locationWhenInUsePermission:
           "Ultra Companion needs your location to show your position on the map during rides.",
-        locationAlwaysAndWhenInUsePermission:
-          "Ultra Companion uses background location to track your position during ultra-distance rides.",
       },
     ],
     "expo-sqlite",

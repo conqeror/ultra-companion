@@ -1,41 +1,34 @@
 # Ideas
 
-Future feature ideas and improvements.
+Parking-lot ideas that are not yet formal GitHub issues. Current prioritized work lives in `docs/roadmap.md`.
 
-## Next Up
+Last reviewed: 2026-05-07
 
-### Surface Type Visualization
+## Planning
 
-- Query OSM `surface` tags along route via Overpass
-- Classify into paved/unpaved/unknown
-- Render route line with different styles per surface (solid paved, dashed unpaved)
-- Color-code elevation profile by surface type
-- Surface legend in elevation panel
-- Cache in SQLite alongside route data, fetch with "prepare for offline"
+### Sleep Planner
 
-### Opening Hours on Map
+Suggest rough sleep/accommodation windows from route profile, target daily distance, POI/accommodation data, and device-charging needs.
 
-- Dim closed POIs, highlight open ones (needs UX thought)
+Potential first version:
 
-## UX Polish
+- Pick a target riding block length or target stop time
+- Show candidate towns/accommodation/camping options near that window
+- Include ETA, closing/check-in caveats, terrain before/after, and weather context
 
-### Fatigue Safety
+## POIs
 
-- Move "Delete" buttons away from primary actions — a tired mis-tap at 3am shouldn't nuke a collection. Options: swipe-to-delete, overflow menu, or more spacing from "Set Active"
+### Accommodation Search
 
-## Backlog
+Add a preparation-time accommodation workflow for hotels/hostels/campsites, likely with external deep links rather than a heavy booking integration.
 
-### POI
+Potential first version:
 
-- Custom POI icons on map (category-specific symbols instead of colored circles)
-- POI clustering at low zoom levels
-- "View in Google Maps" action on POI detail — deep link, zero API cost
-- Accommodation POIs — hotels/hostels/campsites from OSM, plus Booking.com deep link for online search
+- Fetch OSM accommodation/campsite POIs where available
+- Add `Open booking/search` external map/web action
+- Keep accommodation out of noisy ride-mode defaults unless starred or explicitly focused
 
-### Planning
+## Maybe Later
 
-- Sleep planner — suggest optimal sleep stops based on route profile, accommodation POIs, and target daily distance
-
-## Refactors
-
-None currently tracked.
+- Opening-hours state on map markers, but only if it improves decisions without making dense towns visually noisy
+- Per-race setup profiles for default POI discovery groups, ETA assumptions, and preferred map visibility

@@ -59,7 +59,7 @@ What's implemented. For the "why" behind these, see `usage-context.md`.
 
 - Along-route search with configurable corridor width
 - Categories: water, groceries, gas stations, bakery, toilets/showers, shelter/camping, pharmacy, bike shops/repair, other
-- Two data sources: Overpass/OSM for most categories, Google Places for gas stations and groceries (better opening hours)
+- Two data sources: Overpass/OSM for water, WC, shelter, camping, and repair infrastructure; Google Places for groceries, gas stations, bakeries, pharmacies, and bike shops
 - POI markers on map and elevation profile
 - Riding view POI markers and lists are scoped to the selected riding horizon by default
 - FULL horizon switches riding POI views to full-route planning
@@ -91,12 +91,12 @@ What's implemented. For the "why" behind these, see `usage-context.md`.
 
 ## Offline Support
 
-- Offline map tiles — download corridor along route at zoom 6–15
+- Offline map tiles — download corridor along route at zoom 10–14
 - Offline POI data — pre-fetched and cached in SQLite
 - Download size estimator, progress UI, cancel/retry
 - "Prepare for offline" per route/collection
 - Storage management — space used per route, cleanup
-- All features except weather work fully offline
+- Imported/prepared route, POI, climb, ETA, collection, export, and tile data work offline; weather uses cached data when available and requires connectivity to refresh
 
 ## Export
 

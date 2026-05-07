@@ -188,12 +188,12 @@ Ride surfaces are optimized for a phone mounted on aerobars at night, after seve
 
 1. **`global.css`** — CSS variables define light/dark HSL color values
 2. **`tailwind.config.ts`** — maps variables to Tailwind classes (`bg-surface`, `text-primary`)
-3. **`theme.ts`** — exports the same values as a TypeScript object for programmatic use
+3. **`theme/colors.ts` + `theme/index.ts`** — export the same values and hooks for programmatic use
 
 **Two styling contexts:**
 
 - **UI components** (cards, buttons, badges, lists): use `className` with Tailwind classes
-- **Map components** (Mapbox layers, SVG, Reanimated): import from `theme.ts` + `useColorScheme()`
+- **Map components** (Mapbox layers, SVG, Reanimated): use `useThemeColors()` from `@/theme`
 
 ```tsx
 // UI component (route card, settings row, etc.)
@@ -202,24 +202,21 @@ Ride surfaces are optimized for a phone mounted on aerobars at night, after seve
 </Card>;
 
 // Map component (Mapbox layer, elevation SVG, etc.)
-import { useColorScheme } from "nativewind";
-import { THEME } from "@/theme";
+import { useThemeColors } from "@/theme";
 
-const { colorScheme } = useColorScheme();
-const t = THEME[colorScheme ?? "light"];
-<Mapbox.LineLayer style={{ lineColor: t.accent }} />;
+const colors = useThemeColors();
+<Mapbox.LineLayer style={{ lineColor: colors.accent }} />;
 ```
 
 **RNR components used in this project:**
 
-- Button, Card, Badge, Dialog, Select, Switch, Toggle, Progress, Separator, Tabs, Text
+- Button, Card, Badge, Separator, Text
 
 **Key dependencies added:**
 
 - `nativewind`, `tailwindcss` v3
 - `class-variance-authority`, `clsx`, `tailwind-merge`
 - `lucide-react-native` (icons)
-- `@rn-primitives/*` (per component, lightweight)
 
 ---
 
@@ -340,7 +337,7 @@ bg-accent/10 text-accent rounded-full px-2 py-0.5 font-labelSmall
 The map takes 100% of the screen. Everything else floats.
 
 - **Floating controls**: top-right corner, vertically stacked (center-on-user)
-- **Bottom panel**: always visible, with tabs for Profile, Weather, Climbs, and POIs; the shared riding horizon selector floats just above it
+- **Bottom panel**: always visible, with tabs for Profile, Upcoming, Weather, Climbs, and POIs; the shared riding horizon selector floats just above it
 - **No persistent HUD on map** — keep map clean. Data lives in the panel
 - **Panel closed state**: map + floating buttons + bottom sheet tabs + collapsed horizon chip
 - **Panel open state**: map compresses upward, panel takes bottom ~25% with route stats + elevation profile
@@ -350,7 +347,7 @@ The map takes 100% of the screen. Everything else floats.
 - Scrollable list of route cards
 - Each card: color dot + route name + stats row (distance, ascent, descent)
 - Active route has accent-colored "Active" badge
-- Swipe-left on card reveals Hide/Delete actions (not always-visible buttons)
+- Route cards expose visible Hide/Show, Set Active, and Delete actions; keep spacing generous because these are setup-time destructive controls
 - Import button: fixed at bottom of screen, primary style, full width with 16px inset
 - Empty state: centered illustration/message + import button
 
@@ -371,27 +368,31 @@ The map takes 100% of the screen. Everything else floats.
 
 ---
 
-## 8. Future Feature Design Alignment
+## 8. Ride Surface Patterns
 
-### Phase 3: POI Search Along Route
+### POIs
 
-- **POI markers on map**: Small, category-colored icons limited to the active riding horizon. Tap to expand detail.
-- **POI list**: Bottom-sheet tab. Follows the active riding horizon; `FULL` is the planning mode for route-wide browsing. List items show: category icon + name + distance along route + ETA.
-- **Category filter**: Horizontal scrollable chip row at top of POI panel. Chips use `label` style, accent when selected.
-- **Quick summary on map**: Nearest POI of each critical category (water, food) shown as small floating tags near the route line.
+- **Map markers**: Category icons over colored marker backgrounds. Starred/saved POIs are more important than generic fetched POIs.
+- **POI tab**: Scopes to the shared riding horizon by default; `FULL` becomes route-wide planning. Rows should make distance ahead, ETA/riding time, opening status, and off-route cost easy to scan.
+- **Filters**: Horizontal category/group chips. Starred POIs remain visible even when their category is filtered out.
+- **Details**: Keep route distance, off-route distance, opening state, phone/maps/share actions, notes, and planned stop duration close together.
 
-### Phase 4: Power-Based ETA
+### Upcoming
 
-- **ETA display**: Integrated into POI list items and route progress. Pattern: `23 km  ~1h 12m  ETA 14:35` using `dataMedium` for the value, `labelSmall` for units.
-- **Parameters (power, weight)**: Settings screen section with numeric inputs. Not frequently changed — doesn't need to be prominent.
-- **Offline download manager**: Settings or dedicated screen. RNR `Progress` component for download bar. Download size estimate in `bodyMedium`.
+- **Role**: ETA-first decision timeline over the selected riding horizon.
+- **Rows**: Important events only: starred/saved POIs, planned-stop POIs, climbs, segment transitions, and finish.
+- **Hierarchy**: Clock ETA/riding time first when available; distance-first fallback when not.
 
-### Phase 5: Weather
+### Profile And Climbs
 
-- **Weather timeline**: Bottom-sheet tab scoped to the active riding horizon. Shows hourly rows with icon, temp, precipitation, and wind at estimated route positions.
-- **Wind indicator**: Directional arrow icon near current position on map, colored by intensity (green = light, yellow = moderate, red = strong). Arrow shows direction relative to route heading (headwind/tailwind/crosswind).
-- **Severe weather alert**: Full-width banner at top of screen in `warning` or `destructive` color. Persistent until dismissed. RNR `Alert` component.
-- **"Last updated" badge**: Small timestamp near weather data since it requires connectivity. Uses `text-tertiary` / `labelSmall`.
+- **Profile**: Visual terrain overview plus a textual horizon summary. Chart axes are supporting context, not the only way to understand the next block.
+- **Climbs**: Compact mode should emphasize distance to start/top, gain, grade, and ETA. Editing/management belongs in planning/detail contexts where possible.
+
+### Weather
+
+- **Weather timeline**: Scoped to route progress and the active horizon. Shows temperature, precipitation, humidity/gust filters, and wind relative to route direction.
+- **Freshness**: Always show stale/last-updated context because weather refresh requires connectivity.
+- **Map overlay**: Temperature overlay is optional context; the panel must remain the primary readable weather surface.
 
 ---
 
@@ -399,6 +400,6 @@ The map takes 100% of the screen. Everything else floats.
 
 - All text meets WCAG AA contrast ratio (4.5:1 for body, 3:1 for large text) in both modes
 - Route colors are distinguishable under common colorblind conditions (protanopia, deuteranopia)
-- RNR components provide accessible primitives (focus management, ARIA roles) via `@rn-primitives`
+- Use React Native accessibility props (`accessibilityRole`, `accessibilityLabel`, `accessibilityState`) on custom touch targets
 - Interactive elements have visible focus indicators
 - Data values use semantic color only as enhancement, never as sole differentiator

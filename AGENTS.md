@@ -11,7 +11,7 @@ Logistics companion app for ultra-distance cycling races. iOS only, personal use
 - `docs/roadmap.md` — current GitHub issue priority order and prioritization notes
 - `docs/design-system.md` — colors, typography, component patterns
 - `docs/known-issues.md` — bugs and warnings
-- `docs/tests.md` — unit test backlog (not yet implemented)
+- `docs/tests.md` — test strategy, current coverage, and remaining gaps
 
 ## Stack
 
