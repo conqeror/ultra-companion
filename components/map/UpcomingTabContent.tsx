@@ -1,5 +1,12 @@
-import React, { useCallback, useMemo } from "react";
-import { FlatList, TouchableOpacity, View, type ListRenderItem } from "react-native";
+import React, { useCallback, useEffect, useMemo, useRef } from "react";
+import {
+  FlatList,
+  TouchableOpacity,
+  View,
+  type ListRenderItem,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Clock3, Flag, GitBranch, MapPin, Mountain } from "lucide-react-native";
 import { Text } from "@/components/ui/text";
@@ -54,6 +61,9 @@ function eventKeyExtractor(event: UpcomingEvent): string {
 }
 
 export default function UpcomingTabContent({ activeData }: UpcomingTabContentProps) {
+  const listRef = useRef<FlatList<UpcomingEvent>>(null);
+  const initialScrollOffsetRef = useRef(usePanelStore.getState().upcomingScrollOffset);
+  const restoredScrollOffsetRef = useRef(false);
   const colors = useThemeColors();
   const { bottom: safeBottom } = useSafeAreaInsets();
   const units = useSettingsStore((s) => s.units);
@@ -67,6 +77,7 @@ export default function UpcomingTabContent({ activeData }: UpcomingTabContentPro
   const cumulativeTime = useEtaStore((s) => s.cumulativeTime);
   const panelMode = usePanelStore((s) => s.panelMode);
   const setPanelTab = usePanelStore((s) => s.setPanelTab);
+  const setUpcomingScrollOffset = usePanelStore((s) => s.setUpcomingScrollOffset);
   const timing = useActiveRouteTiming(activeData);
 
   const routeIds = useMemo(() => activeData?.routeIds ?? [], [activeData?.routeIds]);
@@ -154,6 +165,23 @@ export default function UpcomingTabContent({ activeData }: UpcomingTabContentPro
     ],
   );
 
+  useEffect(() => {
+    const offset = initialScrollOffsetRef.current;
+    if (restoredScrollOffsetRef.current || offset <= 0 || events.length === 0) return;
+
+    restoredScrollOffsetRef.current = true;
+    requestAnimationFrame(() => {
+      listRef.current?.scrollToOffset({ offset, animated: false });
+    });
+  }, [events.length]);
+
+  const handleScroll = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      setUpcomingScrollOffset(Math.max(0, event.nativeEvent.contentOffset.y));
+    },
+    [setUpcomingScrollOffset],
+  );
+
   const handleEventPress = useCallback(
     (event: UpcomingEvent) => {
       if (event.kind === "poi") {
@@ -193,10 +221,13 @@ export default function UpcomingTabContent({ activeData }: UpcomingTabContentPro
       />
 
       <FlatList
+        ref={listRef}
         data={events}
         keyExtractor={eventKeyExtractor}
         renderItem={renderEvent}
         showsVerticalScrollIndicator={false}
+        onScroll={handleScroll}
+        scrollEventThrottle={250}
         initialNumToRender={INITIAL_RENDER_COUNT}
         maxToRenderPerBatch={LIST_MAX_BATCH}
         updateCellsBatchingPeriod={LIST_BATCHING_PERIOD_MS}

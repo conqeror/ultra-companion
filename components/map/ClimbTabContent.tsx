@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useCallback, useEffect } from "react";
+import React, { useMemo, useState, useCallback } from "react";
 import {
   View,
   TouchableOpacity,
@@ -87,10 +87,6 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
   const setSelectedPOI = usePoiStore((s) => s.setSelectedPOI);
   const isExpanded = usePanelStore((s) => s.isExpanded);
   const panelMode = usePanelStore((s) => s.panelMode);
-  // Reset to current/upcoming climb when tab mounts
-  useEffect(() => {
-    setSelectedClimb(null);
-  }, [setSelectedClimb]);
 
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState("");

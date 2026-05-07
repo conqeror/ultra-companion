@@ -32,6 +32,15 @@ interface PanelState {
   /** Whether the bottom sheet is in expanded mode */
   isExpanded: boolean;
   setIsExpanded: (isExpanded: boolean) => void;
+
+  /** Tab to return to when closing a detail view opened from another tab */
+  detailReturnTab: PanelTab | null;
+  setDetailReturnTab: (tab: PanelTab | null) => void;
+  consumeDetailReturnTab: () => PanelTab | null;
+
+  /** Last visible Upcoming list offset, used when returning from detail views */
+  upcomingScrollOffset: number;
+  setUpcomingScrollOffset: (offset: number) => void;
 }
 
 const DEFAULT_PANEL_MODE: PanelMode = "upcoming-50";
@@ -89,5 +98,22 @@ export const usePanelStore = create<PanelState>((set, get) => ({
   setIsExpanded: (isExpanded) => {
     if (get().isExpanded === isExpanded) return;
     set({ isExpanded });
+  },
+
+  detailReturnTab: null,
+  setDetailReturnTab: (detailReturnTab) => {
+    if (get().detailReturnTab === detailReturnTab) return;
+    set({ detailReturnTab });
+  },
+  consumeDetailReturnTab: () => {
+    const tab = get().detailReturnTab;
+    if (tab) set({ detailReturnTab: null });
+    return tab;
+  },
+
+  upcomingScrollOffset: 0,
+  setUpcomingScrollOffset: (upcomingScrollOffset) => {
+    if (Math.abs(get().upcomingScrollOffset - upcomingScrollOffset) < 1) return;
+    set({ upcomingScrollOffset });
   },
 }));

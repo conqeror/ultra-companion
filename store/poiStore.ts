@@ -640,8 +640,11 @@ export const usePoiStore = create<POIState>((set, get) => ({
   },
 
   setSelectedPOI: (poi) => {
+    const panel = usePanelStore.getState();
+    const sourceTab = panel.panelTab;
+    panel.setDetailReturnTab(poi && sourceTab !== "pois" ? sourceTab : null);
     set({ selectedPOI: poi });
-    if (poi) usePanelStore.getState().setPanelTab("pois");
+    if (poi) panel.setPanelTab("pois");
   },
   getVisiblePOIs: (routeId) => {
     const state = get();
