@@ -11,6 +11,7 @@ import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Text } from "@/components/ui/text";
 import { useThemeColors } from "@/theme";
+import { useClimbStore } from "@/store/climbStore";
 import { usePanelStore } from "@/store/panelStore";
 import { SHEET_COMPACT_RATIO, SHEET_EXPANDED_RATIO } from "@/constants";
 import ProfileTabContent from "./ProfileTabContent";
@@ -65,6 +66,15 @@ export default function TabbedBottomPanel({ activeData }: TabbedBottomPanelProps
   const panelTab = usePanelStore((s) => s.panelTab);
   const setPanelTab = usePanelStore((s) => s.setPanelTab);
   const setIsExpanded = usePanelStore((s) => s.setIsExpanded);
+  const setSelectedClimb = useClimbStore((s) => s.setSelectedClimb);
+
+  const handleTabPress = React.useCallback(
+    (tab: PanelTab) => {
+      if (tab === "climbs" && panelTab !== "climbs") setSelectedClimb(null);
+      setPanelTab(tab);
+    },
+    [panelTab, setPanelTab, setSelectedClimb],
+  );
 
   const panGesture = Gesture.Pan()
     .activeOffsetY([-10, 10])
@@ -157,7 +167,7 @@ export default function TabbedBottomPanel({ activeData }: TabbedBottomPanelProps
                     <TouchableOpacity
                       key={tab.key}
                       className="flex-1 items-center justify-center h-full"
-                      onPress={() => setPanelTab(tab.key)}
+                      onPress={() => handleTabPress(tab.key)}
                       accessibilityLabel={`${tab.label} tab`}
                       accessibilityRole="tab"
                       accessibilityState={{ selected: isActive }}

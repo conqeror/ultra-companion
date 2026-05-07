@@ -93,6 +93,7 @@ export default function POITabContent({ activeData }: POITabContentProps) {
   const cumulativeTime = useEtaStore((s) => s.cumulativeTime);
   const isExpanded = usePanelStore((s) => s.isExpanded);
   const panelMode = usePanelStore((s) => s.panelMode);
+  const consumeDetailReturnTab = usePanelStore((s) => s.consumeDetailReturnTab);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [showAddPOI, setShowAddPOI] = useState(false);
@@ -234,6 +235,12 @@ export default function POITabContent({ activeData }: POITabContentProps) {
     [setSelectedPOI],
   );
 
+  const handleBackFromDetail = useCallback(() => {
+    const returnTab = consumeDetailReturnTab();
+    setSelectedPOI(null);
+    if (returnTab) usePanelStore.getState().setPanelTab(returnTab);
+  }, [consumeDetailReturnTab, setSelectedPOI]);
+
   const openAddPOISheet = useCallback(async () => {
     if (!activeData) {
       Alert.alert("No Active Route", "Set an active route or collection before saving a POI.");
@@ -302,7 +309,7 @@ export default function POITabContent({ activeData }: POITabContentProps) {
         poi={selectedPOI}
         segments={segments}
         currentDist={currentDist}
-        onBack={() => setSelectedPOI(null)}
+        onBack={handleBackFromDetail}
       />
     );
   }
