@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   toDisplayClimb,
+  toDisplayClimbForSpan,
   toDisplayDistanceMeters,
   toDisplayPOI,
   toDisplayPOIForSegments,
@@ -97,5 +98,26 @@ describe("displayDistance", () => {
     const displayed = toDisplayPOIForSegments(poi(50), [segment("other-route", 1_000)]);
 
     expect(displayed).toBeNull();
+  });
+
+  it("recomputes clipped climb metrics for a source span", () => {
+    const displayed = toDisplayClimbForSpan(
+      {
+        ...climb(100, 1_100),
+        totalAscentMeters: 100,
+        averageGradientPercent: 10,
+        difficultyScore: 200,
+      },
+      segment("route-1", 2_000).sourceSpans[0],
+    );
+
+    expect(displayed?.startDistanceMeters).toBe(100);
+    expect(displayed?.endDistanceMeters).toBe(1_000);
+    expect(displayed?.lengthMeters).toBe(900);
+    expect(displayed?.totalAscentMeters).toBe(90);
+    expect(displayed?.averageGradientPercent).toBe(10);
+    expect(displayed?.difficultyScore).toBe(180);
+    expect(displayed?.effectiveStartDistanceMeters).toBe(2_100);
+    expect(displayed?.effectiveEndDistanceMeters).toBe(3_000);
   });
 });

@@ -319,7 +319,7 @@ export default function MapScreen() {
     return () => {
       cancelled = true;
     };
-  }, [activeData?.id, activeData?.type, getCollectionSegmentsWithRoutes]);
+  }, [activeData?.id, activeData?.type, activeData?.segments, getCollectionSegmentsWithRoutes]);
 
   const loadClimbs = useClimbStore((s) => s.loadClimbs);
   const updateCurrentClimb = useClimbStore((s) => s.updateCurrentClimb);

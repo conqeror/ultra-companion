@@ -82,6 +82,9 @@ export function toDisplayClimbForSpan(climb: Climb, span: StitchedSourceSpan): D
   const originalLength = Math.max(1, climb.endDistanceMeters - climb.startDistanceMeters);
   const clippedLength = clippedEnd - clippedStart;
   const lengthRatio = Math.min(1, clippedLength / originalLength);
+  const clippedAscent = climb.totalAscentMeters * lengthRatio;
+  const clippedAverageGradient = (clippedAscent / clippedLength) * 100;
+  const clippedDifficultyScore = climb.difficultyScore * lengthRatio;
 
   const effectiveStartDistanceMeters = toDisplayDistanceMeters(
     clippedStart + span.distanceOffsetMeters,
@@ -95,7 +98,9 @@ export function toDisplayClimbForSpan(climb: Climb, span: StitchedSourceSpan): D
     startDistanceMeters: clippedStart,
     endDistanceMeters: clippedEnd,
     lengthMeters: clippedLength,
-    totalAscentMeters: climb.totalAscentMeters * lengthRatio,
+    totalAscentMeters: Math.round(clippedAscent * 10) / 10,
+    averageGradientPercent: Math.round(clippedAverageGradient * 10) / 10,
+    difficultyScore: Math.round(clippedDifficultyScore * 10) / 10,
     effectiveDistanceMeters: effectiveStartDistanceMeters,
     effectiveStartDistanceMeters,
     effectiveEndDistanceMeters,
