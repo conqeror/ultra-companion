@@ -299,7 +299,7 @@ const UpcomingEventRow = React.memo(function UpcomingEventRow({
   const departureTime =
     event.kind === "poi" ? departureTimeAfterPlannedStop(eta, plannedStopMinutes) : null;
   const hasStopInterval = plannedStopMinutes > 0 && eta != null && departureTime != null;
-  const hasClimbInterval = event.kind === "climb-span" && event.endEta != null;
+  const hasClimbInterval = event.kind === "climb-span" && !event.isActive && event.endEta != null;
   const clockLabel = eta ? formatETA(eta.eta) : "--:--";
   const departureLabel = departureTime ? formatETA(departureTime) : null;
   const climbEndLabel =

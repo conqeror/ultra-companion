@@ -37,6 +37,7 @@ export interface UpcomingClimbSpanEvent extends UpcomingEventBase {
   kind: "climb-span";
   climb: DisplayClimb;
   endEta: ETAResult | null;
+  isActive: boolean;
 }
 
 export interface UpcomingSegmentTransitionEvent extends UpcomingEventBase {
@@ -123,27 +124,37 @@ export function buildUpcomingTimeline({
       continue;
     }
 
+    const isActive =
+      climb.effectiveStartDistanceMeters < anchorDistanceMeters &&
+      climb.effectiveEndDistanceMeters >= anchorDistanceMeters;
+    const endEta = resolveETA(
+      cumulativeTime,
+      routePoints,
+      anchorDistanceMeters,
+      climb.effectiveEndDistanceMeters,
+      etaStartTimeMs,
+      plannedStops,
+    );
+
     events.push({
       id: `climb-span:${climb.id}`,
       kind: "climb-span",
-      distanceMeters: climb.effectiveStartDistanceMeters,
-      eta: resolveETA(
-        cumulativeTime,
-        routePoints,
-        anchorDistanceMeters,
-        climb.effectiveStartDistanceMeters,
-        etaStartTimeMs,
-        plannedStops,
-      ),
+      distanceMeters: (isActive
+        ? anchorDistanceMeters
+        : climb.effectiveStartDistanceMeters) as DisplayDistanceMeters,
+      eta: isActive
+        ? endEta
+        : resolveETA(
+            cumulativeTime,
+            routePoints,
+            anchorDistanceMeters,
+            climb.effectiveStartDistanceMeters,
+            etaStartTimeMs,
+            plannedStops,
+          ),
       climb,
-      endEta: resolveETA(
-        cumulativeTime,
-        routePoints,
-        anchorDistanceMeters,
-        climb.effectiveEndDistanceMeters,
-        etaStartTimeMs,
-        plannedStops,
-      ),
+      endEta,
+      isActive,
     });
   }
 

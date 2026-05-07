@@ -171,6 +171,37 @@ describe("upcomingTimeline", () => {
     vi.useRealTimers();
   });
 
+  it("anchors an active climb to current progress and uses the top ETA", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T12:00:00.000Z"));
+
+    const routePoints = [
+      buildRoutePoint(0, 0),
+      buildRoutePoint(1_000, 1),
+      buildRoutePoint(2_000, 2),
+    ];
+    const events = buildUpcomingTimeline({
+      pois: [],
+      starredPOIIds: new Set(),
+      climbs: [toDisplayClimb(buildClimb("active", "r1", 1_000, 2_000))],
+      segments: null,
+      totalDistanceMeters: 3_000,
+      currentDistanceMeters: 1_500,
+      routePoints,
+      cumulativeTime: [0, 100, 200],
+    });
+
+    const climb = events.find((event) => event.id === "climb-span:active");
+    expect(climb).toMatchObject({
+      distanceMeters: 1_500,
+      eta: { ridingTimeSeconds: 50 },
+      endEta: { ridingTimeSeconds: 50 },
+      isActive: true,
+    });
+
+    vi.useRealTimers();
+  });
+
   it("keeps rows visible without ETA data", () => {
     const events = buildUpcomingTimeline({
       pois: [toDisplayPOI(buildPoi("water", "r1", 1_000))],
