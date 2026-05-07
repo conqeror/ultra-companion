@@ -119,7 +119,7 @@ describe("upcomingTimeline", () => {
     expect(events.map((event) => event.id)).toEqual(["poi:ahead"]);
   });
 
-  it("splits moderate climbs and easy climbs with important POIs, but collapses isolated easy climbs", () => {
+  it("keeps each climb as one span event even when difficult or containing important POIs", () => {
     const events = buildUpcomingTimeline({
       pois: [toDisplayPOI(buildPoi("inside-easy", "r1", 2_200))],
       starredPOIIds: new Set(["inside-easy"]),
@@ -135,13 +135,40 @@ describe("upcomingTimeline", () => {
 
     expect(events.map((event) => event.id)).toEqual([
       "climb-span:easy",
-      "climb-start:easy-poi",
+      "climb-span:easy-poi",
       "poi:inside-easy",
-      "climb-top:easy-poi",
-      "climb-start:medium",
-      "climb-top:medium",
+      "climb-span:medium",
       "finish",
     ]);
+  });
+
+  it("attaches start and end ETA to climb spans", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T12:00:00.000Z"));
+
+    const routePoints = [
+      buildRoutePoint(0, 0),
+      buildRoutePoint(1_000, 1),
+      buildRoutePoint(2_000, 2),
+    ];
+    const events = buildUpcomingTimeline({
+      pois: [],
+      starredPOIIds: new Set(),
+      climbs: [toDisplayClimb(buildClimb("climb", "r1", 1_000, 2_000))],
+      segments: null,
+      totalDistanceMeters: 3_000,
+      currentDistanceMeters: 0,
+      routePoints,
+      cumulativeTime: [0, 100, 200],
+    });
+
+    const climb = events.find((event) => event.id === "climb-span:climb");
+    expect(climb).toMatchObject({
+      eta: { ridingTimeSeconds: 100 },
+      endEta: { ridingTimeSeconds: 200 },
+    });
+
+    vi.useRealTimers();
   });
 
   it("keeps rows visible without ETA data", () => {

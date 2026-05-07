@@ -1,4 +1,3 @@
-import { getClimbDifficulty } from "@/constants/climbHelpers";
 import { getETAToDistanceFromDistance } from "@/services/etaCalculator";
 import {
   applyPlannedStopOffsetToETA,
@@ -20,13 +19,7 @@ import type {
   StitchedSegmentInfo,
 } from "@/types";
 
-export type UpcomingEventKind =
-  | "poi"
-  | "climb-span"
-  | "climb-start"
-  | "climb-top"
-  | "segment-transition"
-  | "finish";
+export type UpcomingEventKind = "poi" | "climb-span" | "segment-transition" | "finish";
 
 interface UpcomingEventBase {
   id: string;
@@ -43,11 +36,7 @@ export interface UpcomingPOIEvent extends UpcomingEventBase {
 export interface UpcomingClimbSpanEvent extends UpcomingEventBase {
   kind: "climb-span";
   climb: DisplayClimb;
-}
-
-export interface UpcomingClimbPointEvent extends UpcomingEventBase {
-  kind: "climb-start" | "climb-top";
-  climb: DisplayClimb;
+  endEta: ETAResult | null;
 }
 
 export interface UpcomingSegmentTransitionEvent extends UpcomingEventBase {
@@ -64,7 +53,6 @@ export interface UpcomingFinishEvent extends UpcomingEventBase {
 export type UpcomingEvent =
   | UpcomingPOIEvent
   | UpcomingClimbSpanEvent
-  | UpcomingClimbPointEvent
   | UpcomingSegmentTransitionEvent
   | UpcomingFinishEvent;
 
@@ -83,11 +71,9 @@ export interface BuildUpcomingTimelineInput {
 }
 
 const EVENT_ORDER: Record<UpcomingEventKind, number> = {
-  "climb-start": 0,
-  "segment-transition": 1,
-  poi: 2,
-  "climb-span": 3,
-  "climb-top": 4,
+  "segment-transition": 0,
+  poi: 1,
+  "climb-span": 2,
   finish: 5,
 };
 
@@ -137,62 +123,6 @@ export function buildUpcomingTimeline({
       continue;
     }
 
-    const hasImportantPOIInside = importantPOIs.some(
-      (poi) =>
-        poi.effectiveDistanceMeters >= climb.effectiveStartDistanceMeters &&
-        poi.effectiveDistanceMeters <= climb.effectiveEndDistanceMeters,
-    );
-    const shouldSplit =
-      getClimbDifficulty(climb.difficultyScore) !== "low" || hasImportantPOIInside;
-
-    if (shouldSplit) {
-      if (
-        isPointInUpcomingWindow(
-          climb.effectiveStartDistanceMeters,
-          horizonWindow,
-          anchorDistanceMeters,
-        )
-      ) {
-        events.push({
-          id: `climb-start:${climb.id}`,
-          kind: "climb-start",
-          distanceMeters: climb.effectiveStartDistanceMeters,
-          eta: resolveETA(
-            cumulativeTime,
-            routePoints,
-            anchorDistanceMeters,
-            climb.effectiveStartDistanceMeters,
-            etaStartTimeMs,
-            plannedStops,
-          ),
-          climb,
-        });
-      }
-      if (
-        isPointInUpcomingWindow(
-          climb.effectiveEndDistanceMeters,
-          horizonWindow,
-          anchorDistanceMeters,
-        )
-      ) {
-        events.push({
-          id: `climb-top:${climb.id}`,
-          kind: "climb-top",
-          distanceMeters: climb.effectiveEndDistanceMeters,
-          eta: resolveETA(
-            cumulativeTime,
-            routePoints,
-            anchorDistanceMeters,
-            climb.effectiveEndDistanceMeters,
-            etaStartTimeMs,
-            plannedStops,
-          ),
-          climb,
-        });
-      }
-      continue;
-    }
-
     events.push({
       id: `climb-span:${climb.id}`,
       kind: "climb-span",
@@ -206,6 +136,14 @@ export function buildUpcomingTimeline({
         plannedStops,
       ),
       climb,
+      endEta: resolveETA(
+        cumulativeTime,
+        routePoints,
+        anchorDistanceMeters,
+        climb.effectiveEndDistanceMeters,
+        etaStartTimeMs,
+        plannedStops,
+      ),
     });
   }
 

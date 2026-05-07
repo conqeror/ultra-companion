@@ -12,11 +12,7 @@ import { Clock3, Flag, GitBranch, MapPin, Mountain } from "lucide-react-native";
 import { Text } from "@/components/ui/text";
 import { POI_ICON_MAP } from "@/constants/poiIcons";
 import { getCategoryMeta, ohStatusColorKey } from "@/constants/poiHelpers";
-import {
-  CLIMB_DIFFICULTY_LABELS,
-  climbDifficultyColor,
-  getClimbDifficulty,
-} from "@/constants/climbHelpers";
+import { climbDifficultyColor } from "@/constants/climbHelpers";
 import { useThemeColors } from "@/theme";
 import { useClimbStore } from "@/store/climbStore";
 import { useEtaStore } from "@/store/etaStore";
@@ -186,11 +182,7 @@ export default function UpcomingTabContent({ activeData }: UpcomingTabContentPro
     (event: UpcomingEvent) => {
       if (event.kind === "poi") {
         setSelectedPOI(event.poi);
-      } else if (
-        event.kind === "climb-span" ||
-        event.kind === "climb-start" ||
-        event.kind === "climb-top"
-      ) {
+      } else if (event.kind === "climb-span") {
         setSelectedClimb(event.climb);
         setPanelTab("climbs");
       }
@@ -307,21 +299,24 @@ const UpcomingEventRow = React.memo(function UpcomingEventRow({
   const departureTime =
     event.kind === "poi" ? departureTimeAfterPlannedStop(eta, plannedStopMinutes) : null;
   const hasStopInterval = plannedStopMinutes > 0 && eta != null && departureTime != null;
+  const hasClimbInterval = event.kind === "climb-span" && event.endEta != null;
   const clockLabel = eta ? formatETA(eta.eta) : "--:--";
   const departureLabel = departureTime ? formatETA(departureTime) : null;
+  const climbEndLabel =
+    event.kind === "climb-span" && event.endEta ? formatETA(event.endEta.eta) : null;
+  const primaryRidingTime = eta ?? (event.kind === "climb-span" ? event.endEta : null);
   const ridingTimeLabel =
-    eta && eta.ridingTimeSeconds > 0 ? `~${formatDuration(eta.ridingTimeSeconds)}` : "no ETA";
-  const isPressable =
-    event.kind === "poi" ||
-    event.kind === "climb-span" ||
-    event.kind === "climb-start" ||
-    event.kind === "climb-top";
+    primaryRidingTime && primaryRidingTime.ridingTimeSeconds > 0
+      ? `~${formatDuration(primaryRidingTime.ridingTimeSeconds)}`
+      : "no ETA";
+  const isPressable = event.kind === "poi" || event.kind === "climb-span";
   const content = eventContent(event, units, colors);
   const accessibilityLabel = [
     content.title,
     content.subtitle,
     eta ? `ETA ${clockLabel}` : null,
     hasStopInterval && departureLabel ? `depart ${departureLabel}` : null,
+    hasClimbInterval && climbEndLabel ? `end ${climbEndLabel}` : null,
     `${distanceLabel} ahead`,
   ]
     .filter(Boolean)
@@ -342,6 +337,11 @@ const UpcomingEventRow = React.memo(function UpcomingEventRow({
         {hasStopInterval && departureLabel && (
           <Text className="text-[20px] font-barlow-sc-semibold text-foreground" numberOfLines={1}>
             {departureLabel}
+          </Text>
+        )}
+        {hasClimbInterval && climbEndLabel && (
+          <Text className="text-[20px] font-barlow-sc-semibold text-foreground" numberOfLines={1}>
+            {climbEndLabel}
           </Text>
         )}
         <Text className="text-[12px] font-barlow-sc-medium text-muted-foreground" numberOfLines={1}>
@@ -415,19 +415,14 @@ function eventContent(
         icon: <IconComp size={20} color={meta?.color ?? colors.textPrimary} />,
       };
     }
-    case "climb-span":
-    case "climb-start":
-    case "climb-top": {
-      const difficulty = getClimbDifficulty(event.climb.difficultyScore);
+    case "climb-span": {
       const color = climbDifficultyColor(event.climb.difficultyScore);
-      const titlePrefix =
-        event.kind === "climb-start" ? "START" : event.kind === "climb-top" ? "END" : "Climb";
       return {
-        title: `${titlePrefix}: ${event.climb.name ?? "Climb"}`,
-        subtitle: `${CLIMB_DIFFICULTY_LABELS[difficulty]} · ${formatDistance(
-          event.climb.lengthMeters,
+        title: event.climb.name ?? "Climb",
+        subtitle: `${formatDistance(event.climb.lengthMeters, units)} · +${formatElevation(
+          event.climb.totalAscentMeters,
           units,
-        )} · +${formatElevation(event.climb.totalAscentMeters, units)}`,
+        )} · ${event.climb.averageGradientPercent}% avg`,
         subtitleColor: color,
         color,
         icon: <Mountain size={20} color={color} />,
