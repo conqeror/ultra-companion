@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { toDisplayClimb, toDisplayPOI, toDisplayPOIForSegments } from "@/services/displayDistance";
+import {
+  toDisplayClimb,
+  toDisplayDistanceMeters,
+  toDisplayPOI,
+  toDisplayPOIForSegments,
+} from "@/services/displayDistance";
 import type { Climb, POI, StitchedSegmentInfo } from "@/types";
 
 const poi = (distanceAlongRouteMeters: number): POI => ({
@@ -35,12 +40,31 @@ const segment = (routeId: string, distanceOffsetMeters: number): StitchedSegment
   routeId,
   routeName: routeId,
   position: 0,
+  variantKind: "full",
+  baseRouteId: null,
+  replaceStartDistanceMeters: null,
+  replaceEndDistanceMeters: null,
   startPointIndex: 0,
   endPointIndex: 1,
   distanceOffsetMeters,
   segmentDistanceMeters: 1_000,
   segmentAscentMeters: 10,
   segmentDescentMeters: 10,
+  sourceSpans: [
+    {
+      routeId,
+      routeName: routeId,
+      position: 0,
+      kind: "full",
+      startPointIndex: 0,
+      endPointIndex: 1,
+      rawStartDistanceMeters: 0,
+      rawEndDistanceMeters: 1_000,
+      effectiveStartDistanceMeters: toDisplayDistanceMeters(distanceOffsetMeters),
+      effectiveEndDistanceMeters: toDisplayDistanceMeters(distanceOffsetMeters + 1_000),
+      distanceOffsetMeters,
+    },
+  ],
 });
 
 describe("displayDistance", () => {

@@ -5,6 +5,7 @@ import type {
   DisplayPOI,
   POI,
   StitchedSegmentInfo,
+  StitchedSourceSpan,
 } from "@/types";
 
 export function toDisplayDistanceMeters(distanceMeters: number): DisplayDistanceMeters {
@@ -30,8 +31,12 @@ export function toDisplayPOIForSegments(
 ): DisplayPOI | null {
   if (!segments) return toDisplayPOI(poi);
 
-  const segment = segments.find((s) => s.routeId === poi.routeId);
-  return segment ? toDisplayPOI(poi, segment.distanceOffsetMeters) : null;
+  const span = findSourceSpanForDistance(
+    segments.flatMap((segment) => segment.sourceSpans),
+    poi.routeId,
+    poi.distanceAlongRouteMeters,
+  );
+  return span ? toDisplayPOI(poi, span.distanceOffsetMeters) : null;
 }
 
 export function toDisplayClimb(climb: Climb, distanceOffsetMeters = 0): DisplayClimb {
@@ -52,4 +57,47 @@ export function toDisplayClimb(climb: Climb, distanceOffsetMeters = 0): DisplayC
 
 export function toDisplayClimbs(climbs: Climb[], distanceOffsetMeters = 0): DisplayClimb[] {
   return climbs.map((climb) => toDisplayClimb(climb, distanceOffsetMeters));
+}
+
+export function findSourceSpanForDistance(
+  spans: StitchedSourceSpan[],
+  routeId: string,
+  distanceMeters: number,
+): StitchedSourceSpan | null {
+  return (
+    spans.find(
+      (span) =>
+        span.routeId === routeId &&
+        distanceMeters >= span.rawStartDistanceMeters &&
+        distanceMeters <= span.rawEndDistanceMeters,
+    ) ?? null
+  );
+}
+
+export function toDisplayClimbForSpan(climb: Climb, span: StitchedSourceSpan): DisplayClimb | null {
+  const clippedStart = Math.max(climb.startDistanceMeters, span.rawStartDistanceMeters);
+  const clippedEnd = Math.min(climb.endDistanceMeters, span.rawEndDistanceMeters);
+  if (clippedEnd <= clippedStart) return null;
+
+  const originalLength = Math.max(1, climb.endDistanceMeters - climb.startDistanceMeters);
+  const clippedLength = clippedEnd - clippedStart;
+  const lengthRatio = Math.min(1, clippedLength / originalLength);
+
+  const effectiveStartDistanceMeters = toDisplayDistanceMeters(
+    clippedStart + span.distanceOffsetMeters,
+  );
+  const effectiveEndDistanceMeters = toDisplayDistanceMeters(
+    clippedEnd + span.distanceOffsetMeters,
+  );
+
+  return {
+    ...climb,
+    startDistanceMeters: clippedStart,
+    endDistanceMeters: clippedEnd,
+    lengthMeters: clippedLength,
+    totalAscentMeters: climb.totalAscentMeters * lengthRatio,
+    effectiveDistanceMeters: effectiveStartDistanceMeters,
+    effectiveStartDistanceMeters,
+    effectiveEndDistanceMeters,
+  };
 }

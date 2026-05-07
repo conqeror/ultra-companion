@@ -8,6 +8,7 @@ import {
   setActiveCollection as dbSetActiveCollection,
   insertCollectionSegment,
   deleteCollectionSegment as dbDeleteCollectionSegment,
+  deletePatchVariantsForBaseRoute,
   getCollectionSegments,
   selectVariant as dbSelectVariant,
   updateSegmentPositions as dbUpdateSegmentPositions,
@@ -47,6 +48,14 @@ interface CollectionState {
   updateCollectionPlannedStart: (id: string, plannedStartMs: number | null) => Promise<void>;
 
   addSegment: (collectionId: string, routeId: string) => Promise<void>;
+  addPatchVariant: (
+    collectionId: string,
+    routeId: string,
+    baseRouteId: string,
+    position: number,
+    replaceStartDistanceMeters: number,
+    replaceEndDistanceMeters: number,
+  ) => Promise<void>;
   removeSegment: (collectionId: string, routeId: string) => Promise<void>;
   selectVariant: (collectionId: string, routeId: string) => Promise<void>;
 
@@ -61,7 +70,12 @@ function fingerprintSegments(collectionId: string, segments: CollectionSegment[]
     .filter((s) => s.isSelected)
     .slice()
     .sort((a, b) => a.position - b.position)
-    .map((s) => `${s.position}:${s.routeId}`)
+    .map(
+      (s) =>
+        `${s.position}:${s.routeId}:${s.variantKind}:${s.baseRouteId ?? ""}:${
+          s.replaceStartDistanceMeters ?? ""
+        }:${s.replaceEndDistanceMeters ?? ""}`,
+    )
     .join(",");
   return `${collectionId}|${selected}`;
 }
@@ -182,6 +196,10 @@ export const useCollectionStore = create<CollectionState>((set, get) => ({
         routeId,
         position: matchedPosition,
         isSelected: false,
+        variantKind: "full",
+        baseRouteId: null,
+        replaceStartDistanceMeters: null,
+        replaceEndDistanceMeters: null,
       });
     } else {
       // Add as new position at the end
@@ -191,6 +209,10 @@ export const useCollectionStore = create<CollectionState>((set, get) => ({
         routeId,
         position: maxPos + 1,
         isSelected: true,
+        variantKind: "full",
+        baseRouteId: null,
+        replaceStartDistanceMeters: null,
+        replaceEndDistanceMeters: null,
       });
       if (get().activeStitchedCollection?.collectionId === collectionId) {
         await get().loadStitchedCollection(collectionId);
@@ -200,8 +222,33 @@ export const useCollectionStore = create<CollectionState>((set, get) => ({
     set({ assignedRouteIds: new Set([...get().assignedRouteIds, routeId]) });
   },
 
+  addPatchVariant: async (
+    collectionId,
+    routeId,
+    baseRouteId,
+    position,
+    replaceStartDistanceMeters,
+    replaceEndDistanceMeters,
+  ) => {
+    await insertCollectionSegment({
+      collectionId,
+      routeId,
+      position,
+      isSelected: false,
+      variantKind: "patch",
+      baseRouteId,
+      replaceStartDistanceMeters,
+      replaceEndDistanceMeters,
+    });
+    if (get().activeStitchedCollection?.collectionId === collectionId) {
+      await get().loadStitchedCollection(collectionId);
+    }
+    set({ assignedRouteIds: new Set([...get().assignedRouteIds, routeId, baseRouteId]) });
+  },
+
   removeSegment: async (collectionId, routeId) => {
     await dbDeleteCollectionSegment(collectionId, routeId);
+    await deletePatchVariantsForBaseRoute(collectionId, routeId);
     // Normalize positions: get remaining segments, re-number
     const segments = await getCollectionSegments(collectionId);
     const positions = [...new Set(segments.map((s) => s.position))].sort((a, b) => a - b);
@@ -246,8 +293,12 @@ export const useCollectionStore = create<CollectionState>((set, get) => ({
     await dbSetActiveCollection(id);
     // Make all selected segment routes visible in a single query
     const segments = await getCollectionSegments(id);
-    const selectedRouteIds = segments.filter((s) => s.isSelected).map((s) => s.routeId);
-    await setRoutesVisible(selectedRouteIds);
+    const selectedRouteIds = new Set<string>();
+    for (const segment of segments.filter((s) => s.isSelected)) {
+      selectedRouteIds.add(segment.routeId);
+      if (segment.baseRouteId) selectedRouteIds.add(segment.baseRouteId);
+    }
+    await setRoutesVisible([...selectedRouteIds]);
     // Reload route store to clear route isActive flags and pick up visibility changes
     const { useRouteStore } = await import("@/store/routeStore");
     const routeStore = useRouteStore.getState();
@@ -284,11 +335,14 @@ export const useCollectionStore = create<CollectionState>((set, get) => ({
   getCollectionSegmentsWithRoutes: async (id) => {
     const segments = await getCollectionSegments(id);
     const routes = await Promise.all(segments.map((s) => getRoute(s.routeId)));
+    const baseRoutes = await Promise.all(
+      segments.map((s) => (s.baseRouteId ? getRoute(s.baseRouteId) : Promise.resolve(null))),
+    );
     const results: CollectionSegmentWithRoute[] = [];
     for (let i = 0; i < segments.length; i++) {
       const route = routes[i];
       if (route) {
-        results.push({ segment: segments[i], route });
+        results.push({ segment: segments[i], route, baseRoute: baseRoutes[i] });
       }
     }
     return results;

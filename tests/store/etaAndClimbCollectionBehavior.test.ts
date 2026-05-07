@@ -5,7 +5,8 @@ import { buildPoi } from "@/tests/fixtures/poi";
 import { buildRoutePoint } from "@/tests/fixtures/route";
 import { createStitchedCollectionHarness } from "@/tests/helpers/stitchedCollectionHarness";
 import { etaCalculatorMocks } from "@/tests/mocks/etaCalculator";
-import { toDisplayPOI } from "@/services/displayDistance";
+import { toDisplayDistanceMeters, toDisplayPOI } from "@/services/displayDistance";
+import type { StitchedSegmentInfo } from "@/types";
 
 const stitchedHarness = createStitchedCollectionHarness();
 
@@ -258,6 +259,90 @@ describe("stitched collection coordinate behavior", () => {
     ).toEqual([
       ["c1", 700, 900],
       ["c2", 1_100, 1_400],
+    ]);
+  });
+
+  it("clips climb display coordinates to active patch source spans", () => {
+    const patchSegment: StitchedSegmentInfo = {
+      routeId: "patch",
+      routeName: "patch",
+      position: 0,
+      variantKind: "patch",
+      baseRouteId: "base",
+      replaceStartDistanceMeters: 500,
+      replaceEndDistanceMeters: 1_500,
+      startPointIndex: 0,
+      endPointIndex: 5,
+      distanceOffsetMeters: 0,
+      segmentDistanceMeters: 1_700,
+      segmentAscentMeters: 100,
+      segmentDescentMeters: 0,
+      sourceSpans: [
+        {
+          routeId: "base",
+          routeName: "base",
+          position: 0,
+          kind: "base-prefix",
+          startPointIndex: 0,
+          endPointIndex: 1,
+          rawStartDistanceMeters: 0,
+          rawEndDistanceMeters: 500,
+          effectiveStartDistanceMeters: toDisplayDistanceMeters(0),
+          effectiveEndDistanceMeters: toDisplayDistanceMeters(500),
+          distanceOffsetMeters: 0,
+        },
+        {
+          routeId: "patch",
+          routeName: "patch",
+          position: 0,
+          kind: "patch",
+          startPointIndex: 2,
+          endPointIndex: 3,
+          rawStartDistanceMeters: 0,
+          rawEndDistanceMeters: 700,
+          effectiveStartDistanceMeters: toDisplayDistanceMeters(500),
+          effectiveEndDistanceMeters: toDisplayDistanceMeters(1_200),
+          distanceOffsetMeters: 500,
+        },
+        {
+          routeId: "base",
+          routeName: "base",
+          position: 0,
+          kind: "base-suffix",
+          startPointIndex: 4,
+          endPointIndex: 5,
+          rawStartDistanceMeters: 1_500,
+          rawEndDistanceMeters: 2_000,
+          effectiveStartDistanceMeters: toDisplayDistanceMeters(1_200),
+          effectiveEndDistanceMeters: toDisplayDistanceMeters(1_700),
+          distanceOffsetMeters: -300,
+        },
+      ],
+    };
+
+    useClimbStore.setState({
+      climbs: {
+        base: [
+          buildClimb("before", "base", 200, 400),
+          buildClimb("replaced", "base", 800, 1_000),
+          buildClimb("after", "base", 1_700, 1_900),
+        ],
+        patch: [buildClimb("patch-climb", "patch", 100, 300)],
+      },
+    });
+
+    const display = useClimbStore.getState().getClimbsForDisplay(["base", "patch"], [patchSegment]);
+
+    expect(
+      display.map((climb) => [
+        climb.id,
+        climb.effectiveStartDistanceMeters,
+        climb.effectiveEndDistanceMeters,
+      ]),
+    ).toEqual([
+      ["before", 200, 400],
+      ["patch-climb", 600, 800],
+      ["after", 1_400, 1_600],
     ]);
   });
 });

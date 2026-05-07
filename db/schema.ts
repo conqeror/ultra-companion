@@ -127,9 +127,14 @@ export const collectionSegments = sqliteTable(
       .references(() => routes.id, { onDelete: "cascade" }),
     position: integer("position").notNull(),
     isSelected: integer("isSelected", { mode: "boolean" }).notNull().default(true),
+    variantKind: text("variantKind").notNull().default("full"),
+    baseRouteId: text("baseRouteId").references(() => routes.id, { onDelete: "cascade" }),
+    replaceStartDistanceMeters: real("replaceStartDistanceMeters"),
+    replaceEndDistanceMeters: real("replaceEndDistanceMeters"),
   },
   (table) => [
     primaryKey({ columns: [table.collectionId, table.routeId] }),
     index("idx_collection_segments_col_pos").on(table.collectionId, table.position),
+    index("idx_collection_segments_base_route").on(table.collectionId, table.baseRouteId),
   ],
 );

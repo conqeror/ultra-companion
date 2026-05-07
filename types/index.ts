@@ -307,28 +307,56 @@ export interface Collection {
   plannedStartMs: number | null;
 }
 
+export type CollectionSegmentVariantKind = "full" | "patch";
+
 export interface CollectionSegment {
   collectionId: string;
   routeId: string;
   position: number;
   isSelected: boolean;
+  variantKind: CollectionSegmentVariantKind;
+  baseRouteId: string | null;
+  replaceStartDistanceMeters: number | null;
+  replaceEndDistanceMeters: number | null;
 }
 
 export interface CollectionSegmentWithRoute {
   segment: CollectionSegment;
   route: Route;
+  baseRoute?: Route | null;
+}
+
+export type StitchedSourceSpanKind = "full" | "base-prefix" | "patch" | "base-suffix";
+
+export interface StitchedSourceSpan {
+  routeId: string;
+  routeName: string;
+  position: number;
+  kind: StitchedSourceSpanKind;
+  startPointIndex: number;
+  endPointIndex: number;
+  rawStartDistanceMeters: number;
+  rawEndDistanceMeters: number;
+  effectiveStartDistanceMeters: DisplayDistanceMeters;
+  effectiveEndDistanceMeters: DisplayDistanceMeters;
+  distanceOffsetMeters: number;
 }
 
 export interface StitchedSegmentInfo {
   routeId: string;
   routeName: string;
   position: number;
+  variantKind: CollectionSegmentVariantKind;
+  baseRouteId: string | null;
+  replaceStartDistanceMeters: number | null;
+  replaceEndDistanceMeters: number | null;
   startPointIndex: number;
   endPointIndex: number;
   distanceOffsetMeters: number;
   segmentDistanceMeters: number;
   segmentAscentMeters: number;
   segmentDescentMeters: number;
+  sourceSpans: StitchedSourceSpan[];
 }
 
 export interface StitchedCollection {
@@ -340,6 +368,7 @@ export interface StitchedCollection {
   totalDescentMeters: number;
   /** Per-segment raw points, keyed by routeId */
   pointsByRouteId: Record<string, RoutePoint[]>;
+  sourceSpans: StitchedSourceSpan[];
 }
 
 export interface ActiveRouteData {

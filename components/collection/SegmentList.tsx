@@ -6,7 +6,7 @@ import {
   RenderItemParams,
 } from "react-native-draggable-flatlist";
 import { Text } from "@/components/ui/text";
-import { GripVertical, X, ChevronRight } from "lucide-react-native";
+import { GripVertical, X, ChevronRight, Plus } from "lucide-react-native";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
 import { useThemeColors } from "@/theme";
@@ -14,8 +14,16 @@ import { useRouter } from "expo-router";
 import { useSettingsStore } from "@/store/settingsStore";
 import { useEtaStore } from "@/store/etaStore";
 import { computeRouteTotalETA } from "@/services/etaCalculator";
+import { buildPatchVariantRoutePoints, routeEndDistance } from "@/services/stitchingService";
 import { formatDistance, formatElevation, formatDuration } from "@/utils/formatters";
-import type { CollectionSegmentWithRoute, PowerModelConfig, RoutePoint } from "@/types";
+import { computeSliceAscentFromDistance } from "@/utils/geo";
+import type {
+  CollectionSegmentWithRoute,
+  PowerModelConfig,
+  RoutePoint,
+  StitchedSegmentInfo,
+  UnitSystem,
+} from "@/types";
 
 /** A position slot: one or more variants grouped together */
 interface PositionGroup {
@@ -27,6 +35,19 @@ interface PositionGroup {
 interface SegmentTimeCacheEntry {
   points: RoutePoint[];
   configKey: string;
+  ridingTime: number | null;
+}
+
+interface SegmentMetrics {
+  distanceMeters: number;
+  ascentMeters: number;
+  ridingTime: number | null;
+  points: RoutePoint[] | null;
+}
+
+interface VariantDiff {
+  distanceMeters: number;
+  ascentMeters: number;
   ridingTime: number | null;
 }
 
@@ -42,10 +63,109 @@ function powerConfigCacheKey(config: PowerModelConfig): string {
   ].join(":");
 }
 
+function buildPatchVariantPoints(
+  sw: CollectionSegmentWithRoute,
+  pointsByRouteId: Record<string, RoutePoint[]>,
+): RoutePoint[] | null {
+  const { baseRouteId, replaceStartDistanceMeters, replaceEndDistanceMeters } = sw.segment;
+  if (
+    sw.segment.variantKind !== "patch" ||
+    !baseRouteId ||
+    replaceStartDistanceMeters == null ||
+    replaceEndDistanceMeters == null
+  ) {
+    return null;
+  }
+
+  const basePoints = pointsByRouteId[baseRouteId];
+  const patchPoints = pointsByRouteId[sw.route.id];
+  if (!basePoints || !patchPoints || basePoints.length < 2 || patchPoints.length < 2) return null;
+
+  const out = buildPatchVariantRoutePoints(
+    basePoints,
+    patchPoints,
+    replaceStartDistanceMeters,
+    replaceEndDistanceMeters,
+  );
+  return out.length >= 2 ? out : null;
+}
+
+function getSegmentMetricPoints(
+  sw: CollectionSegmentWithRoute,
+  pointsByRouteId: Record<string, RoutePoint[]>,
+  resolvedPointsByRouteId: Record<string, RoutePoint[]>,
+): RoutePoint[] | null {
+  const resolved = resolvedPointsByRouteId[sw.route.id];
+  if (resolved?.length >= 2) return resolved;
+  if (sw.segment.variantKind === "patch") return buildPatchVariantPoints(sw, pointsByRouteId);
+  return pointsByRouteId[sw.route.id] ?? null;
+}
+
+function getSegmentDistanceMeters(sw: CollectionSegmentWithRoute, points: RoutePoint[] | null) {
+  if (points?.length) return routeEndDistance(points);
+  const { replaceStartDistanceMeters, replaceEndDistanceMeters } = sw.segment;
+  if (
+    sw.segment.variantKind === "patch" &&
+    sw.baseRoute &&
+    replaceStartDistanceMeters != null &&
+    replaceEndDistanceMeters != null
+  ) {
+    return (
+      replaceStartDistanceMeters +
+      sw.route.totalDistanceMeters +
+      Math.max(0, sw.baseRoute.totalDistanceMeters - replaceEndDistanceMeters)
+    );
+  }
+  return sw.route.totalDistanceMeters;
+}
+
+function getSegmentAscentMeters(
+  sw: CollectionSegmentWithRoute,
+  pointsByRouteId: Record<string, RoutePoint[]>,
+) {
+  const { baseRouteId, replaceStartDistanceMeters, replaceEndDistanceMeters } = sw.segment;
+  if (
+    sw.segment.variantKind === "patch" &&
+    baseRouteId &&
+    replaceStartDistanceMeters != null &&
+    replaceEndDistanceMeters != null
+  ) {
+    const basePoints = pointsByRouteId[baseRouteId];
+    if (basePoints?.length) {
+      const baseEnd = routeEndDistance(basePoints);
+      return (
+        computeSliceAscentFromDistance(basePoints, 0, replaceStartDistanceMeters) +
+        sw.route.totalAscentMeters +
+        computeSliceAscentFromDistance(basePoints, replaceEndDistanceMeters, baseEnd)
+      );
+    }
+  }
+  return sw.route.totalAscentMeters;
+}
+
+function formatSignedDistanceDelta(deltaMeters: number, units: UnitSystem) {
+  if (Math.abs(deltaMeters) < 1) return "±0 m";
+  return `${deltaMeters > 0 ? "+" : "-"}${formatDistance(Math.abs(deltaMeters), units)}`;
+}
+
+function formatSignedElevationDelta(deltaMeters: number, units: UnitSystem) {
+  if (Math.abs(deltaMeters) < 1) return "±0 m";
+  return `${deltaMeters > 0 ? "+" : "-"}${formatElevation(Math.abs(deltaMeters), units)}`;
+}
+
+function formatSignedDurationDelta(deltaSeconds: number | null) {
+  if (deltaSeconds == null) return null;
+  if (Math.abs(deltaSeconds) < 30) return "±0m";
+  return `${deltaSeconds > 0 ? "+" : "-"}${formatDuration(Math.abs(deltaSeconds))}`;
+}
+
 interface SegmentListProps {
   segmentsWithRoutes: CollectionSegmentWithRoute[];
   pointsByRouteId: Record<string, RoutePoint[]>;
+  resolvedPointsByRouteId?: Record<string, RoutePoint[]>;
+  stitchedSegments?: StitchedSegmentInfo[];
   onSelectVariant: (routeId: string) => void;
+  onAddPatchVariant: (baseRouteId: string, position: number) => void;
   onReorder: (orderedPositions: { routeId: string; position: number }[]) => Promise<void>;
   onRemove: (routeId: string) => void;
 }
@@ -73,6 +193,8 @@ function SegmentRow({
   hasVariants,
   posIdx,
   ridingTime,
+  stitchedInfo,
+  variantDiff,
   drag,
   onSelect,
   onRemove,
@@ -82,6 +204,8 @@ function SegmentRow({
   hasVariants: boolean;
   posIdx: number;
   ridingTime: number | null;
+  stitchedInfo?: StitchedSegmentInfo;
+  variantDiff?: VariantDiff;
   drag?: () => void;
   onSelect: () => void;
   onRemove: () => void;
@@ -89,6 +213,27 @@ function SegmentRow({
   const colors = useThemeColors();
   const units = useSettingsStore((s) => s.units);
   const router = useRouter();
+  const displayDistanceMeters = stitchedInfo?.segmentDistanceMeters ?? sw.route.totalDistanceMeters;
+  const displayAscentMeters = stitchedInfo?.segmentAscentMeters ?? sw.route.totalAscentMeters;
+  const etaDiff = variantDiff ? formatSignedDurationDelta(variantDiff.ridingTime) : null;
+  const variantDiffText = variantDiff
+    ? [
+        etaDiff ? `ETA ${etaDiff}` : null,
+        `Dist ${formatSignedDistanceDelta(variantDiff.distanceMeters, units)}`,
+        `Gain ${formatSignedElevationDelta(variantDiff.ascentMeters, units)}`,
+      ]
+        .filter(Boolean)
+        .join("  ·  ")
+    : null;
+  const patchContext =
+    sw.segment.variantKind === "patch" &&
+    sw.segment.replaceStartDistanceMeters != null &&
+    sw.segment.replaceEndDistanceMeters != null
+      ? `replaces ${formatDistance(sw.segment.replaceStartDistanceMeters, units)}-${formatDistance(
+          sw.segment.replaceEndDistanceMeters,
+          units,
+        )}${sw.baseRoute ? ` of ${sw.baseRoute.name}` : ""}`
+      : null;
 
   return (
     <View
@@ -142,16 +287,30 @@ function SegmentRow({
           {!hasVariants && `${posIdx + 1}. `}
           {sw.route.name}
         </Text>
-        <Text className="text-[12px] text-muted-foreground font-barlow-sc-medium mt-0.5">
-          {formatDistance(sw.route.totalDistanceMeters, units)}
-          {"  ·  "}↑ {formatElevation(sw.route.totalAscentMeters, units)}
-          {ridingTime != null && (
-            <>
-              {"  ·  "}
-              {formatDuration(ridingTime)}
-            </>
-          )}
-        </Text>
+        {hasVariants && variantDiffText ? (
+          <Text className="text-[12px] text-muted-foreground font-barlow-sc-medium mt-0.5">
+            {variantDiffText}
+          </Text>
+        ) : (
+          <Text className="text-[12px] text-muted-foreground font-barlow-sc-medium mt-0.5">
+            {formatDistance(displayDistanceMeters, units)}
+            {"  ·  "}↑ {formatElevation(displayAscentMeters, units)}
+            {ridingTime != null && (
+              <>
+                {"  ·  "}
+                {formatDuration(ridingTime)}
+              </>
+            )}
+          </Text>
+        )}
+        {patchContext && (
+          <Text
+            className="text-[12px] text-muted-foreground font-barlow-medium mt-0.5"
+            numberOfLines={1}
+          >
+            {patchContext}
+          </Text>
+        )}
       </TouchableOpacity>
 
       {/* Right: chevron + remove */}
@@ -177,7 +336,10 @@ function SegmentRow({
 export default function SegmentList({
   segmentsWithRoutes,
   pointsByRouteId,
+  resolvedPointsByRouteId = {},
+  stitchedSegments = [],
   onSelectVariant,
+  onAddPatchVariant,
   onReorder,
   onRemove,
 }: SegmentListProps) {
@@ -189,41 +351,65 @@ export default function SegmentList({
   const serverGroups = useMemo(() => groupByPosition(segmentsWithRoutes), [segmentsWithRoutes]);
   const [localGroups, setLocalGroups] = useState<PositionGroup[]>(serverGroups);
   const [isSaving, setIsSaving] = useState(false);
+  const stitchedInfoByRouteId = useMemo(() => {
+    const out: Record<string, StitchedSegmentInfo> = {};
+    for (const segment of stitchedSegments) {
+      out[segment.routeId] = segment;
+    }
+    return out;
+  }, [stitchedSegments]);
 
   const powerConfigKey = useMemo(() => powerConfigCacheKey(powerConfig), [powerConfig]);
-  const ridingTimesByRouteId = useMemo(() => {
+  const metricsByRouteId = useMemo(() => {
     const cache = segmentTimeCacheRef.current;
     const activeRouteIds = new Set<string>();
-    const times: Record<string, number | null> = {};
+    const metrics: Record<string, SegmentMetrics> = {};
 
     for (const sw of segmentsWithRoutes) {
       const routeId = sw.route.id;
-      if (routeId in times) continue;
+      if (routeId in metrics) continue;
       activeRouteIds.add(routeId);
 
-      const points = pointsByRouteId[routeId];
+      const points = getSegmentMetricPoints(sw, pointsByRouteId, resolvedPointsByRouteId);
+      const distanceMeters = getSegmentDistanceMeters(sw, points);
+      const ascentMeters = getSegmentAscentMeters(sw, pointsByRouteId);
       if (!points || points.length < 2) {
-        times[routeId] = null;
+        metrics[routeId] = {
+          distanceMeters,
+          ascentMeters,
+          ridingTime: null,
+          points,
+        };
         continue;
       }
 
       const cached = cache.get(routeId);
       if (cached?.points === points && cached.configKey === powerConfigKey) {
-        times[routeId] = cached.ridingTime;
+        metrics[routeId] = {
+          distanceMeters,
+          ascentMeters,
+          ridingTime: cached.ridingTime,
+          points,
+        };
         continue;
       }
 
       const ridingTime = computeRouteTotalETA(points, powerConfig);
       cache.set(routeId, { points, configKey: powerConfigKey, ridingTime });
-      times[routeId] = ridingTime;
+      metrics[routeId] = {
+        distanceMeters,
+        ascentMeters,
+        ridingTime,
+        points,
+      };
     }
 
     for (const routeId of cache.keys()) {
       if (!activeRouteIds.has(routeId)) cache.delete(routeId);
     }
 
-    return times;
-  }, [segmentsWithRoutes, pointsByRouteId, powerConfig, powerConfigKey]);
+    return metrics;
+  }, [segmentsWithRoutes, pointsByRouteId, resolvedPointsByRouteId, powerConfig, powerConfigKey]);
 
   useEffect(() => {
     setLocalGroups(serverGroups);
@@ -254,6 +440,26 @@ export default function SegmentList({
     ({ item: group, drag, isActive: isDragging }: RenderItemParams<PositionGroup>) => {
       const posIdx = localGroups.indexOf(group);
       const hasVariants = group.variants.length > 1;
+      const patchBaseVariant =
+        group.variants.find((sw) => sw.segment.variantKind === "full" && sw.segment.isSelected) ??
+        group.variants.find((sw) => sw.segment.variantKind === "full");
+      const referenceVariant =
+        patchBaseVariant ?? group.variants.find((sw) => sw.segment.isSelected) ?? group.variants[0];
+      const referenceMetrics = referenceVariant
+        ? metricsByRouteId[referenceVariant.route.id]
+        : undefined;
+      const getVariantDiff = (sw: CollectionSegmentWithRoute): VariantDiff | undefined => {
+        const metrics = metricsByRouteId[sw.route.id];
+        if (!referenceMetrics || !metrics) return undefined;
+        return {
+          distanceMeters: metrics.distanceMeters - referenceMetrics.distanceMeters,
+          ascentMeters: metrics.ascentMeters - referenceMetrics.ascentMeters,
+          ridingTime:
+            metrics.ridingTime != null && referenceMetrics.ridingTime != null
+              ? metrics.ridingTime - referenceMetrics.ridingTime
+              : null,
+        };
+      };
 
       return (
         <ScaleDecorator>
@@ -288,7 +494,13 @@ export default function SegmentList({
                         isSelected={isSelected}
                         hasVariants
                         posIdx={posIdx}
-                        ridingTime={ridingTimesByRouteId[sw.route.id] ?? null}
+                        ridingTime={metricsByRouteId[sw.route.id]?.ridingTime ?? null}
+                        stitchedInfo={isSelected ? stitchedInfoByRouteId[sw.route.id] : undefined}
+                        variantDiff={
+                          sw.route.id === referenceVariant?.route.id
+                            ? undefined
+                            : getVariantDiff(sw)
+                        }
                         onSelect={() => onSelectVariant(sw.route.id)}
                         onRemove={() => onRemove(sw.route.id)}
                       />
@@ -304,18 +516,43 @@ export default function SegmentList({
                   isSelected={sw.segment.isSelected}
                   hasVariants={false}
                   posIdx={posIdx}
-                  ridingTime={ridingTimesByRouteId[sw.route.id] ?? null}
+                  ridingTime={metricsByRouteId[sw.route.id]?.ridingTime ?? null}
+                  stitchedInfo={
+                    sw.segment.isSelected ? stitchedInfoByRouteId[sw.route.id] : undefined
+                  }
                   drag={drag}
                   onSelect={() => {}}
                   onRemove={() => onRemove(sw.route.id)}
                 />
               ))
             )}
+            {patchBaseVariant && (
+              <Button
+                variant="secondary"
+                className="mt-2 h-12 self-start px-3"
+                onPress={() =>
+                  onAddPatchVariant(patchBaseVariant.route.id, patchBaseVariant.segment.position)
+                }
+              >
+                <Plus size={16} color={colors.accent} />
+                <Text className="ml-2 text-[14px] font-barlow-semibold text-primary">
+                  Add Patch Variant
+                </Text>
+              </Button>
+            )}
           </View>
         </ScaleDecorator>
       );
     },
-    [localGroups, colors, ridingTimesByRouteId, onSelectVariant, onRemove],
+    [
+      localGroups,
+      colors,
+      metricsByRouteId,
+      stitchedInfoByRouteId,
+      onSelectVariant,
+      onAddPatchVariant,
+      onRemove,
+    ],
   );
 
   if (localGroups.length === 0) {

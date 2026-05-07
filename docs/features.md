@@ -23,6 +23,7 @@ What's implemented. For the "why" behind these, see `usage-context.md`.
 
 - Group route segments into collections with ordered positions
 - Variant auto-detection (alternative segments for the same position)
+- Patch-style variants for subset routes that replace a confirmed slice of a base segment
 - Stitching — selected segments concatenated into continuous view for all downstream features
 - Drag-to-reorder segments, radio-button variant selection
 

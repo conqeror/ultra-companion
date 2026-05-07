@@ -20,12 +20,26 @@ import { useCollectionStore } from "@/store/collectionStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import { useClimbStore } from "@/store/climbStore";
 import { usePoiStore } from "@/store/poiStore";
-import type { Collection, CollectionSegmentWithRoute, POI, StitchedCollection } from "@/types";
+import type {
+  Collection,
+  CollectionSegmentWithRoute,
+  POI,
+  Route,
+  RoutePoint,
+  StitchedCollection,
+} from "@/types";
 import { useMapStyle } from "@/hooks/useMapStyle";
 import { useRouteGeometryZoom } from "@/hooks/useRouteGeometryZoom";
 import { formatDistance, formatElevation } from "@/utils/formatters";
 import { computeBounds } from "@/utils/geo";
-import { stitchCollection, stitchPOIs } from "@/services/stitchingService";
+import {
+  getStitchedSourceRouteIds,
+  isPatchVariantProposalPoorMatch,
+  proposePatchVariantFromPoints,
+  sliceRoutePointsByDistance,
+  stitchCollection,
+  stitchPOIs,
+} from "@/services/stitchingService";
 import ElevationProfile from "@/components/elevation/ElevationProfile";
 import RouteLayer from "@/components/map/RouteLayer";
 import StatBox from "@/components/common/StatBox";
@@ -49,6 +63,17 @@ function formatPlannedStart(plannedStartMs: number | null): string {
   });
 }
 
+interface PatchBaseSelection {
+  routeId: string;
+  routeName: string;
+  position: number;
+}
+
+interface VariantRouteOverlay {
+  route: Route;
+  points: RoutePoint[];
+}
+
 export default function CollectionDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
@@ -65,6 +90,7 @@ export default function CollectionDetailScreen() {
   const [isBusy, setIsBusy] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [showAddSheet, setShowAddSheet] = useState(false);
+  const [patchBaseSelection, setPatchBaseSelection] = useState<PatchBaseSelection | null>(null);
   const [showAddPOI, setShowAddPOI] = useState(false);
   const [showStartSheet, setShowStartSheet] = useState(false);
   const [startDraftDate, setStartDraftDate] = useState(() => new Date());
@@ -74,6 +100,7 @@ export default function CollectionDetailScreen() {
     (s) => s.getCollectionSegmentsWithRoutes,
   );
   const addSegment = useCollectionStore((s) => s.addSegment);
+  const addPatchVariant = useCollectionStore((s) => s.addPatchVariant);
   const removeSegment = useCollectionStore((s) => s.removeSegment);
   const selectVariant = useCollectionStore((s) => s.selectVariant);
   const setActiveCollection = useCollectionStore((s) => s.setActiveCollection);
@@ -98,9 +125,15 @@ export default function CollectionDetailScreen() {
         const s = await stitchCollection(id);
         // Also load points for unselected variants (for ETA display)
         const { getRoutePoints } = await import("@/db/database");
+        const stitchedSourceRouteIds = new Set(getStitchedSourceRouteIds(s.segments));
         const unselectedRouteIds = segs
           .filter((sw) => !sw.segment.isSelected && !s.pointsByRouteId[sw.route.id])
           .map((sw) => sw.route.id);
+        for (const routeId of stitchedSourceRouteIds) {
+          if (!s.pointsByRouteId[routeId] && !unselectedRouteIds.includes(routeId)) {
+            unselectedRouteIds.push(routeId);
+          }
+        }
         const unselectedPoints = await Promise.all(
           unselectedRouteIds.map((rid) => getRoutePoints(rid)),
         );
@@ -126,10 +159,38 @@ export default function CollectionDetailScreen() {
     [collection?.name],
   );
 
+  const variantRouteOverlays = useMemo<VariantRouteOverlay[]>(() => {
+    if (!stitched) return [];
+    return segmentsWithRoutes
+      .filter((sw) => !sw.segment.isSelected)
+      .map((sw) => {
+        const points = stitched.pointsByRouteId[sw.route.id] ?? null;
+        if (!points || points.length < 2) return null;
+        return {
+          route: {
+            ...sw.route,
+            id: `variant-${sw.route.id}`,
+            isActive: false,
+            isVisible: true,
+          },
+          points,
+        };
+      })
+      .filter((overlay): overlay is VariantRouteOverlay => overlay != null);
+  }, [segmentsWithRoutes, stitched]);
+
   const bounds = useMemo(() => {
     if (!stitched?.points.length) return null;
-    return computeBounds(stitched.points);
-  }, [stitched]);
+    return computeBounds([
+      ...stitched.points,
+      ...variantRouteOverlays.flatMap((overlay) => overlay.points),
+    ]);
+  }, [stitched, variantRouteOverlays]);
+
+  const selectedRouteLayerId = useMemo(
+    () => (collection ? `collection-${collection.id}` : "collection"),
+    [collection],
+  );
 
   // Fit mini map camera when bounds change (defaultSettings only applies on mount)
   useEffect(() => {
@@ -154,13 +215,50 @@ export default function CollectionDetailScreen() {
     [updateRouteGeometryZoom],
   );
 
-  // Get route points for each selected segment (for mini map RouteLayer)
-  const selectedSegmentRoutes = useMemo(() => {
-    return segmentsWithRoutes.filter((sw) => sw.segment.isSelected).map((sw) => sw.route);
-  }, [segmentsWithRoutes]);
+  const resolvedSegmentPointsByRouteId = useMemo(() => {
+    const out: Record<string, RoutePoint[]> = {};
+    if (!stitched) return out;
+    for (const segment of stitched.segments) {
+      const points = stitched.points
+        .slice(segment.startPointIndex, segment.endPointIndex + 1)
+        .map((point, idx) =>
+          Object.assign({}, point, {
+            idx,
+            distanceFromStartMeters: point.distanceFromStartMeters - segment.distanceOffsetMeters,
+          }),
+        );
+      out[segment.routeId] = points;
+    }
+    return out;
+  }, [stitched]);
 
   const existingRouteIds = useMemo(
     () => new Set(segmentsWithRoutes.map((sw) => sw.route.id)),
+    [segmentsWithRoutes],
+  );
+
+  const handleCloseAddSheet = useCallback(() => {
+    setShowAddSheet(false);
+    setPatchBaseSelection(null);
+  }, []);
+
+  const handleOpenAddSegment = useCallback(() => {
+    setPatchBaseSelection(null);
+    setShowAddSheet(true);
+  }, []);
+
+  const handleOpenPatchVariant = useCallback(
+    (baseRouteId: string, position: number) => {
+      const base = segmentsWithRoutes.find(
+        (sw) => sw.route.id === baseRouteId && sw.segment.variantKind === "full",
+      );
+      if (!base) {
+        Alert.alert("Patch Variant Failed", "Could not find the base segment for this position.");
+        return;
+      }
+      setPatchBaseSelection({ routeId: baseRouteId, routeName: base.route.name, position });
+      setShowAddSheet(true);
+    },
     [segmentsWithRoutes],
   );
 
@@ -168,12 +266,101 @@ export default function CollectionDetailScreen() {
     async (routeId: string) => {
       if (!id) return;
       setShowAddSheet(false);
+      setPatchBaseSelection(null);
       setIsBusy(true);
       await addSegment(id, routeId);
       await loadData();
       setIsBusy(false);
     },
     [id, addSegment, loadData],
+  );
+
+  const handleAddPatchVariant = useCallback(
+    async (routeId: string, baseRouteId: string, position: number) => {
+      if (!id) return;
+      setShowAddSheet(false);
+      setPatchBaseSelection(null);
+      setIsBusy(true);
+      try {
+        const { getRouteWithPoints } = await import("@/db/database");
+        const [baseRoute, patchRoute] = await Promise.all([
+          getRouteWithPoints(baseRouteId),
+          getRouteWithPoints(routeId),
+        ]);
+        if (!baseRoute || !patchRoute) {
+          Alert.alert("Patch Variant Failed", "Could not load both route geometries.");
+          return;
+        }
+
+        const proposal = proposePatchVariantFromPoints(
+          baseRoute.id,
+          patchRoute.id,
+          baseRoute.points,
+          patchRoute.points,
+        );
+        if (!proposal) {
+          Alert.alert("Patch Variant Failed", "Could not match this route onto the base segment.");
+          return;
+        }
+        if (proposal.isReversed) {
+          Alert.alert(
+            "Patch Variant Reversed",
+            "This route snaps onto the base segment in the opposite direction. Reverse the route before adding it as a patch variant.",
+          );
+          return;
+        }
+
+        const warning = isPatchVariantProposalPoorMatch(proposal)
+          ? "\n\nReview carefully: one or both endpoints are far from the base route."
+          : "";
+        Alert.alert(
+          "Add Patch Variant?",
+          `${patchRoute.name} will replace ${formatDistance(
+            proposal.replaceStartDistanceMeters,
+            units,
+          )}-${formatDistance(proposal.replaceEndDistanceMeters, units)} of ${
+            baseRoute.name
+          }.${warning}`,
+          [
+            { text: "Cancel", style: "cancel" },
+            {
+              text: "Add Variant",
+              onPress: async () => {
+                setIsBusy(true);
+                await addPatchVariant(
+                  id,
+                  routeId,
+                  baseRouteId,
+                  position,
+                  proposal.replaceStartDistanceMeters,
+                  proposal.replaceEndDistanceMeters,
+                );
+                await loadData();
+                setIsBusy(false);
+              },
+            },
+          ],
+        );
+      } finally {
+        setIsBusy(false);
+      }
+    },
+    [id, addPatchVariant, loadData, units],
+  );
+
+  const handleAddRouteFromSheet = useCallback(
+    async (routeId: string) => {
+      if (patchBaseSelection) {
+        await handleAddPatchVariant(
+          routeId,
+          patchBaseSelection.routeId,
+          patchBaseSelection.position,
+        );
+        return;
+      }
+      await handleAddSegment(routeId);
+    },
+    [handleAddPatchVariant, handleAddSegment, patchBaseSelection],
   );
 
   const handleRemoveSegment = useCallback(
@@ -280,16 +467,16 @@ export default function CollectionDetailScreen() {
 
   useEffect(() => {
     if (stitched) {
-      for (const seg of stitched.segments) {
-        loadClimbs(seg.routeId);
-        loadPOIs(seg.routeId);
+      for (const routeId of getStitchedSourceRouteIds(stitched.segments)) {
+        loadClimbs(routeId);
+        loadPOIs(routeId);
       }
     }
   }, [stitched, loadClimbs, loadPOIs]);
 
   const collectionClimbs = useMemo(() => {
     if (!stitched) return [];
-    const routeIds = stitched.segments.map((s) => s.routeId);
+    const routeIds = getStitchedSourceRouteIds(stitched.segments);
     return getClimbsForDisplay(routeIds, stitched.segments);
     // allClimbs is a reactivity trigger: getClimbsForDisplay reads store via get() and is not itself reactive
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -298,8 +485,8 @@ export default function CollectionDetailScreen() {
   const collectionPOIs = useMemo(() => {
     if (!stitched) return [];
     const poisByRoute: Record<string, POI[]> = {};
-    for (const seg of stitched.segments) {
-      poisByRoute[seg.routeId] = (poisByRouteId[seg.routeId] ?? []).filter((poi) =>
+    for (const routeId of getStitchedSourceRouteIds(stitched.segments)) {
+      poisByRoute[routeId] = (poisByRouteId[routeId] ?? []).filter((poi) =>
         starredPOIIds.has(poi.id),
       );
     }
@@ -323,12 +510,19 @@ export default function CollectionDetailScreen() {
 
   const savedPOITargets = useMemo<SavedPOITarget[]>(() => {
     if (!stitched) return [];
-    return stitched.segments
-      .map((seg) => ({
-        routeId: seg.routeId,
-        routeName: seg.routeName,
-        points: stitched.pointsByRouteId[seg.routeId] ?? [],
-      }))
+    return stitched.sourceSpans
+      .map((span) => {
+        const points = sliceRoutePointsByDistance(
+          stitched.pointsByRouteId[span.routeId] ?? [],
+          span.rawStartDistanceMeters,
+          span.rawEndDistanceMeters,
+        );
+        return {
+          routeId: span.routeId,
+          routeName: span.routeName,
+          points,
+        };
+      })
       .filter((target) => target.points.length > 0);
   }, [stitched]);
 
@@ -368,7 +562,7 @@ export default function CollectionDetailScreen() {
         contentContainerStyle={{ paddingBottom: 48 }}
       >
         {/* Mini map */}
-        {selectedSegmentRoutes.length > 0 && (
+        {stitched && stitched.points.length > 0 && collection && (
           <View className="h-[250px] mx-4 mt-4 rounded-xl overflow-hidden">
             <MapboxMapView
               style={{ flex: 1 }}
@@ -398,18 +592,32 @@ export default function CollectionDetailScreen() {
                     : undefined
                 }
               />
-              {selectedSegmentRoutes.map((route) => {
-                const points = stitched?.pointsByRouteId[route.id];
-                if (!points) return null;
-                return (
-                  <RouteLayer
-                    key={`${route.id}-${mapStyle.styleKey}`}
-                    route={{ ...route, isActive: true }}
-                    points={points}
-                    zoomLevel={routeGeometryZoom}
-                  />
-                );
-              })}
+              {variantRouteOverlays.map((overlay) => (
+                <RouteLayer
+                  key={`${overlay.route.id}-${mapStyle.styleKey}`}
+                  route={overlay.route}
+                  points={overlay.points}
+                  zoomLevel={routeGeometryZoom}
+                />
+              ))}
+              <RouteLayer
+                key={`${collection.id}-${mapStyle.styleKey}`}
+                route={{
+                  id: selectedRouteLayerId,
+                  name: collection.name,
+                  fileName: `${collection.id}.collection`,
+                  color: "#0D9488",
+                  isActive: true,
+                  isVisible: true,
+                  totalDistanceMeters: stitched.totalDistanceMeters,
+                  totalAscentMeters: stitched.totalAscentMeters,
+                  totalDescentMeters: stitched.totalDescentMeters,
+                  pointCount: stitched.points.length,
+                  createdAt: collection.createdAt,
+                }}
+                points={stitched.points}
+                zoomLevel={routeGeometryZoom}
+              />
             </MapboxMapView>
           </View>
         )}
@@ -459,14 +667,17 @@ export default function CollectionDetailScreen() {
           <SegmentList
             segmentsWithRoutes={segmentsWithRoutes}
             pointsByRouteId={stitched?.pointsByRouteId ?? {}}
+            resolvedPointsByRouteId={resolvedSegmentPointsByRouteId}
+            stitchedSegments={stitched?.segments}
             onSelectVariant={handleSelectVariant}
+            onAddPatchVariant={handleOpenPatchVariant}
             onReorder={handleReorder}
             onRemove={handleRemoveSegment}
           />
         </View>
 
         <View className="px-4 mt-3">
-          <Button variant="secondary" onPress={() => setShowAddSheet(true)} label="Add Segment" />
+          <Button variant="secondary" onPress={handleOpenAddSegment} label="Add Segment" />
         </View>
 
         {stitched && stitched.segments.length > 0 && (
@@ -520,8 +731,10 @@ export default function CollectionDetailScreen() {
 
       <AddSegmentSheet
         visible={showAddSheet}
-        onClose={() => setShowAddSheet(false)}
-        onAdd={handleAddSegment}
+        title={patchBaseSelection ? "Add Patch Variant" : "Add Segment"}
+        subtitle={patchBaseSelection ? `Base: ${patchBaseSelection.routeName}` : undefined}
+        onClose={handleCloseAddSheet}
+        onAdd={handleAddRouteFromSheet}
         existingRouteIds={existingRouteIds}
       />
 

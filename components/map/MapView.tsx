@@ -19,8 +19,10 @@ import RouteMarkerLayer from "./RouteMarkerLayer";
 import POILayer from "./POILayer";
 import ClimbHighlightLayer from "./ClimbHighlightLayer";
 import TemperatureRouteOverlay from "./TemperatureRouteOverlay";
+import VariantOverlayLayer, { type VariantOverlay } from "./VariantOverlayLayer";
 import TabbedBottomPanel from "./TabbedBottomPanel";
 import { displayPOIsForActiveRoute } from "@/services/activePOIs";
+import { computeRouteTotalETA } from "@/services/etaCalculator";
 import { resolveActiveClimb } from "@/utils/climbSelect";
 import { getClimbMapBounds, getZoomLevelToFitBounds } from "@/utils/climbGeometry";
 import { isClimbAtLeastDifficulty } from "@/constants/climbHelpers";
@@ -39,7 +41,10 @@ import { useEtaStore } from "@/store/etaStore";
 import { useWeatherStore } from "@/store/weatherStore";
 import { useOfflineStore } from "@/store/offlineStore";
 import { useSettingsStore } from "@/store/settingsStore";
-import type { RoutePoint, UserPosition } from "@/types";
+import { buildPatchVariantRoutePoints, routeEndDistance } from "@/services/stitchingService";
+import { computeSliceAscentFromDistance } from "@/utils/geo";
+import { formatDistance, formatDuration, formatElevation } from "@/utils/formatters";
+import type { CollectionSegmentWithRoute, RoutePoint, UnitSystem, UserPosition } from "@/types";
 
 const CLIMB_PAN_PADDING = {
   top: 72,
@@ -47,6 +52,117 @@ const CLIMB_PAN_PADDING = {
   bottom: 40,
   left: 32,
 };
+
+interface VariantMetric {
+  distanceMeters: number;
+  ascentMeters: number;
+  ridingTime: number | null;
+}
+
+function groupCollectionSegments(
+  segments: CollectionSegmentWithRoute[],
+): CollectionSegmentWithRoute[][] {
+  const grouped = new Map<number, CollectionSegmentWithRoute[]>();
+  for (const sw of segments) {
+    if (!grouped.has(sw.segment.position)) grouped.set(sw.segment.position, []);
+    grouped.get(sw.segment.position)!.push(sw);
+  }
+  return [...grouped.entries()].sort(([a], [b]) => a - b).map(([, variants]) => variants);
+}
+
+function effectiveVariantPoints(
+  sw: CollectionSegmentWithRoute,
+  pointsByRouteId: Record<string, RoutePoint[]>,
+): RoutePoint[] | null {
+  const routePoints = pointsByRouteId[sw.route.id];
+  if (sw.segment.variantKind !== "patch") return routePoints ?? null;
+
+  const { baseRouteId, replaceStartDistanceMeters, replaceEndDistanceMeters } = sw.segment;
+  if (
+    !baseRouteId ||
+    replaceStartDistanceMeters == null ||
+    replaceEndDistanceMeters == null ||
+    !routePoints
+  ) {
+    return routePoints ?? null;
+  }
+
+  const basePoints = pointsByRouteId[baseRouteId];
+  if (!basePoints) return routePoints;
+  const stitched = buildPatchVariantRoutePoints(
+    basePoints,
+    routePoints,
+    replaceStartDistanceMeters,
+    replaceEndDistanceMeters,
+  );
+  return stitched.length >= 2 ? stitched : routePoints;
+}
+
+function effectiveVariantAscentMeters(
+  sw: CollectionSegmentWithRoute,
+  pointsByRouteId: Record<string, RoutePoint[]>,
+): number {
+  const { baseRouteId, replaceStartDistanceMeters, replaceEndDistanceMeters } = sw.segment;
+  if (
+    sw.segment.variantKind === "patch" &&
+    baseRouteId &&
+    replaceStartDistanceMeters != null &&
+    replaceEndDistanceMeters != null
+  ) {
+    const basePoints = pointsByRouteId[baseRouteId];
+    if (basePoints?.length) {
+      const baseEnd = routeEndDistance(basePoints);
+      return (
+        computeSliceAscentFromDistance(basePoints, 0, replaceStartDistanceMeters) +
+        sw.route.totalAscentMeters +
+        computeSliceAscentFromDistance(basePoints, replaceEndDistanceMeters, baseEnd)
+      );
+    }
+  }
+  return sw.route.totalAscentMeters;
+}
+
+function variantMetric(
+  sw: CollectionSegmentWithRoute,
+  pointsByRouteId: Record<string, RoutePoint[]>,
+  powerConfig: ReturnType<typeof useEtaStore.getState>["powerConfig"],
+): VariantMetric | null {
+  const points = effectiveVariantPoints(sw, pointsByRouteId);
+  if (!points || points.length < 2) return null;
+  return {
+    distanceMeters: routeEndDistance(points),
+    ascentMeters: effectiveVariantAscentMeters(sw, pointsByRouteId),
+    ridingTime: computeRouteTotalETA(points, powerConfig),
+  };
+}
+
+function signedDistance(deltaMeters: number, units: UnitSystem): string {
+  if (Math.abs(deltaMeters) < 1) return "±0 m";
+  return `${deltaMeters > 0 ? "+" : "-"}${formatDistance(Math.abs(deltaMeters), units)}`;
+}
+
+function signedElevation(deltaMeters: number, units: UnitSystem): string {
+  if (Math.abs(deltaMeters) < 1) return "±0 m";
+  return `${deltaMeters > 0 ? "+" : "-"}${formatElevation(Math.abs(deltaMeters), units)}`;
+}
+
+function signedDuration(deltaSeconds: number | null): string {
+  if (deltaSeconds == null) return "ETA n/a";
+  if (Math.abs(deltaSeconds) < 30) return "ETA ±0m";
+  return `ETA ${deltaSeconds > 0 ? "+" : "-"}${formatDuration(Math.abs(deltaSeconds))}`;
+}
+
+function variantDiffLabel(metric: VariantMetric, reference: VariantMetric, units: UnitSystem) {
+  const timeDelta =
+    metric.ridingTime != null && reference.ridingTime != null
+      ? metric.ridingTime - reference.ridingTime
+      : null;
+  return [
+    signedDuration(timeDelta),
+    signedDistance(metric.distanceMeters - reference.distanceMeters, units),
+    `↑ ${signedElevation(metric.ascentMeters - reference.ascentMeters, units)}`,
+  ].join("\n");
+}
 
 // Initialize Mapbox with access token from app config
 try {
@@ -97,15 +213,26 @@ export default function MapScreen() {
   const recordSnapHistory = useRouteStore((s) => s.recordSnapHistory);
   const clearRouteProgress = useRouteStore((s) => s.clearRouteProgress);
   const loadCollections = useCollectionStore((s) => s.loadCollections);
+  const getCollectionSegmentsWithRoutes = useCollectionStore(
+    (s) => s.getCollectionSegmentsWithRoutes,
+  );
   const allPois = usePoiStore((s) => s.pois);
   const loadPOIs = usePoiStore((s) => s.loadPOIs);
   const computeETAForRoute = useEtaStore((s) => s.computeETAForRoute);
   const cumulativeTime = useEtaStore((s) => s.cumulativeTime);
+  const powerConfig = useEtaStore((s) => s.powerConfig);
   const fetchWeather = useWeatherStore((s) => s.fetchWeather);
   const weatherTimeline = useWeatherStore((s) => s.timeline);
   const weatherRouteId = useWeatherStore((s) => s.routeId);
   const weatherTemperatureMode = useSettingsStore((s) => s.weatherTemperatureDisplayMode);
+  const units = useSettingsStore((s) => s.units);
   const isConnected = useOfflineStore((s) => s.isConnected);
+  const [activeCollectionSegments, setActiveCollectionSegments] = useState<
+    CollectionSegmentWithRoute[]
+  >([]);
+  const [activeVariantPointsByRouteId, setActiveVariantPointsByRouteId] = useState<
+    Record<string, RoutePoint[]>
+  >({});
 
   // Unified active context — works for both standalone routes and collections
   const activeData = useActiveRouteData();
@@ -152,6 +279,47 @@ export default function MapScreen() {
     if (!activeStandaloneRouteId) return;
     loadRoutePoints([activeStandaloneRouteId], { prune: true });
   }, [activeStandaloneRouteId, loadRoutePoints]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadActiveCollectionVariants() {
+      if (activeData?.type !== "collection") {
+        setActiveCollectionSegments([]);
+        setActiveVariantPointsByRouteId({});
+        return;
+      }
+
+      const segments = await getCollectionSegmentsWithRoutes(activeData.id);
+      const routeIds = new Set<string>();
+      for (const sw of segments) {
+        routeIds.add(sw.route.id);
+        if (sw.segment.baseRouteId) routeIds.add(sw.segment.baseRouteId);
+      }
+
+      const { getRoutePoints } = await import("@/db/database");
+      const ids = [...routeIds];
+      const points = await Promise.all(ids.map((routeId) => getRoutePoints(routeId)));
+      if (cancelled) return;
+
+      const pointsByRouteId: Record<string, RoutePoint[]> = {};
+      for (let i = 0; i < ids.length; i++) {
+        pointsByRouteId[ids[i]] = points[i];
+      }
+      setActiveCollectionSegments(segments);
+      setActiveVariantPointsByRouteId(pointsByRouteId);
+    }
+
+    loadActiveCollectionVariants().catch((e) => {
+      if (cancelled) return;
+      console.warn("Failed to load active collection variants:", e);
+      setActiveCollectionSegments([]);
+      setActiveVariantPointsByRouteId({});
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeData?.id, activeData?.type, getCollectionSegmentsWithRoutes]);
 
   const loadClimbs = useClimbStore((s) => s.loadClimbs);
   const updateCurrentClimb = useClimbStore((s) => s.updateCurrentClimb);
@@ -440,6 +608,37 @@ export default function MapScreen() {
     };
   }, [activeData, activeRoutePoints?.length]);
 
+  const activeVariantOverlays = useMemo<VariantOverlay[]>(() => {
+    if (activeData?.type !== "collection" || activeCollectionSegments.length === 0) return [];
+    const overlays: VariantOverlay[] = [];
+    for (const variants of groupCollectionSegments(activeCollectionSegments)) {
+      if (variants.length <= 1) continue;
+      const reference = variants.find((sw) => sw.segment.isSelected) ?? variants[0];
+      const referenceMetric = variantMetric(reference, activeVariantPointsByRouteId, powerConfig);
+      if (!referenceMetric) continue;
+
+      for (const sw of variants) {
+        if (sw.segment.isSelected) continue;
+        const points = activeVariantPointsByRouteId[sw.route.id];
+        if (!points || points.length < 2) continue;
+        const metric = variantMetric(sw, activeVariantPointsByRouteId, powerConfig);
+        if (!metric) continue;
+        overlays.push({
+          id: sw.route.id,
+          points,
+          label: variantDiffLabel(metric, referenceMetric, units),
+        });
+      }
+    }
+    return overlays;
+  }, [
+    activeData?.type,
+    activeCollectionSegments,
+    activeVariantPointsByRouteId,
+    powerConfig,
+    units,
+  ]);
+
   // RNMapbox inserts native layers in mount order. Key upper overlay tiers so they remount
   // above lower tiers when route/climb/visibility state changes.
   const routeStackKey = useMemo(() => {
@@ -566,6 +765,12 @@ export default function MapScreen() {
             />
           );
         })}
+        {activeVariantOverlays.length > 0 && (
+          <VariantOverlayLayer
+            key={`collection-variants-${routeStackKey}`}
+            overlays={activeVariantOverlays}
+          />
+        )}
         {activeCollectionRoute && activeRoutePoints && activeRoutePoints.length > 1 && (
           <RouteLayer
             key={`${activeCollectionRoute.id}-${mapStyle.styleKey}`}
