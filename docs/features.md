@@ -43,7 +43,7 @@ What's implemented. For the "why" behind these, see `usage-context.md`.
 - Uses the same 10km / 25km / 50km / 100km / 200km / FULL horizon as the ride view
 - Displays clock ETA and riding time when available, with distance-first fallback when ETA is unavailable
 - Includes POIs with planned stop durations even when unstarred, so downstream ETA shifts are visible
-- Models climbs as spans, splitting moderate/hard climbs or climbs with important POIs into start/top context
+- Models climbs as one span row with start and end ETA when available
 
 ## Climb Detection
 
