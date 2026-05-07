@@ -161,10 +161,28 @@ export default function CollectionDetailScreen() {
 
   const variantRouteOverlays = useMemo<VariantRouteOverlay[]>(() => {
     if (!stitched) return [];
+    const selectedByPosition = new Map<number, CollectionSegmentWithRoute>();
+    for (const sw of segmentsWithRoutes) {
+      if (sw.segment.isSelected) selectedByPosition.set(sw.segment.position, sw);
+    }
     return segmentsWithRoutes
       .filter((sw) => !sw.segment.isSelected)
       .map((sw) => {
-        const points = stitched.pointsByRouteId[sw.route.id] ?? null;
+        const rawPoints = stitched.pointsByRouteId[sw.route.id] ?? null;
+        const selectedVariant = selectedByPosition.get(sw.segment.position);
+        const points =
+          rawPoints &&
+          sw.segment.variantKind === "full" &&
+          selectedVariant?.segment.variantKind === "patch" &&
+          selectedVariant.segment.baseRouteId === sw.route.id &&
+          selectedVariant.segment.replaceStartDistanceMeters != null &&
+          selectedVariant.segment.replaceEndDistanceMeters != null
+            ? sliceRoutePointsByDistance(
+                rawPoints,
+                selectedVariant.segment.replaceStartDistanceMeters,
+                selectedVariant.segment.replaceEndDistanceMeters,
+              )
+            : rawPoints;
         if (!points || points.length < 2) return null;
         return {
           route: {

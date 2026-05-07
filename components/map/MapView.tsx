@@ -41,7 +41,11 @@ import { useEtaStore } from "@/store/etaStore";
 import { useWeatherStore } from "@/store/weatherStore";
 import { useOfflineStore } from "@/store/offlineStore";
 import { useSettingsStore } from "@/store/settingsStore";
-import { buildPatchVariantRoutePoints, routeEndDistance } from "@/services/stitchingService";
+import {
+  buildPatchVariantRoutePoints,
+  routeEndDistance,
+  sliceRoutePointsByDistance,
+} from "@/services/stitchingService";
 import { computeSliceAscentFromDistance } from "@/utils/geo";
 import { formatDistance, formatDuration, formatElevation } from "@/utils/formatters";
 import type { CollectionSegmentWithRoute, RoutePoint, UnitSystem, UserPosition } from "@/types";
@@ -619,7 +623,20 @@ export default function MapScreen() {
 
       for (const sw of variants) {
         if (sw.segment.isSelected) continue;
-        const points = activeVariantPointsByRouteId[sw.route.id];
+        const rawPoints = activeVariantPointsByRouteId[sw.route.id];
+        const points =
+          rawPoints &&
+          sw.segment.variantKind === "full" &&
+          reference.segment.variantKind === "patch" &&
+          reference.segment.baseRouteId === sw.route.id &&
+          reference.segment.replaceStartDistanceMeters != null &&
+          reference.segment.replaceEndDistanceMeters != null
+            ? sliceRoutePointsByDistance(
+                rawPoints,
+                reference.segment.replaceStartDistanceMeters,
+                reference.segment.replaceEndDistanceMeters,
+              )
+            : rawPoints;
         if (!points || points.length < 2) continue;
         const metric = variantMetric(sw, activeVariantPointsByRouteId, powerConfig);
         if (!metric) continue;
