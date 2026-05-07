@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { createMMKV, type MMKV } from "react-native-mmkv";
 import { DEFAULT_MAP_CENTER, DEFAULT_ZOOM } from "@/constants";
 import { requestLocationPermission, getCurrentPosition } from "@/services/gps";
-import type { UserPosition } from "@/types";
+import type { POIMapVisibility, UserPosition } from "@/types";
 
 let storage: MMKV | null = null;
 function getStorage(): MMKV {
@@ -36,19 +36,35 @@ function persistBoolean(key: string, value: boolean): void {
   } catch {}
 }
 
+function readPersistedPOIVisibility(): POIMapVisibility {
+  try {
+    const raw = getStorage().getString("poiVisibility");
+    if (raw === "none" || raw === "starred" || raw === "all") return raw;
+    const legacy = getStorage().getString("showPOIs");
+    if (legacy === "false") return "none";
+  } catch {}
+  return "starred";
+}
+
+function persistPOIVisibility(value: POIMapVisibility): void {
+  try {
+    getStorage().set("poiVisibility", value);
+  } catch {}
+}
+
 interface MapState {
   center: [number, number]; // [longitude, latitude] — Mapbox convention
   zoom: number;
   followUser: boolean;
   showDistanceMarkers: boolean;
-  showPOIs: boolean;
+  poiVisibility: POIMapVisibility;
   userPosition: UserPosition | null;
   isRefreshing: boolean;
 
   setCenter: (center: [number, number]) => void;
   setFollowUser: (follow: boolean) => void;
   toggleDistanceMarkers: () => void;
-  togglePOIs: () => void;
+  cyclePOIVisibility: () => void;
   setUserPosition: (position: UserPosition | null) => void;
   refreshPosition: () => Promise<UserPosition | null>;
   persistCamera: (center: [number, number], zoom: number) => void;
@@ -61,7 +77,7 @@ export const useMapStore = create<MapState>((set, get) => ({
   zoom: persisted.zoom,
   followUser: true,
   showDistanceMarkers: readPersistedBoolean("showDistanceMarkers", false),
-  showPOIs: readPersistedBoolean("showPOIs", true),
+  poiVisibility: readPersistedPOIVisibility(),
   userPosition: null,
   isRefreshing: false,
 
@@ -72,10 +88,12 @@ export const useMapStore = create<MapState>((set, get) => ({
     persistBoolean("showDistanceMarkers", showDistanceMarkers);
     set({ showDistanceMarkers });
   },
-  togglePOIs: () => {
-    const showPOIs = !get().showPOIs;
-    persistBoolean("showPOIs", showPOIs);
-    set({ showPOIs });
+  cyclePOIVisibility: () => {
+    const current = get().poiVisibility;
+    const poiVisibility: POIMapVisibility =
+      current === "none" ? "starred" : current === "starred" ? "all" : "none";
+    persistPOIVisibility(poiVisibility);
+    set({ poiVisibility });
   },
   setUserPosition: (userPosition) => set({ userPosition }),
 

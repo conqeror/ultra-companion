@@ -20,7 +20,7 @@ const mondayEveningOnly = JSON.stringify([
 ]);
 
 describe("poiListModels", () => {
-  it("filters route-scoped POIs by category, open status, search, and horizon", () => {
+  it("filters route-scoped POIs by category, search, and horizon", () => {
     const visible = buildVisiblePOIsForActiveRoute({
       routeIds: ["r1"],
       segments: null,
@@ -40,9 +40,7 @@ describe("poiListModels", () => {
       },
       horizonWindow: createRidingHorizonWindow(0, 2_000),
       enabledCategories: ["water"],
-      showOpenOnly: true,
       starredPOIIds: new Set(),
-      referenceTime: mondayNoon,
     });
 
     const rows = buildPOIListRowModels({
@@ -53,6 +51,7 @@ describe("poiListModels", () => {
       starredPOIIds: new Set(),
       units: "metric",
       searchQuery: "village",
+      etaStartTimeMs: mondayNoon.getTime(),
       referenceTime: mondayNoon,
     });
 
@@ -60,11 +59,11 @@ describe("poiListModels", () => {
     expect(rows[0]).toMatchObject({
       title: "Village Tap",
       distanceText: "1.0 km",
-      openingHoursText: "Open · closes 17:00",
+      etaOpeningText: "Open @ ETA",
     });
   });
 
-  it("keeps starred POIs visible when category and open-only filters would hide them", () => {
+  it("keeps starred POIs visible when category filters would hide them", () => {
     const visible = buildVisiblePOIsForActiveRoute({
       routeIds: ["r1"],
       segments: null,
@@ -77,9 +76,7 @@ describe("poiListModels", () => {
         ],
       },
       enabledCategories: ["water"],
-      showOpenOnly: true,
       starredPOIIds: new Set(["closed-star"]),
-      referenceTime: mondayNoon,
     });
 
     expect(visible.map((poi) => poi.id)).toEqual(["closed-star"]);
@@ -91,7 +88,6 @@ describe("poiListModels", () => {
       segments: stitchedSegmentsFixture,
       poisByRoute: { r2: [buildPoi("r2-poi", "r2", 100)] },
       enabledCategories: ["water"],
-      showOpenOnly: false,
       starredPOIIds: new Set(),
     });
 
@@ -138,5 +134,26 @@ describe("poiListModels", () => {
     });
 
     expect(starred.map((poi) => poi.id)).toEqual(["starred"]);
+  });
+
+  it("marks POI rows by whether the place is open at ETA", () => {
+    const poi = toDisplayPOI(
+      buildPoi("evening", "r1", 1_000, {
+        tags: { opening_hours: mondayEveningOnly },
+      }),
+    );
+
+    const rows = buildPOIListRowModels({
+      pois: [poi],
+      currentDistanceMeters: 0,
+      routePoints: [buildRoutePoint(0, 0), buildRoutePoint(1_000, 1)],
+      cumulativeTime: [0, 6 * 60 * 60],
+      etaStartTimeMs: mondayNoon.getTime(),
+      starredPOIIds: new Set(),
+      units: "metric",
+    });
+
+    expect(rows[0].etaOpeningText).toBe("Open @ ETA");
+    expect(rows[0].etaOpeningColorKey).toBe("positive");
   });
 });

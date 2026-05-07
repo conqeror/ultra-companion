@@ -35,8 +35,8 @@ describe("gpxSerializer", () => {
   it("exports starred POIs as on-route waypoint cues", () => {
     const poi = toDisplayPOI(
       buildPoi("poi-1", "route-1", 1500, {
-        name: "Cafe & Fuel",
-        category: "coffee",
+        name: "Shop & Fuel",
+        category: "gas_station",
         latitude: 48.1,
         longitude: 17.2,
         distanceFromRouteMeters: 250,
@@ -47,8 +47,8 @@ describe("gpxSerializer", () => {
     const gpx = serializeRouteToGPX(route, { poisAsWaypoints: [poi] });
 
     expect(gpx).toContain('<wpt lat="0" lon="1.5">');
-    expect(gpx).toContain("<name>Cafe &amp; Fuel (250 m off route)</name>");
-    expect(gpx).toContain("<sym>Cafe</sym>");
+    expect(gpx).toContain("<name>Shop &amp; Fuel (250 m off route)</name>");
+    expect(gpx).toContain("<sym>Food</sym>");
     expect(gpx).toContain("POI coordinates: 48.1, 17.2");
     expect(gpx).toContain("Notes: 24h window");
   });

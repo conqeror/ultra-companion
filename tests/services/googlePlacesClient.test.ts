@@ -21,13 +21,13 @@ afterEach(() => {
 });
 
 describe("googlePlacesClient", () => {
-  it("infers expanded POI categories from Google place types", () => {
-    expect(inferPOICategoryFromGoogleTypes(["cafe"])).toBe("coffee");
-    expect(inferPOICategoryFromGoogleTypes(["restaurant"])).toBe("restaurant");
-    expect(inferPOICategoryFromGoogleTypes(["bar"])).toBe("bar_pub");
+  it("infers pruned POI categories from Google place types", () => {
+    expect(inferPOICategoryFromGoogleTypes(["supermarket"])).toBe("groceries");
+    expect(inferPOICategoryFromGoogleTypes(["gas_station"])).toBe("gas_station");
+    expect(inferPOICategoryFromGoogleTypes(["bakery"])).toBe("bakery");
     expect(inferPOICategoryFromGoogleTypes(["pharmacy"])).toBe("pharmacy");
-    expect(inferPOICategoryFromGoogleTypes(["hospital"])).toBe("hospital_er");
     expect(inferPOICategoryFromGoogleTypes(["bicycle_store"])).toBe("bike_shop");
+    expect(inferPOICategoryFromGoogleTypes(["restaurant"])).toBe("other");
   });
 
   it("only runs Google searches for enabled discovery categories", async () => {

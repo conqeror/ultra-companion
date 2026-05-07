@@ -9,6 +9,11 @@ import { bucketDistanceForDerivedWork } from "@/utils/distanceBuckets";
 import { buildUpcomingRowModels, getUpcomingRowItemType } from "@/utils/upcomingRowModels";
 
 describe("upcomingRowModels", () => {
+  const mondayNoon = new Date(2026, 0, 5, 12, 0, 0);
+  const mondayEveningOnly = JSON.stringify([
+    { open: { day: 1, hour: 18, minute: 0 }, close: { day: 1, hour: 19, minute: 0 } },
+  ]);
+
   it("builds stable item types and labels for mixed upcoming events", () => {
     const events = buildUpcomingTimeline({
       pois: [toDisplayPOI(buildPoi("water", "r1", 700, { name: "Water tap" }))],
@@ -88,5 +93,35 @@ describe("upcomingRowModels", () => {
     expect(row.isPressable).toBe(false);
     expect(row.accessibilityLabel).toContain("Route finish");
     expect(row.accessibilityLabel).toContain("1.0 km ahead");
+  });
+
+  it("uses opening status at ETA for POI subtitles", () => {
+    const event: UpcomingEvent = {
+      id: "poi:shop",
+      kind: "poi",
+      distanceMeters: toDisplayDistanceMeters(1_000),
+      eta: {
+        distanceMeters: 1_000,
+        ridingTimeSeconds: 6 * 60 * 60,
+        eta: new Date(mondayNoon.getTime() + 6 * 60 * 60 * 1000),
+      },
+      poi: toDisplayPOI(
+        buildPoi("shop", "r1", 1_000, {
+          category: "groceries",
+          name: "Evening Shop",
+          tags: { opening_hours: mondayEveningOnly },
+        }),
+      ),
+    };
+
+    const [row] = buildUpcomingRowModels({
+      events: [event],
+      currentDistanceMeters: 0,
+      units: "metric",
+    });
+
+    expect(row.subtitle).toBe("Open @ ETA");
+    expect(row.subtitleColor).toEqual({ kind: "theme", key: "positive" });
+    expect(row.accessibilityLabel).toContain("Open @ ETA");
   });
 });

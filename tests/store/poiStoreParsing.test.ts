@@ -19,15 +19,14 @@ describe("parsePersistedEnabledCategories", () => {
       "toilet_shower",
       "shelter",
       "other",
-      "coffee",
     ];
 
     expect(parsePersistedEnabledCategories(JSON.stringify(stored))).toEqual(stored);
   });
 
-  it("drops unknown and duplicate stored categories", () => {
-    expect(parsePersistedEnabledCategories(JSON.stringify(["water", "unknown", "water"]))).toEqual([
-      "water",
-    ]);
+  it("drops removed, unknown, and duplicate stored categories", () => {
+    expect(
+      parsePersistedEnabledCategories(JSON.stringify(["water", "coffee", "unknown", "water"])),
+    ).toEqual(["water"]);
   });
 });

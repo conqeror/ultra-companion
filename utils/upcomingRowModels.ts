@@ -1,11 +1,11 @@
 import { climbDifficultyColor } from "@/constants/climbHelpers";
-import { getCategoryMeta, ohStatusColorKey } from "@/constants/poiHelpers";
+import { getCategoryMeta } from "@/constants/poiHelpers";
 import {
   departureTimeAfterPlannedStop,
   getPlannedStopDurationMinutes,
 } from "@/services/plannedStops";
 import type { UpcomingEvent, UpcomingEventKind } from "@/services/upcomingTimeline";
-import { getOpeningHoursStatus } from "@/services/openingHoursParser";
+import { isOpenAt } from "@/services/openingHoursParser";
 import { formatDistance, formatDuration, formatElevation, formatETA } from "@/utils/formatters";
 import type { ThemeColors } from "@/theme";
 import type { UnitSystem } from "@/types";
@@ -47,25 +47,20 @@ export interface BuildUpcomingRowModelsInput {
   events: readonly UpcomingEvent[];
   currentDistanceMeters: number | null;
   units: UnitSystem;
-  referenceTime?: Date;
 }
 
 interface BuildUpcomingRowModelInput {
   event: UpcomingEvent;
   currentDistanceMeters: number | null;
   units: UnitSystem;
-  referenceTime?: Date;
 }
 
 export function buildUpcomingRowModels({
   events,
   currentDistanceMeters,
   units,
-  referenceTime,
 }: BuildUpcomingRowModelsInput): UpcomingRowModel[] {
-  return events.map((event) =>
-    buildUpcomingRowModel({ event, currentDistanceMeters, units, referenceTime }),
-  );
+  return events.map((event) => buildUpcomingRowModel({ event, currentDistanceMeters, units }));
 }
 
 export function getUpcomingRowItemType(item: UpcomingRowModel): UpcomingEventKind {
@@ -80,7 +75,6 @@ function buildUpcomingRowModel({
   event,
   currentDistanceMeters,
   units,
-  referenceTime,
 }: BuildUpcomingRowModelInput): UpcomingRowModel {
   const distanceAhead =
     currentDistanceMeters != null
@@ -106,7 +100,7 @@ function buildUpcomingRowModel({
     primaryRidingTime && primaryRidingTime.ridingTimeSeconds > 0
       ? `~${formatDuration(primaryRidingTime.ridingTimeSeconds)}`
       : "no ETA";
-  const content = upcomingEventContent(event, units, referenceTime);
+  const content = upcomingEventContent(event, units);
   const isPressable = event.kind === "poi" || event.kind === "climb-span";
   const accessibilityLabel = [
     content.title,
@@ -144,28 +138,29 @@ function buildUpcomingRowModel({
 function upcomingEventContent(
   event: UpcomingEvent,
   units: UnitSystem,
-  referenceTime?: Date,
 ): Pick<UpcomingRowModel, "title" | "subtitle" | "subtitleColor" | "accentColor" | "icon"> {
   switch (event.kind) {
     case "poi": {
       const meta = getCategoryMeta(event.poi.category);
-      const ohStatus = event.poi.tags.opening_hours
-        ? getOpeningHoursStatus(event.poi.tags.opening_hours, referenceTime)
-        : null;
-      const ohColorKey = ohStatusColorKey(ohStatus);
+      const etaOpen =
+        event.eta && event.poi.tags.opening_hours
+          ? isOpenAt(event.poi.tags.opening_hours, event.eta.eta)
+          : null;
       const offRoute =
         event.poi.distanceFromRouteMeters > 50
           ? ` · ${Math.round(event.poi.distanceFromRouteMeters)} m off`
           : "";
-      const status = ohStatus
-        ? `${ohStatus.label}${ohStatus.detail ? ` · ${ohStatus.detail}` : ""}`
-        : (meta?.label ?? "POI");
+      const status =
+        etaOpen == null ? (meta?.label ?? "POI") : etaOpen ? "Open @ ETA" : "Closed @ ETA";
       return {
         title: event.poi.name ?? meta?.label ?? "Unnamed POI",
         subtitle: `${status}${offRoute}`,
-        subtitleColor: ohColorKey
-          ? { kind: "theme", key: ohColorKey }
-          : { kind: "value", value: meta?.color ?? "#9C958E" },
+        subtitleColor:
+          etaOpen == null
+            ? { kind: "value", value: meta?.color ?? "#9C958E" }
+            : etaOpen
+              ? { kind: "theme", key: "positive" }
+              : { kind: "theme", key: "destructive" },
         accentColor: { kind: "value", value: meta?.color ?? "#9C958E" },
         icon: { kind: "poi", iconName: meta?.iconName ?? "MapPin" },
       };

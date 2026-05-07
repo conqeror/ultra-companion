@@ -176,8 +176,32 @@ export interface DaySchedule {
   hours: string; // "06:00–22:00", "06:00–14:00, 16:00–22:00", "Closed", "24h"
 }
 
+const WEEKDAY_LABELS = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+];
+
 function pad2(n: number): string {
   return n.toString().padStart(2, "0");
+}
+
+/** Get opening hours schedule for one specific date. */
+export function getDayScheduleForDate(tag: string, date: Date): DaySchedule | null {
+  const periods = parsePeriods(tag);
+  if (!periods) return null;
+
+  const normalized = normalizePeriods(periods);
+  const day = date.getDay();
+  if (isEffectively247(normalized)) {
+    return { label: WEEKDAY_LABELS[day], hours: "24h" };
+  }
+
+  return { label: WEEKDAY_LABELS[day], hours: formatDayHours(periods, day) };
 }
 
 /** Get opening hours schedule for today and tomorrow */

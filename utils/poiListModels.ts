@@ -7,7 +7,7 @@ import {
 } from "@/services/plannedStops";
 import { toDisplayPOIs } from "@/services/displayDistance";
 import { getETAToDistanceFromDistance } from "@/services/etaCalculator";
-import { getOpeningHoursStatus, isOpenAt } from "@/services/openingHoursParser";
+import { isOpenAt } from "@/services/openingHoursParser";
 import { stitchPOIs } from "@/services/stitchingService";
 import { formatDistance, formatDuration, formatETA } from "@/utils/formatters";
 import { isDistanceInWindow, type DistanceWindow } from "@/utils/ridingHorizon";
@@ -38,6 +38,8 @@ export interface POIListRowModel {
   etaAccessibilityText: string | null;
   openingHoursText: string | null;
   openingHoursColorKey: OpeningHoursColorKey | null;
+  etaOpeningText: string | null;
+  etaOpeningColorKey: OpeningHoursColorKey | null;
   offRouteText: string | null;
   isStarred: boolean;
   accessibilityLabel: string;
@@ -56,6 +58,8 @@ export interface CompactPOIRowModel {
   ridingTimeText: string | null;
   openingHoursText: string | null;
   openingHoursColorKey: OpeningHoursColorKey | null;
+  etaOpeningText: string | null;
+  etaOpeningColorKey: OpeningHoursColorKey | null;
   offRouteText: string | null;
   accessibilityLabel: string;
 }
@@ -69,9 +73,7 @@ interface ActivePOIInput {
 
 interface VisiblePOIInput extends ActivePOIInput {
   enabledCategories: readonly POICategory[];
-  showOpenOnly: boolean;
   starredPOIIds: ReadonlySet<string>;
-  referenceTime?: Date;
 }
 
 interface RowModelInput {
@@ -118,17 +120,14 @@ export function buildVisiblePOIsForActiveRoute({
   poisByRoute,
   horizonWindow,
   enabledCategories,
-  showOpenOnly,
   starredPOIIds,
-  referenceTime = new Date(),
 }: VisiblePOIInput): DisplayPOI[] {
   return buildDisplayPOIs({
     routeIds,
     segments,
     poisByRoute,
     horizonWindow,
-    predicate: (poi) =>
-      isVisibleByPOIFilters(poi, enabledCategories, showOpenOnly, starredPOIIds, referenceTime),
+    predicate: (poi) => isVisibleByPOIFilters(poi, enabledCategories, starredPOIIds),
   });
 }
 
@@ -188,6 +187,8 @@ export function buildPOIListRowModels({
       ridingTimeText: common.ridingTimeText,
       openingHoursText: common.openingHoursText,
       openingHoursColorKey: common.openingHoursColorKey,
+      etaOpeningText: common.etaOpeningText,
+      etaOpeningColorKey: common.etaOpeningColorKey,
       offRouteText: common.offRouteText,
       isStarred: starredPOIIds.has(poi.id),
       etaAccessibilityText: common.etaAccessibilityText,
@@ -197,7 +198,7 @@ export function buildPOIListRowModels({
           ? `${common.distanceText} ${common.distanceDirectionLabel}`
           : null,
         common.etaAccessibilityText,
-        common.openingHoursText,
+        common.etaOpeningText ?? common.openingHoursText,
         common.offRouteText,
       ]
         .filter(Boolean)
@@ -229,6 +230,8 @@ export function buildCompactPOIRowModels(input: RowModelInput): CompactPOIRowMod
       ridingTimeText: common.ridingTimeText,
       openingHoursText: common.openingHoursText,
       openingHoursColorKey: common.openingHoursColorKey,
+      etaOpeningText: common.etaOpeningText,
+      etaOpeningColorKey: common.etaOpeningColorKey,
       offRouteText: common.offRouteText,
       accessibilityLabel: [
         common.title,
@@ -236,7 +239,7 @@ export function buildCompactPOIRowModels(input: RowModelInput): CompactPOIRowMod
           ? `${common.distanceText} ${common.distanceDirectionLabel}`
           : null,
         common.ridingTimeText ? `${common.ridingTimeText} riding` : null,
-        common.openingHoursText,
+        common.etaOpeningText ?? common.openingHoursText,
         common.offRouteText,
       ]
         .filter(Boolean)
@@ -274,18 +277,13 @@ function buildDisplayPOIs({
 function isVisibleByPOIFilters(
   poi: POI,
   enabledCategories: readonly POICategory[],
-  showOpenOnly: boolean,
   starredPOIIds: ReadonlySet<string>,
-  referenceTime: Date,
 ): boolean {
   const categoryEnabled = enabledCategories.includes(poi.category);
   const isStarred = starredPOIIds.has(poi.id);
   if (isStarred) return true;
   if (!categoryEnabled) return false;
-
-  const openingHours = poi.tags?.opening_hours;
-  if (!showOpenOnly || !openingHours) return true;
-  return isOpenAt(openingHours, referenceTime) !== false;
+  return true;
 }
 
 function buildCommonPOIRowModel({
@@ -296,7 +294,6 @@ function buildCommonPOIRowModel({
   plannedStops,
   etaStartTimeMs,
   units,
-  referenceTime,
 }: CommonPOIRowModelInput) {
   const meta = getCategoryMeta(poi.category) ?? FALLBACK_CATEGORY_META;
   const distAhead =
@@ -320,13 +317,13 @@ function buildCommonPOIRowModel({
     etaResult && etaResult.ridingTimeSeconds > 0
       ? `${formatDuration(etaResult.ridingTimeSeconds)}, ETA ${formatETA(etaResult.eta)}`
       : null;
-  const ohStatus = poi.tags?.opening_hours
-    ? getOpeningHoursStatus(poi.tags.opening_hours, referenceTime)
-    : null;
-  const openingHoursText = ohStatus
-    ? `${ohStatus.label}${ohStatus.detail ? ` · ${ohStatus.detail}` : ""}`
-    : null;
-  const openingHoursColorKey = ohStatusColorKey(ohStatus);
+  const etaOpen =
+    etaResult && poi.tags?.opening_hours ? isOpenAt(poi.tags.opening_hours, etaResult.eta) : null;
+  const etaOpeningText = etaOpen == null ? null : etaOpen ? "Open @ ETA" : "Closed @ ETA";
+  const etaOpeningColorKey: OpeningHoursColorKey | null =
+    etaOpen == null ? null : etaOpen ? "positive" : "destructive";
+  const openingHoursText = etaOpeningText;
+  const openingHoursColorKey = etaOpeningColorKey;
   const offRouteText =
     poi.distanceFromRouteMeters > 50 ? `${Math.round(poi.distanceFromRouteMeters)} m off` : null;
 
@@ -343,6 +340,8 @@ function buildCommonPOIRowModel({
     etaAccessibilityText,
     openingHoursText,
     openingHoursColorKey,
+    etaOpeningText,
+    etaOpeningColorKey,
     offRouteText,
   };
 }

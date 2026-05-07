@@ -105,28 +105,12 @@ export function inferPOICategoryFromGoogleTypes(types: string[]): POICategory {
     return "groceries";
   }
   if (t.has("bakery")) return "bakery";
-  if (t.has("cafe") || t.has("coffee_shop")) return "coffee";
-  if (
-    t.has("restaurant") ||
-    t.has("meal_takeaway") ||
-    t.has("fast_food_restaurant") ||
-    t.has("pizza_restaurant")
-  ) {
-    return "restaurant";
-  }
-  if (t.has("bar") || t.has("pub") || t.has("wine_bar")) return "bar_pub";
   if (t.has("drinking_water")) return "water";
   if (t.has("public_bathroom") || t.has("restroom")) return "toilet_shower";
   if (t.has("campground") || t.has("rv_park")) return "camp_site";
   if (t.has("lodging")) return "shelter";
   if (t.has("pharmacy") || t.has("drugstore")) return "pharmacy";
-  if (t.has("hospital") || t.has("emergency_room")) return "hospital_er";
   if (t.has("bicycle_store")) return "bike_shop";
-  if (t.has("train_station") || t.has("transit_station") || t.has("subway_station")) {
-    return "train_station";
-  }
-  if (t.has("school")) return "school";
-  if (t.has("athletic_field") || t.has("fitness_center") || t.has("gym")) return "sports";
   return "other";
 }
 
@@ -163,9 +147,6 @@ const SEARCHES: { textQuery: string; includedType?: string; category: POICategor
   { textQuery: "gas station", includedType: "gas_station", category: "gas_station" },
   { textQuery: "grocery store", category: "groceries" },
   { textQuery: "bakery", category: "bakery" },
-  { textQuery: "cafe", includedType: "cafe", category: "coffee" },
-  { textQuery: "restaurant", includedType: "restaurant", category: "restaurant" },
-  { textQuery: "bar or pub", includedType: "bar", category: "bar_pub" },
   { textQuery: "pharmacy", includedType: "pharmacy", category: "pharmacy" },
   { textQuery: "bicycle shop", category: "bike_shop" },
 ];

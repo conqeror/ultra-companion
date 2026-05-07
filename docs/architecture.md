@@ -57,6 +57,11 @@ type POICategory =
   | "bakery"
   | "toilet_shower"
   | "shelter"
+  | "camp_site"
+  | "pharmacy"
+  | "bike_shop"
+  | "repair_station"
+  | "pump_air"
   | "other";
 ```
 

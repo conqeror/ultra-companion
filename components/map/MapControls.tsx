@@ -48,13 +48,13 @@ export default function MapControls({ onLocate }: MapControlsProps) {
   const followUser = useMapStore((s) => s.followUser);
   const isRefreshing = useMapStore((s) => s.isRefreshing);
   const showDistanceMarkers = useMapStore((s) => s.showDistanceMarkers);
-  const showPOIs = useMapStore((s) => s.showPOIs);
+  const poiVisibility = useMapStore((s) => s.poiVisibility);
   const toggleDistanceMarkers = useMapStore((s) => s.toggleDistanceMarkers);
-  const togglePOIs = useMapStore((s) => s.togglePOIs);
+  const cyclePOIVisibility = useMapStore((s) => s.cyclePOIVisibility);
 
   const locateColor = followUser ? colors.accentForeground : colors.textPrimary;
   const iconSize = positionAge ? 20 : 24;
-  const hasDisplayOverride = showDistanceMarkers || !showPOIs;
+  const hasDisplayOverride = showDistanceMarkers || poiVisibility !== "starred";
 
   const pulse = useSharedValue(0);
 
@@ -152,7 +152,7 @@ export default function MapControls({ onLocate }: MapControlsProps) {
 
         {isDisplayMenuOpen && (
           <View className="mt-3 w-[164px] overflow-hidden rounded-xl border border-border-subtle bg-surface/95 shadow-md">
-            <MapDisplayToggle icon="pois" label="POIs" value={showPOIs} onPress={togglePOIs} />
+            <MapPOIVisibilityToggle value={poiVisibility} onPress={cyclePOIVisibility} />
             <View className="h-px bg-border-subtle" />
             <MapDisplayToggle
               icon="markers"
@@ -164,6 +164,33 @@ export default function MapControls({ onLocate }: MapControlsProps) {
         )}
       </View>
     </>
+  );
+}
+
+function MapPOIVisibilityToggle({
+  value,
+  onPress,
+}: {
+  value: "none" | "starred" | "all";
+  onPress: () => void;
+}) {
+  const colors = useThemeColors();
+  const label = value === "none" ? "None" : value === "starred" ? "Starred" : "All";
+
+  return (
+    <TouchableOpacity
+      className="min-h-[48px] flex-row items-center px-3"
+      onPress={onPress}
+      accessibilityLabel={`Map POIs: ${label}`}
+      accessibilityRole="button"
+      activeOpacity={0.75}
+    >
+      <View className="w-[28px] items-start">
+        <MapPin size={19} color={value === "none" ? colors.textTertiary : colors.accent} />
+      </View>
+      <Text className="flex-1 text-[13px] font-barlow-semibold text-foreground">POIs</Text>
+      <Text className="text-[12px] font-barlow-semibold text-muted-foreground">{label}</Text>
+    </TouchableOpacity>
   );
 }
 

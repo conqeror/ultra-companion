@@ -216,7 +216,7 @@ export default function MapScreen() {
   const followUser = useMapStore((s) => s.followUser);
   const setFollowUser = useMapStore((s) => s.setFollowUser);
   const showDistanceMarkers = useMapStore((s) => s.showDistanceMarkers);
-  const showPOIs = useMapStore((s) => s.showPOIs);
+  const poiVisibility = useMapStore((s) => s.poiVisibility);
   const refreshPosition = useMapStore((s) => s.refreshPosition);
   const persistCamera = useMapStore((s) => s.persistCamera);
   const initialCamera = useRef({
@@ -228,10 +228,10 @@ export default function MapScreen() {
     initialCamera.current.zoom,
     initialCamera.current.center[1],
   );
-  const mapOverlayMode = usePanelStore(
-    (s): MapOverlayMode =>
-      s.panelTab === "climbs" ? "climbs" : s.panelTab === "weather" ? "weather" : "normal",
-  );
+  const panelTab = usePanelStore((s) => s.panelTab);
+  const mapOverlayMode: MapOverlayMode =
+    panelTab === "climbs" ? "climbs" : panelTab === "weather" ? "weather" : "normal";
+  const effectivePOIVisibility = panelTab === "pois" ? "all" : poiVisibility;
   const { bottom: safeBottom } = useSafeAreaInsets();
   const compactPanelHeight = Math.round(screenHeight * SHEET_COMPACT_RATIO) + safeBottom;
 
@@ -780,7 +780,7 @@ export default function MapScreen() {
         weatherTimeline={weatherTimeline}
         weatherTemperatureMode={weatherTemperatureMode}
         showDistanceMarkers={showDistanceMarkers}
-        showPOIs={showPOIs}
+        poiVisibility={effectivePOIVisibility}
         onTouchStart={handleTouchStart}
         onCameraChanged={handleCameraChanged}
         onClusterPress={handlePOIClusterPress}

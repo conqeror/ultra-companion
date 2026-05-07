@@ -4,54 +4,78 @@ import { Text } from "@/components/ui/text";
 import { Star } from "lucide-react-native";
 import { useThemeColors } from "@/theme";
 import { POI_ICON_MAP } from "@/constants/poiIcons";
-import type { POIListRowModel } from "@/utils/poiListModels";
+import type { CompactPOIRowModel, POIListRowModel } from "@/utils/poiListModels";
 import type { DisplayPOI } from "@/types";
 
 interface POIListItemProps {
-  model: POIListRowModel;
+  model: POIListRowModel | CompactPOIRowModel;
   onPress: (poi: DisplayPOI) => void;
 }
 
 function POIListItem({ model, onPress }: POIListItemProps) {
   const colors = useThemeColors();
   const IconComp = POI_ICON_MAP[model.iconName] ?? null;
-  const ohColor = model.openingHoursColorKey ? colors[model.openingHoursColorKey] : undefined;
+  const etaOpenColor = model.etaOpeningColorKey ? colors[model.etaOpeningColorKey] : undefined;
+  const signedDistanceText =
+    "signedDistanceText" in model
+      ? model.signedDistanceText
+      : model.distanceText == null
+        ? null
+        : model.distanceDirectionLabel === "behind"
+          ? `-${model.distanceText}`
+          : model.distanceText;
+  const isStarred = "isStarred" in model && model.isStarred;
 
   return (
     <TouchableOpacity
-      className="flex-row items-center px-4 py-3.5 border-b border-border"
+      className="flex-row items-center px-3 py-2.5 border-b border-border-subtle"
       onPress={() => onPress(model.poi)}
       accessibilityRole="button"
       accessibilityLabel={model.accessibilityLabel}
     >
       <View
-        className="w-[40px] h-[40px] rounded-full items-center justify-center"
+        className="w-[42px] h-[42px] rounded-full items-center justify-center"
         style={{ backgroundColor: model.categoryColor + "1A" }}
       >
         {IconComp && <IconComp size={20} color={model.categoryColor} />}
       </View>
 
-      <View className="flex-1 ml-3">
+      <View className="flex-1 ml-3 min-w-0">
         <View className="flex-row items-baseline">
-          {model.distanceText != null && (
-            <Text className="text-[18px] font-barlow-sc-semibold text-foreground">
-              {model.distanceDirectionLabel === "behind"
-                ? `-${model.distanceText}`
-                : model.distanceText}
+          {signedDistanceText != null && (
+            <Text className="text-[20px] font-barlow-sc-semibold text-foreground">
+              {signedDistanceText}
             </Text>
           )}
-          {model.ridingTimeText ? (
-            <Text className="ml-2 text-[15px] font-barlow-sc-semibold text-foreground">
+          {model.ridingTimeText != null && (
+            <Text className="ml-2 text-[18px] text-foreground font-barlow-sc-semibold">
               ~{model.ridingTimeText}
             </Text>
-          ) : model.distanceDirectionLabel ? (
-            <Text className="ml-2 text-[14px] font-barlow-medium text-muted-foreground">
-              {model.distanceDirectionLabel}
-            </Text>
-          ) : null}
+          )}
         </View>
-        <View className="flex-row items-center">
-          {model.isStarred && (
+        <View className="flex-row items-center mt-0.5 min-w-0">
+          {model.etaOpeningText && etaOpenColor && (
+            <>
+              <View
+                className="w-[5px] h-[5px] rounded-full"
+                style={{ backgroundColor: etaOpenColor }}
+              />
+              <Text className="ml-1 text-[14px] font-barlow-medium" style={{ color: etaOpenColor }}>
+                {model.etaOpeningText}
+              </Text>
+            </>
+          )}
+          {model.offRouteText && (
+            <Text className="ml-2 text-[14px] text-muted-foreground font-barlow-sc-medium">
+              {model.offRouteText}
+            </Text>
+          )}
+        </View>
+      </View>
+
+      <View className="items-end ml-2 max-w-[42%]">
+        <View className="flex-row items-center max-w-full">
+          {isStarred && (
             <Star
               size={12}
               color={colors.warning}
@@ -60,32 +84,19 @@ function POIListItem({ model, onPress }: POIListItemProps) {
             />
           )}
           <Text
-            className="text-[14px] font-barlow-medium text-foreground flex-shrink"
+            className="text-[14px] font-barlow-medium text-foreground text-right"
             numberOfLines={1}
           >
             {model.title}
           </Text>
         </View>
-        <View className="flex-row items-center mt-1">
-          {model.openingHoursText && (
-            <View className="flex-row items-center">
-              <View className="w-[6px] h-[6px] rounded-full" style={{ backgroundColor: ohColor }} />
-              <Text className="ml-1 text-[14px] font-barlow-medium" style={{ color: ohColor }}>
-                {model.openingHoursText}
-              </Text>
-            </View>
-          )}
-          {model.openingHoursText && model.offRouteText && (
-            <Text className="text-[14px] text-muted-foreground font-barlow ml-2">
-              {model.offRouteText}
-            </Text>
-          )}
-          {!model.openingHoursText && model.offRouteText && (
-            <Text className="text-[14px] text-muted-foreground font-barlow">
-              {model.offRouteText} route
-            </Text>
-          )}
-        </View>
+        <Text
+          className="text-[13px] font-barlow-medium text-right"
+          style={{ color: model.categoryColor }}
+          numberOfLines={1}
+        >
+          {model.categoryLabel}
+        </Text>
       </View>
     </TouchableOpacity>
   );

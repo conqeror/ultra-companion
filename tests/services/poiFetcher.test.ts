@@ -35,18 +35,18 @@ describe("poiFetcher", () => {
     const pois = associateAndFilter(
       [
         {
-          sourceId: "hospital",
-          name: "Hospital",
-          category: "hospital_er",
-          latitude: 0.018,
+          sourceId: "fuel",
+          name: "Fuel",
+          category: "gas_station",
+          latitude: 0.013,
           longitude: 0.05,
           tags: {},
         },
         {
-          sourceId: "bus",
-          name: "Bus Shelter",
-          category: "bus_stop",
-          latitude: 0.001,
+          sourceId: "tap",
+          name: "Tap",
+          category: "water",
+          latitude: 0.013,
           longitude: 0.05,
           tags: {},
         },
@@ -57,7 +57,7 @@ describe("poiFetcher", () => {
       "osm",
     );
 
-    expect(pois.map((poi) => poi.sourceId)).toEqual(["hospital"]);
+    expect(pois.map((poi) => poi.sourceId)).toEqual(["fuel"]);
     expect(pois[0].distanceFromRouteMeters).toBeGreaterThan(1000);
   });
 });

@@ -27,13 +27,18 @@ import {
   isDistanceInWindow,
   ridingHorizonMetersForMode,
 } from "@/utils/ridingHorizon";
-import type { DisplayPOI, POI, StitchedSegmentInfo } from "@/types";
+import type { DisplayPOI, POI, POIMapVisibility, StitchedSegmentInfo } from "@/types";
 
 const CLUSTER_FILTER = ["has", "point_count"] as const;
 const UNCLUSTERED_FILTER = ["!", ["has", "point_count"]] as const;
 const POI_ICON_COLOR = "#FFFFFF";
 const CLUSTER_OVERFLOW_TEXT_OFFSET = [0.45, 0];
 const POI_CLUSTER_PROPERTIES = buildPOIClusterProperties();
+const REGULAR_POI_OUTLINE_RADIUS = 13;
+const REGULAR_POI_FILL_RADIUS = 10;
+const REGULAR_POI_OUTLINE_OPACITY = 0.84;
+const REGULAR_POI_FILL_OPACITY = 0.78;
+const REGULAR_POI_ICON_OPACITY = 0.92;
 
 type MapboxExpression = unknown[];
 
@@ -50,7 +55,7 @@ interface POILayerProps {
   segments: StitchedSegmentInfo[] | null;
   currentDistanceMeters: number | null;
   onClusterPress: (center: [number, number], zoomLevel: number) => void;
-  showOnlySelected?: boolean;
+  visibility: POIMapVisibility;
 }
 
 function isClusterFeature(feature: GeoJSON.Feature): boolean {
@@ -172,10 +177,11 @@ export default function POILayer({
   segments,
   currentDistanceMeters,
   onClusterPress,
-  showOnlySelected = false,
+  visibility,
 }: POILayerProps) {
   const clusteredSourceRef = useRef<ShapeSource>(null);
   const getVisiblePOIs = usePoiStore((s) => s.getVisiblePOIs);
+  const getStarredPOIs = usePoiStore((s) => s.getStarredPOIs);
   const enabledCategories = usePoiStore((s) => s.enabledCategories);
   const starredPOIIds = usePoiStore((s) => s.starredPOIIds);
   const allPois = usePoiStore((s) => s.pois);
@@ -188,7 +194,7 @@ export default function POILayer({
     const canShowSelected =
       selectedPOI != null && (routeIds.length === 0 || routeIds.includes(selectedPOI.routeId));
 
-    if (showOnlySelected) {
+    if (visibility === "none") {
       return canShowSelected ? [selectedPOI] : [];
     }
 
@@ -201,7 +207,8 @@ export default function POILayer({
     if (segments) {
       const poisByRoute: Record<string, POI[]> = {};
       for (const routeId of routeIds) {
-        poisByRoute[routeId] = getVisiblePOIs(routeId);
+        poisByRoute[routeId] =
+          visibility === "starred" ? getStarredPOIs(routeId) : getVisiblePOIs(routeId);
       }
       const stitched = stitchPOIs(segments, poisByRoute, distanceWindow);
       if (canShowSelected && !stitched.some((poi) => poi.id === selectedPOI.id)) {
@@ -212,7 +219,9 @@ export default function POILayer({
 
     const combined: DisplayPOI[] = [];
     for (const routeId of routeIds) {
-      const routePois = getVisiblePOIs(routeId).filter((poi) =>
+      const sourcePOIs =
+        visibility === "starred" ? getStarredPOIs(routeId) : getVisiblePOIs(routeId);
+      const routePois = sourcePOIs.filter((poi) =>
         isDistanceInWindow(poi.distanceAlongRouteMeters, distanceWindow),
       );
       combined.push(...toDisplayPOIs(routePois));
@@ -231,12 +240,19 @@ export default function POILayer({
     enabledCategories,
     starredPOIIds,
     selectedPOI,
-    showOnlySelected,
+    visibility,
+    getStarredPOIs,
+    getVisiblePOIs,
   ]);
 
+  const highlightedPOIIds = useMemo(() => {
+    if (!selectedPOI) return starredPOIIds;
+    return new Set([...starredPOIIds, selectedPOI.id]);
+  }, [selectedPOI, starredPOIIds]);
+
   const { clustered, starred } = useMemo(
-    () => buildPOIMapFeatureCollections(visiblePOIs, starredPOIIds),
-    [visiblePOIs, starredPOIIds],
+    () => buildPOIMapFeatureCollections(visiblePOIs, highlightedPOIIds),
+    [visiblePOIs, highlightedPOIIds],
   );
 
   const handleClusteredPress = useCallback(
@@ -335,9 +351,9 @@ export default function POILayer({
             id="poi-circles-outline"
             filter={UNCLUSTERED_FILTER}
             style={{
-              circleRadius: 12,
+              circleRadius: REGULAR_POI_OUTLINE_RADIUS,
               circleColor: colors.surface,
-              circleOpacity: 0.78,
+              circleOpacity: REGULAR_POI_OUTLINE_OPACITY,
             }}
             minZoomLevel={10}
           />
@@ -345,9 +361,9 @@ export default function POILayer({
             id="poi-circles"
             filter={UNCLUSTERED_FILTER}
             style={{
-              circleRadius: 8,
+              circleRadius: REGULAR_POI_FILL_RADIUS,
               circleColor: ["get", "color"],
-              circleOpacity: 0.72,
+              circleOpacity: REGULAR_POI_FILL_OPACITY,
             }}
             minZoomLevel={10}
           />
@@ -360,9 +376,9 @@ export default function POILayer({
               iconColor: POI_ICON_COLOR,
               iconHaloColor: colors.surface,
               iconHaloWidth: 1,
-              iconOpacity: 0.82,
-              iconAllowOverlap: true,
-              iconIgnorePlacement: true,
+              iconOpacity: REGULAR_POI_ICON_OPACITY,
+              iconAllowOverlap: false,
+              iconIgnorePlacement: false,
             }}
             minZoomLevel={10}
           />

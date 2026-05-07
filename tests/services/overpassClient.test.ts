@@ -7,8 +7,7 @@ describe("overpassClient", () => {
 
     expect(query).toBeTruthy();
     expect(query!).toContain('node["amenity"="drinking_water"](around:1000,48.1,17.1)');
-    expect(query!).toContain('node["highway"="bus_stop"]["shelter"="yes"](around:30,48.1,17.1)');
-    expect(query!).toContain('node["amenity"="hospital"](around:10000,48.1,17.1)');
+    expect(query!).toContain('node["tourism"="camp_site"](around:5000,48.1,17.1)');
     expect(query!).toContain('node["amenity"="bicycle_repair_station"](around:500,48.1,17.1)');
   });
 
@@ -22,7 +21,9 @@ describe("overpassClient", () => {
     expect(query!).not.toContain('"amenity"="cafe"');
     expect(query!).not.toContain('"amenity"="restaurant"');
     expect(query!).not.toContain('"amenity"~"^(bar|pub)$"');
-    expect(query!).not.toContain('"shop"="bicycle"');
+    expect(query!).not.toContain('"highway"="bus_stop"');
+    expect(query!).not.toContain('"amenity"="hospital"');
+    expect(query!).not.toContain('"railway"~"^(station|halt)$"');
   });
 
   it("omits disabled OSM discovery categories", () => {

@@ -1,7 +1,6 @@
 import React, { useMemo } from "react";
 import { ScrollView, TouchableOpacity } from "react-native";
 import { Text } from "@/components/ui/text";
-import { Clock } from "lucide-react-native";
 import { cn } from "@/lib/cn";
 import { useThemeColors } from "@/theme";
 import { usePoiStore } from "@/store/poiStore";
@@ -19,40 +18,18 @@ const CATEGORY_GROUPS: Array<{
   categories: POICategory[];
   iconCategory: POICategory;
 }> = [
-  { label: "Water", categories: ["water", "cemetery"], iconCategory: "water" },
-  {
-    label: "Food",
-    categories: ["groceries", "gas_station", "bakery"],
-    iconCategory: "groceries",
-  },
-  {
-    label: "Eat",
-    categories: ["coffee", "restaurant", "bar_pub"],
-    iconCategory: "coffee",
-  },
-  {
-    label: "Rest",
-    categories: ["shelter", "bus_stop", "camp_site", "sports", "school"],
-    iconCategory: "shelter",
-  },
+  { label: "Water", categories: ["water"], iconCategory: "water" },
+  { label: "Groceries", categories: ["groceries"], iconCategory: "groceries" },
+  { label: "Gas", categories: ["gas_station"], iconCategory: "gas_station" },
+  { label: "Bakery", categories: ["bakery"], iconCategory: "bakery" },
   { label: "WC", categories: ["toilet_shower"], iconCategory: "toilet_shower" },
-  {
-    label: "Help",
-    categories: [
-      "pharmacy",
-      "hospital_er",
-      "defibrillator",
-      "emergency_phone",
-      "ambulance_station",
-    ],
-    iconCategory: "pharmacy",
-  },
+  { label: "Shelter", categories: ["shelter", "camp_site"], iconCategory: "shelter" },
   {
     label: "Repair",
     categories: ["bike_shop", "repair_station", "pump_air"],
     iconCategory: "bike_shop",
   },
-  { label: "Escape", categories: ["train_station"], iconCategory: "train_station" },
+  { label: "Pharmacy", categories: ["pharmacy"], iconCategory: "pharmacy" },
   { label: "Other", categories: ["other"], iconCategory: "other" },
 ];
 
@@ -62,8 +39,6 @@ function POIFilterBar({ categoryCounts }: POIFilterBarProps) {
   const enabledCategories = usePoiStore((s) => s.enabledCategories);
   const setEnabledCategories = usePoiStore((s) => s.setEnabledCategories);
   const setAllCategories = usePoiStore((s) => s.setAllCategories);
-  const showOpenOnly = usePoiStore((s) => s.showOpenOnly);
-  const toggleShowOpenOnly = usePoiStore((s) => s.toggleShowOpenOnly);
 
   const enabledSet = useMemo(() => new Set(enabledCategories), [enabledCategories]);
   const isCategoryFilterActive = enabledCategories.length < POI_CATEGORIES.length;
@@ -100,26 +75,6 @@ function POIFilterBar({ categoryCounts }: POIFilterBarProps) {
       showsHorizontalScrollIndicator={false}
       contentContainerStyle={{ paddingHorizontal: 12, gap: 8, paddingVertical: 8 }}
     >
-      {/* Open Now filter */}
-      <TouchableOpacity
-        className={cn(
-          "flex-row items-center px-3 min-h-[48px] rounded-full",
-          showOpenOnly ? "bg-muted border border-border" : "border border-transparent",
-        )}
-        onPress={toggleShowOpenOnly}
-        accessibilityLabel={showOpenOnly ? "Show all POIs" : "Show only open POIs"}
-      >
-        <Clock size={13} color={showOpenOnly ? colors.positive : colors.textTertiary} />
-        <Text
-          className={cn(
-            "ml-1 text-[12px] font-barlow-medium",
-            showOpenOnly ? "text-foreground" : "text-muted-foreground",
-          )}
-        >
-          Open now
-        </Text>
-      </TouchableOpacity>
-
       {CATEGORY_GROUPS.map((group) => {
         const isEnabled =
           isCategoryFilterActive && group.categories.some((category) => enabledSet.has(category));

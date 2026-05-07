@@ -24,6 +24,7 @@ import ClimbHighlightLayer from "./ClimbHighlightLayer";
 import TemperatureRouteOverlay from "./TemperatureRouteOverlay";
 import VariantOverlayLayer, { type VariantOverlay } from "./VariantOverlayLayer";
 import type {
+  POIMapVisibility,
   RoutePoint,
   StitchedSegmentInfo,
   WeatherPoint,
@@ -77,7 +78,7 @@ interface MapCanvasProps {
   weatherTimeline: WeatherPoint[];
   weatherTemperatureMode: WeatherTemperatureDisplayMode;
   showDistanceMarkers: boolean;
-  showPOIs: boolean;
+  poiVisibility: POIMapVisibility;
   onTouchStart: () => void;
   onCameraChanged: (state: { properties: { center: number[]; zoom: number } }) => void;
   onClusterPress: (center: [number, number], zoomLevel: number) => void;
@@ -107,7 +108,7 @@ function MapCanvas({
   weatherTimeline,
   weatherTemperatureMode,
   showDistanceMarkers,
-  showPOIs,
+  poiVisibility,
   onTouchStart,
   onCameraChanged,
   onClusterPress,
@@ -136,7 +137,7 @@ function MapCanvas({
   const weatherStackKey = hasWeatherTemperatureOverlay ? "weather:on" : "weather:off";
   const overlayStackKey = `${climbStackKey}-${activeContextKey ?? "none"}-markers:${
     showDistanceMarkers ? "on" : "off"
-  }-${weatherStackKey}-pois:${showPOIs ? "on" : "off"}`;
+  }-${weatherStackKey}-pois:${poiVisibility}`;
 
   return (
     <MapboxMapView
@@ -200,14 +201,14 @@ function MapCanvas({
         points={activeRoutePoints ?? []}
         showDistanceMarkers={showDistanceMarkers}
       />
-      {(showPOIs || selectedPOI) && activeRouteIds.length > 0 && (
+      {(poiVisibility !== "none" || selectedPOI) && activeRouteIds.length > 0 && (
         <POILayer
           key={`pois-${overlayStackKey}`}
           routeIds={activeRouteIds}
           segments={activeSegments}
           currentDistanceMeters={activeProgressDistanceMeters}
           onClusterPress={onClusterPress}
-          showOnlySelected={!showPOIs}
+          visibility={poiVisibility}
         />
       )}
       <LocationPuck

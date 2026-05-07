@@ -32,7 +32,11 @@ import { POI_CATEGORIES, POI_BEHIND_THRESHOLD_M } from "@/constants";
 import { POI_ICON_MAP } from "@/constants/poiIcons";
 import { ohStatusColorKey } from "@/constants/poiHelpers";
 import { formatDistance, formatDuration, formatETA } from "@/utils/formatters";
-import { getOpeningHoursStatus, isOpenAt, getDaySchedules } from "@/services/openingHoursParser";
+import {
+  getDayScheduleForDate,
+  getOpeningHoursStatus,
+  isOpenAt,
+} from "@/services/openingHoursParser";
 import {
   departureTimeAfterPlannedStop,
   getPlannedStopDurationMinutes,
@@ -54,7 +58,6 @@ import {
   buildCompactPOIRowModels,
   buildPOICategoryCounts,
   buildPOIListRowModels,
-  buildStarredPOIsForActiveRoute,
   buildVisiblePOIsForActiveRoute,
   type CompactPOIRowModel,
   type POIListRowModel,
@@ -78,7 +81,6 @@ interface POITabContentProps {
 }
 
 const EXPANDED_POI_CONTENT_STYLE = { paddingBottom: 8 };
-const EMPTY_DISPLAY_POIS: DisplayPOI[] = [];
 
 function poiKeyExtractor(item: { id: string }): string {
   return item.id;
@@ -93,7 +95,6 @@ export default function POITabContent({ activeData }: POITabContentProps) {
   const selectedPOI = usePoiStore((s) => s.selectedPOI);
   const setSelectedPOI = usePoiStore((s) => s.setSelectedPOI);
   const enabledCategories = usePoiStore((s) => s.enabledCategories);
-  const showOpenOnly = usePoiStore((s) => s.showOpenOnly);
   const cumulativeTime = useEtaStore((s) => s.cumulativeTime);
   const isExpanded = usePanelStore((s) => s.isExpanded);
   const panelMode = usePanelStore((s) => s.panelMode);
@@ -166,25 +167,26 @@ export default function POITabContent({ activeData }: POITabContentProps) {
   );
   const plannedStops = useMemo(() => plannedStopsFromPOIs(activeDisplayPOIs), [activeDisplayPOIs]);
 
-  const starredPOIs = useMemo(
+  const visiblePOIs = useMemo(
     () =>
-      measureSync("poi.starredVisible", () =>
-        buildStarredPOIsForActiveRoute({
+      measureSync("poi.visibleFiltered", () =>
+        buildVisiblePOIsForActiveRoute({
           routeIds,
           segments,
           poisByRoute: routePois,
           horizonWindow,
+          enabledCategories,
           starredPOIIds,
         }),
       ),
-    [routeIds, segments, routePois, horizonWindow, starredPOIIds],
+    [routeIds, segments, routePois, horizonWindow, enabledCategories, starredPOIIds],
   );
 
   const compactPOIModels = useMemo(
     () =>
       measureSync("poi.compactRows", () =>
         buildCompactPOIRowModels({
-          pois: starredPOIs,
+          pois: visiblePOIs,
           currentDistanceMeters: derivedCurrentDist,
           routePoints,
           cumulativeTime,
@@ -195,7 +197,7 @@ export default function POITabContent({ activeData }: POITabContentProps) {
         }),
       ),
     [
-      starredPOIs,
+      visiblePOIs,
       derivedCurrentDist,
       routePoints,
       cumulativeTime,
@@ -207,33 +209,6 @@ export default function POITabContent({ activeData }: POITabContentProps) {
   );
 
   // --- Expanded: full POI list with search + filters ---
-  const visiblePOIs = useMemo(
-    () =>
-      isExpanded
-        ? measureSync("poi.visibleFiltered", () =>
-            buildVisiblePOIsForActiveRoute({
-              routeIds,
-              segments,
-              poisByRoute: routePois,
-              horizonWindow,
-              enabledCategories,
-              showOpenOnly,
-              starredPOIIds,
-            }),
-          )
-        : EMPTY_DISPLAY_POIS,
-    [
-      isExpanded,
-      routeIds,
-      segments,
-      routePois,
-      horizonWindow,
-      enabledCategories,
-      showOpenOnly,
-      starredPOIIds,
-    ],
-  );
-
   const filteredPOIModels = useMemo(
     () =>
       measureSync("poi.expandedRows", () =>
@@ -323,7 +298,7 @@ export default function POITabContent({ activeData }: POITabContentProps) {
   );
 
   const renderCompactPOI = useCallback<ListRenderItem<CompactPOIRowModel>>(
-    ({ item }) => <CompactPOIRow model={item} onPress={handlePOIPress} />,
+    ({ item }) => <POIListItem model={item} onPress={handlePOIPress} />,
     [handlePOIPress],
   );
 
@@ -457,7 +432,7 @@ export default function POITabContent({ activeData }: POITabContentProps) {
     );
   }
 
-  // --- Compact mode: starred POIs only ---
+  // --- Compact mode: POI browser preview ---
   return (
     <>
       <View className="flex-1">
@@ -465,7 +440,7 @@ export default function POITabContent({ activeData }: POITabContentProps) {
           <>
             <View className="flex-row items-center justify-between px-3 py-1.5">
               <Text className="text-[11px] font-barlow-semibold text-muted-foreground">
-                {compactPOIModels.length} starred · {horizonScopeLabel}
+                {compactPOIModels.length} POIs · {horizonScopeLabel}
               </Text>
             </View>
             <FlashList
@@ -481,11 +456,11 @@ export default function POITabContent({ activeData }: POITabContentProps) {
           <View className="flex-1 items-center justify-center">
             <Star size={20} color={colors.textTertiary} />
             <Text className="text-[12px] text-muted-foreground font-barlow-medium mt-2">
-              No starred POIs in {horizonScopeLabel}
+              No POIs in {horizonScopeLabel}
             </Text>
             {horizonWindow && (
               <Text className="text-[11px] text-muted-foreground mt-1 text-center px-5">
-                Switch the riding horizon to FULL to include starred places outside this range.
+                Switch the riding horizon to FULL to include places outside this range.
               </Text>
             )}
           </View>
@@ -500,80 +475,6 @@ export default function POITabContent({ activeData }: POITabContentProps) {
     </>
   );
 }
-
-const CompactPOIRow = React.memo(function CompactPOIRow({
-  model,
-  onPress,
-}: {
-  model: CompactPOIRowModel;
-  onPress: (poi: DisplayPOI) => void;
-}) {
-  const colors = useThemeColors();
-  const IconComp = POI_ICON_MAP[model.iconName] ?? null;
-  const ohColor = model.openingHoursColorKey ? colors[model.openingHoursColorKey] : undefined;
-
-  return (
-    <TouchableOpacity
-      className="flex-row items-center px-3 py-2.5"
-      onPress={() => onPress(model.poi)}
-      accessibilityRole="button"
-      accessibilityLabel={model.accessibilityLabel}
-    >
-      <View
-        className="w-[42px] h-[42px] rounded-full items-center justify-center"
-        style={{ backgroundColor: model.categoryColor + "1A" }}
-      >
-        {IconComp && <IconComp size={20} color={model.categoryColor} />}
-      </View>
-
-      <View className="flex-1 ml-3 min-w-0">
-        <View className="flex-row items-baseline">
-          {model.signedDistanceText != null && (
-            <Text className="text-[20px] font-barlow-sc-semibold text-foreground">
-              {model.signedDistanceText}
-            </Text>
-          )}
-          {model.ridingTimeText != null && (
-            <Text className="ml-2 text-[18px] text-foreground font-barlow-sc-semibold">
-              ~{model.ridingTimeText}
-            </Text>
-          )}
-        </View>
-        <View className="flex-row items-center mt-0.5 min-w-0">
-          {model.openingHoursText && (
-            <>
-              <View className="w-[5px] h-[5px] rounded-full" style={{ backgroundColor: ohColor }} />
-              <Text className="ml-1 text-[14px] font-barlow-medium" style={{ color: ohColor }}>
-                {model.openingHoursText}
-              </Text>
-            </>
-          )}
-          {model.offRouteText && (
-            <Text className="ml-2 text-[14px] text-muted-foreground font-barlow-sc-medium">
-              {model.offRouteText}
-            </Text>
-          )}
-        </View>
-      </View>
-
-      <View className="items-end ml-2 max-w-[42%]">
-        <Text
-          className="text-[14px] font-barlow-medium text-foreground text-right"
-          numberOfLines={1}
-        >
-          {model.title}
-        </Text>
-        <Text
-          className="text-[13px] font-barlow-medium text-right"
-          style={{ color: model.categoryColor }}
-          numberOfLines={1}
-        >
-          {model.categoryLabel}
-        </Text>
-      </View>
-    </TouchableOpacity>
-  );
-});
 
 function POIDetailStat({ label, value }: { label: string; value: string }) {
   return (
@@ -714,15 +615,15 @@ function InlinePOIDetail({
     poi.distanceFromRouteMeters > 50 ? `${Math.round(poi.distanceFromRouteMeters)} m` : "on route";
   const plannedStopText = plannedStopMinutes > 0 ? `${plannedStopMinutes}m` : "none";
 
-  const daySchedules = useMemo(
-    () => (openingHoursRaw ? getDaySchedules(openingHoursRaw) : null),
-    [openingHoursRaw],
-  );
-
   const etaOpenStatus = useMemo(() => {
     if (!etaResult || !openingHoursRaw) return null;
     return isOpenAt(openingHoursRaw, etaResult.eta);
   }, [etaResult, openingHoursRaw]);
+  const etaDaySchedule = useMemo(
+    () =>
+      openingHoursRaw ? getDayScheduleForDate(openingHoursRaw, etaResult?.eta ?? new Date()) : null,
+    [openingHoursRaw, etaResult],
+  );
 
   const address = useMemo(() => getPoiAddress(poi), [poi]);
   const phone = useMemo(() => getPoiPhone(poi), [poi]);
@@ -880,18 +781,16 @@ function InlinePOIDetail({
         </View>
       )}
 
-      {daySchedules && ohStatus?.detail !== "24/7" && (
+      {etaDaySchedule && ohStatus?.detail !== "24/7" && (
         <View className="ml-5 mt-1">
-          {daySchedules.map((ds) => (
-            <View key={ds.label} className="flex-row items-center">
-              <Text className="text-[13px] text-muted-foreground font-barlow-medium w-[60px]">
-                {ds.label}
-              </Text>
-              <Text className="text-[13px] text-muted-foreground font-barlow-sc-medium">
-                {ds.hours}
-              </Text>
-            </View>
-          ))}
+          <View className="flex-row items-center">
+            <Text className="text-[13px] text-muted-foreground font-barlow-medium w-[72px]">
+              {etaDaySchedule.label}
+            </Text>
+            <Text className="text-[13px] text-muted-foreground font-barlow-sc-medium">
+              {etaDaySchedule.hours}
+            </Text>
+          </View>
         </View>
       )}
 

@@ -13,6 +13,7 @@ import {
   DEFAULT_CORRIDOR_WIDTH_M,
   DEFAULT_POI_DISCOVERY_CATEGORIES,
   POI_CATEGORIES,
+  normalizePoiCategory,
   normalizePoiCategories as normalizeKnownPoiCategories,
   poiDiscoveryCategoriesForSource,
 } from "@/constants";
@@ -26,7 +27,6 @@ import {
   setStarredItem,
 } from "@/db/database";
 import { fetchOsmPOIs, fetchGooglePOIs } from "@/services/poiFetcher";
-import { getOpeningHoursStatus } from "@/services/openingHoursParser";
 import { setPlannedStopDurationTag } from "@/services/plannedStops";
 import { usePanelStore } from "./panelStore";
 
@@ -82,6 +82,15 @@ function parseDiscoveryCategories(raw: string | undefined): POICategory[] {
   } catch {
     return DEFAULT_POI_DISCOVERY_CATEGORIES;
   }
+}
+
+function normalizePOIRecord(poi: POI): POI {
+  const category = normalizePoiCategory(String(poi.category));
+  return category === poi.category ? poi : { ...poi, category };
+}
+
+function normalizePOIRecords(pois: POI[]): POI[] {
+  return pois.map(normalizePOIRecord);
 }
 
 export interface ProgressInfo {
@@ -237,7 +246,6 @@ interface POIState {
   enabledCategories: POICategory[];
   discoveryCategories: POICategory[];
   corridorWidthM: number;
-  showOpenOnly: boolean;
   starredPOIIds: Set<string>;
 
   // Fetch state per fetched source per route
@@ -271,7 +279,6 @@ interface POIState {
   hasDiscoveryCategoriesForSource: (source: POIDiscoverySource) => boolean;
   setCorridorWidth: (widthM: number) => void;
   setAllCategories: (enabled: boolean) => void;
-  toggleShowOpenOnly: () => void;
   setStarred: (poiId: string, starred: boolean) => Promise<void>;
   toggleStarred: (poiId: string) => Promise<void>;
   isStarred: (poiId: string) => boolean;
@@ -293,7 +300,6 @@ export const usePoiStore = create<POIState>((set, get) => ({
   enabledCategories: parsePersistedEnabledCategories(readString("enabledCategories")),
   discoveryCategories: parseDiscoveryCategories(readString("discoveryCategories")),
   corridorWidthM: Number(readString("corridorWidthM")) || DEFAULT_CORRIDOR_WIDTH_M,
-  showOpenOnly: readString("showOpenOnly") === "true",
   starredPOIIds: parseStarredIds(readString(LEGACY_STARRED_POI_IDS_KEY)),
   sourceInfo: {},
   selectedPOI: null,
@@ -323,7 +329,7 @@ export const usePoiStore = create<POIState>((set, get) => ({
     // Read from DB to derive counts. Merge with in-memory sourceInfo so we
     // never clobber an active "fetching" or surfaced "error" status — only
     // fall back to MMKV when there's no in-memory entry yet (cold start).
-    const pois = await getPOIsForRoute(routeId);
+    const pois = normalizePOIRecords(await getPOIsForRoute(routeId));
     let osmCount = 0,
       googleCount = 0;
     for (const p of pois) {
@@ -397,7 +403,7 @@ export const usePoiStore = create<POIState>((set, get) => ({
       });
 
       if (!isCurrentFetch(routeId, source, generation)) return;
-      const pois = await getPOIsForRoute(routeId);
+      const pois = normalizePOIRecords(await getPOIsForRoute(routeId));
       if (!isCurrentFetch(routeId, source, generation)) return;
       set((s) => ({ pois: { ...s.pois, [routeId]: pois } }));
     } catch (error) {
@@ -412,7 +418,7 @@ export const usePoiStore = create<POIState>((set, get) => ({
     clearSourceInfo(routeId, source);
 
     // Reload remaining POIs
-    const pois = await getPOIsForRoute(routeId);
+    const pois = normalizePOIRecords(await getPOIsForRoute(routeId));
     set((s) => {
       const droppedSelection =
         s.selectedPOI?.routeId === routeId && s.selectedPOI?.source === source;
@@ -439,7 +445,7 @@ export const usePoiStore = create<POIState>((set, get) => ({
   addCustomPOI: async (poi) => {
     await insertPOIs([poi]);
     await setStarredItem("poi", poi.id, true);
-    const pois = await getPOIsForRoute(poi.routeId);
+    const pois = normalizePOIRecords(await getPOIsForRoute(poi.routeId));
     set((s) => {
       const nextStarred = new Set([...s.starredPOIIds, poi.id]);
       return {
@@ -450,7 +456,7 @@ export const usePoiStore = create<POIState>((set, get) => ({
   },
 
   updatePOINotes: async (routeId, poiId, notes) => {
-    const routePois = get().pois[routeId] ?? (await getPOIsForRoute(routeId));
+    const routePois = get().pois[routeId] ?? normalizePOIRecords(await getPOIsForRoute(routeId));
     const poi = routePois.find((p) => p.id === poiId);
     if (!poi) return;
 
@@ -460,7 +466,7 @@ export const usePoiStore = create<POIState>((set, get) => ({
     else delete nextTags.notes;
 
     await updatePOITags(poiId, nextTags);
-    const pois = await getPOIsForRoute(routeId);
+    const pois = normalizePOIRecords(await getPOIsForRoute(routeId));
 
     set((s) => {
       const selectedPOI =
@@ -473,13 +479,13 @@ export const usePoiStore = create<POIState>((set, get) => ({
   },
 
   updatePlannedStopDuration: async (routeId, poiId, durationMinutes) => {
-    const routePois = get().pois[routeId] ?? (await getPOIsForRoute(routeId));
+    const routePois = get().pois[routeId] ?? normalizePOIRecords(await getPOIsForRoute(routeId));
     const poi = routePois.find((p) => p.id === poiId);
     if (!poi) return;
 
     const nextTags = setPlannedStopDurationTag(poi.tags, durationMinutes);
     await updatePOITags(poiId, nextTags);
-    const pois = await getPOIsForRoute(routeId);
+    const pois = normalizePOIRecords(await getPOIsForRoute(routeId));
 
     set((s) => {
       const selectedPOI =
@@ -493,7 +499,7 @@ export const usePoiStore = create<POIState>((set, get) => ({
 
   deleteCustomPOI: async (routeId, poiId) => {
     await deletePOI(poiId);
-    const pois = await getPOIsForRoute(routeId);
+    const pois = normalizePOIRecords(await getPOIsForRoute(routeId));
     set((s) => {
       const nextStarred = new Set(s.starredPOIIds);
       nextStarred.delete(poiId);
@@ -563,14 +569,6 @@ export const usePoiStore = create<POIState>((set, get) => ({
     set({ enabledCategories: next });
   },
 
-  toggleShowOpenOnly: () => {
-    const next = !get().showOpenOnly;
-    try {
-      getStorage().set("showOpenOnly", String(next));
-    } catch {}
-    set({ showOpenOnly: next });
-  },
-
   setStarred: async (poiId, starred) => {
     const previous = get().starredPOIIds;
     const next = new Set(previous);
@@ -609,7 +607,7 @@ export const usePoiStore = create<POIState>((set, get) => ({
     await deletePOIsBySource(routeId, "osm", { deleteStarredItems: true });
     clearSourceInfo(routeId, "osm");
     clearSourceInfo(routeId, "google");
-    const pois = await getPOIsForRoute(routeId);
+    const pois = normalizePOIRecords(await getPOIsForRoute(routeId));
     set((s) => {
       const currentRoutePois = s.pois[routeId] ?? [];
       const removedIds = new Set(
@@ -657,10 +655,6 @@ export const usePoiStore = create<POIState>((set, get) => ({
       // Always show starred POIs
       if (state.starredPOIIds.has(p.id)) return true;
       if (!enabled.has(p.category)) return false;
-      if (state.showOpenOnly && p.tags?.opening_hours) {
-        const status = getOpeningHoursStatus(p.tags.opening_hours);
-        if (status && !status.isOpen) return false;
-      }
       return true;
     });
   },

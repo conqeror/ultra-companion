@@ -58,7 +58,7 @@ What's implemented. For the "why" behind these, see `usage-context.md`.
 ## POI Search
 
 - Along-route search with configurable corridor width
-- Categories: water, groceries, gas stations, bakery, toilets/showers, shelter
+- Categories: water, groceries, gas stations, bakery, toilets/showers, shelter/camping, pharmacy, bike shops/repair, other
 - Two data sources: Overpass/OSM for most categories, Google Places for gas stations and groceries (better opening hours)
 - POI markers on map and elevation profile
 - Riding view POI markers and lists are scoped to the selected riding horizon by default
@@ -68,7 +68,7 @@ What's implemented. For the "why" behind these, see `usage-context.md`.
 - Starred POIs persisted in SQLite
 - Saved custom POIs from iOS share sheet or manual coordinates, route-scoped and starred by default
 - Planned stop duration presets on POI detail for rider-intended stop time
-- Opening hours: open/closed status, color-coded, "open now" filter
+- Opening hours: current status in details, open/closed-at-ETA context in POI rows
 - Category filters (multi-select)
 
 ## ETA Calculator

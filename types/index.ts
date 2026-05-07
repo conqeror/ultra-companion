@@ -15,6 +15,8 @@ export type WeatherSampleKind = "hourly" | "distance" | "finish" | "post-finish"
 
 export type WeatherTimelineMetricKey = "precipitation" | "humidity" | "gusts";
 
+export type POIMapVisibility = "none" | "starred" | "all";
+
 export const MAP_STYLE_URL = "mapbox://styles/mapbox/outdoors-v12";
 
 // --- Phase 2: Route types ---
@@ -128,37 +130,16 @@ export type POICategory =
   | "groceries"
   | "gas_station"
   | "bakery"
-  | "coffee"
-  | "restaurant"
-  | "bar_pub"
   | "toilet_shower"
   | "shelter"
-  | "bus_stop"
   | "camp_site"
   | "pharmacy"
-  | "hospital_er"
-  | "defibrillator"
-  | "emergency_phone"
-  | "ambulance_station"
   | "bike_shop"
   | "repair_station"
   | "pump_air"
-  | "train_station"
-  | "sports"
-  | "cemetery"
-  | "school"
   | "other";
 
-export type POICategoryGroup =
-  | "water"
-  | "food"
-  | "eat_drink"
-  | "wc"
-  | "rest"
-  | "help"
-  | "repair"
-  | "escape"
-  | "other";
+export type POICategoryGroup = "water" | "food" | "wc" | "rest" | "help" | "repair" | "other";
 
 export type POIFetchedSource = "osm" | "google";
 export type POISource = POIFetchedSource | "custom";
