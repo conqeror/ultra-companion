@@ -136,6 +136,10 @@ OSM opening hours are often missing or wrong for gas stations and groceries — 
 
 Routes are stored individually. Collections reference routes via `collection_segments` table with position-based slots. At display time, selected segments are stitched (points concatenated with distance offsets). `RoutePoint[]` consumers (snapping, ETA cumulative time, weather, elevation rendering) receive the stitched array unchanged — their input is already in "stitched coords".
 
+Collection variants can be either full-route variants or patch variants. A patch variant uses a shorter route to replace a confirmed distance range on a base route in the same collection position. Stitching resolves that selected variant into base prefix + patch route + base suffix, then exposes the result as the same stitched `RoutePoint[]` used everywhere else.
+
+Patch-aware display data uses `StitchedSourceSpan` metadata. Each span records the source route, raw distance range, effective stitched range, and raw-to-stitched offset. POIs and climbs remain stored in raw per-route coordinates; collection display helpers include only items whose raw distances fall inside an active source span and apply that span's offset exactly once.
+
 ### Route Progress
 
 `SnappedPosition.distanceAlongRouteMeters` is the authoritative rider progress value. Route snapping computes it from segment projection, so it may fall between imported route points. `SnappedPosition.pointIndex` is still returned as the nearest route point for geometry anchoring and array-based helpers, but consumers should derive indexes from `distanceAlongRouteMeters` when they need an index for slicing, ETA, weather, or elevation rendering.

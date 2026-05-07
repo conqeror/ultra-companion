@@ -7,6 +7,7 @@ import { usePoiStore, type SourceInfo } from "@/store/poiStore";
 import type { POIFetchedSource, StitchedCollection } from "@/types";
 import { formatFileSize } from "@/utils/formatters";
 import { estimateDownloadSize } from "@/services/offlineTiles";
+import { getStitchedSourceRouteIds } from "@/services/stitchingService";
 import { getRoutePoints } from "@/db/database";
 
 interface CollectionOfflineSectionProps {
@@ -34,10 +35,15 @@ export default function CollectionOfflineSection({ stitched }: CollectionOffline
   const [progress, setProgress] = useState({ done: 0, total: 0 });
 
   const segments = stitched.segments;
-  const segmentRouteIdsKey = useMemo(
-    () => segments.map((seg) => seg.routeId).join("\n"),
-    [segments],
-  );
+  const sourceRouteIds = useMemo(() => getStitchedSourceRouteIds(segments), [segments]);
+  const routeNameById = useMemo(() => {
+    const names: Record<string, string> = {};
+    for (const span of stitched.sourceSpans) {
+      names[span.routeId] = span.routeName;
+    }
+    return names;
+  }, [stitched.sourceSpans]);
+  const segmentRouteIdsKey = useMemo(() => sourceRouteIds.join("\n"), [sourceRouteIds]);
 
   useEffect(() => {
     if (!segmentRouteIdsKey) return;
@@ -56,9 +62,9 @@ export default function CollectionOfflineSection({ stitched }: CollectionOffline
     let poiReadyCount = 0;
     let offlineReadyCount = 0;
 
-    for (const seg of segments) {
-      const info = routeInfo[seg.routeId];
-      const sources = allSourceInfo[seg.routeId];
+    for (const routeId of sourceRouteIds) {
+      const info = routeInfo[routeId];
+      const sources = allSourceInfo[routeId];
       const poiReady = isSourceReady(sources?.osm) && isSourceReady(sources?.google);
       if (info?.status === "complete") {
         readyCount++;
@@ -70,7 +76,7 @@ export default function CollectionOfflineSection({ stitched }: CollectionOffline
       }
       if (poiReady) poiReadyCount++;
       if (info?.status === "complete" && poiReady) offlineReadyCount++;
-      totalPOIs += allPois[seg.routeId]?.length ?? 0;
+      totalPOIs += allPois[routeId]?.length ?? 0;
     }
 
     // Estimate from stitched points (rough)
@@ -78,7 +84,7 @@ export default function CollectionOfflineSection({ stitched }: CollectionOffline
 
     return {
       readyCount,
-      total: segments.length,
+      total: sourceRouteIds.length,
       downloadedBytes,
       estimatedBytes,
       totalPOIs,
@@ -87,51 +93,51 @@ export default function CollectionOfflineSection({ stitched }: CollectionOffline
       poiReadyCount,
       offlineReadyCount,
     };
-  }, [segments, routeInfo, allPois, allSourceInfo, stitched.points]);
+  }, [sourceRouteIds, routeInfo, allPois, allSourceInfo, stitched.points]);
 
   const allTilesReady = stats.readyCount === stats.total && stats.total > 0;
   const allOfflineReady = stats.offlineReadyCount === stats.total && stats.total > 0;
 
   const poiErrors = useMemo(() => {
     const out: { routeName: string; source: POIFetchedSource; error: string }[] = [];
-    for (const seg of segments) {
-      const src = allSourceInfo[seg.routeId];
-      if (src?.osm?.error)
-        out.push({ routeName: seg.routeName, source: "osm", error: src.osm.error });
-      if (src?.google?.error)
-        out.push({ routeName: seg.routeName, source: "google", error: src.google.error });
+    for (const routeId of sourceRouteIds) {
+      const src = allSourceInfo[routeId];
+      const routeName = routeNameById[routeId] ?? "segment";
+      if (src?.osm?.error) out.push({ routeName, source: "osm", error: src.osm.error });
+      if (src?.google?.error) out.push({ routeName, source: "google", error: src.google.error });
     }
     return out;
-  }, [segments, allSourceInfo]);
+  }, [sourceRouteIds, routeNameById, allSourceInfo]);
 
   // Pick the first actively-fetching source across segments. Only one runs at
   // a time (prepareRouteOffline serializes), so this is the progress we show.
   const activePoiFetch = useMemo(() => {
-    for (const seg of segments) {
-      const src = allSourceInfo[seg.routeId];
+    for (const routeId of sourceRouteIds) {
+      const src = allSourceInfo[routeId];
+      const routeName = routeNameById[routeId] ?? "segment";
       if (src?.google?.status === "fetching") {
         return {
-          routeName: seg.routeName,
+          routeName,
           source: "google" as const,
           progress: src.google.progress,
         };
       }
       if (src?.osm?.status === "fetching") {
-        return { routeName: seg.routeName, source: "osm" as const, progress: src.osm.progress };
+        return { routeName, source: "osm" as const, progress: src.osm.progress };
       }
     }
     return null;
-  }, [segments, allSourceInfo]);
+  }, [sourceRouteIds, routeNameById, allSourceInfo]);
 
   const activeTileDownload = useMemo(() => {
-    for (const seg of segments) {
-      const info = routeInfo[seg.routeId];
+    for (const routeId of sourceRouteIds) {
+      const info = routeInfo[routeId];
       if (info?.status === "downloading") {
-        return { routeName: seg.routeName, info };
+        return { routeName: routeNameById[routeId] ?? "segment", info };
       }
     }
     return null;
-  }, [segments, routeInfo]);
+  }, [sourceRouteIds, routeNameById, routeInfo]);
 
   const isPreparing = isDownloading || stats.anyDownloading || stats.anySourceFetching;
   const currentSegmentLabel =
@@ -158,32 +164,38 @@ export default function CollectionOfflineSection({ stitched }: CollectionOffline
 
   const handleDownloadAll = useCallback(async () => {
     setIsDownloading(true);
-    setProgress({ done: 0, total: segments.length });
+    setProgress({ done: 0, total: sourceRouteIds.length });
 
-    for (let i = 0; i < segments.length; i++) {
-      const seg = segments[i];
-      const info = routeInfo[seg.routeId];
-      const sources = allSourceInfo[seg.routeId];
+    for (let i = 0; i < sourceRouteIds.length; i++) {
+      const routeId = sourceRouteIds[i];
+      const info = routeInfo[routeId];
+      const sources = allSourceInfo[routeId];
       const segmentReady =
         info?.status === "complete" &&
         isSourceReady(sources?.osm) &&
         isSourceReady(sources?.google);
       if (segmentReady) {
-        setProgress({ done: i + 1, total: segments.length });
+        setProgress({ done: i + 1, total: sourceRouteIds.length });
         continue;
       }
       try {
-        const points =
-          stitched.pointsByRouteId?.[seg.routeId] ?? (await getRoutePoints(seg.routeId));
-        await prepareRouteOffline(seg.routeId, points);
+        const points = stitched.pointsByRouteId?.[routeId] ?? (await getRoutePoints(routeId));
+        await prepareRouteOffline(routeId, points);
       } catch (error) {
-        console.warn(`Failed to prepare segment ${seg.routeName}:`, error);
+        console.warn(`Failed to prepare segment ${routeNameById[routeId] ?? routeId}:`, error);
       }
-      setProgress({ done: i + 1, total: segments.length });
+      setProgress({ done: i + 1, total: sourceRouteIds.length });
     }
 
     setIsDownloading(false);
-  }, [segments, routeInfo, allSourceInfo, stitched.pointsByRouteId, prepareRouteOffline]);
+  }, [
+    sourceRouteIds,
+    routeInfo,
+    allSourceInfo,
+    stitched.pointsByRouteId,
+    routeNameById,
+    prepareRouteOffline,
+  ]);
 
   const clearPOIs = usePoiStore((s) => s.clearPOIs);
 
@@ -197,15 +209,15 @@ export default function CollectionOfflineSection({ stitched }: CollectionOffline
           text: "Delete All",
           style: "destructive",
           onPress: async () => {
-            for (const seg of segments) {
-              await deleteOfflineData(seg.routeId);
-              await clearPOIs(seg.routeId);
+            for (const routeId of sourceRouteIds) {
+              await deleteOfflineData(routeId);
+              await clearPOIs(routeId);
             }
           },
         },
       ],
     );
-  }, [segments, deleteOfflineData, clearPOIs]);
+  }, [sourceRouteIds, deleteOfflineData, clearPOIs]);
 
   const handleDeleteAllPOIs = useCallback(() => {
     Alert.alert(
@@ -217,14 +229,14 @@ export default function CollectionOfflineSection({ stitched }: CollectionOffline
           text: "Delete Fetched POIs",
           style: "destructive",
           onPress: async () => {
-            for (const seg of segments) {
-              await clearPOIs(seg.routeId);
+            for (const routeId of sourceRouteIds) {
+              await clearPOIs(routeId);
             }
           },
         },
       ],
     );
-  }, [segments, clearPOIs]);
+  }, [sourceRouteIds, clearPOIs]);
 
   return (
     <View>

@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { useRouteStore } from "@/store/routeStore";
 import { useCollectionStore } from "@/store/collectionStore";
+import { getStitchedSourceRouteIds } from "@/services/stitchingService";
 import type { ActiveRouteData, Collection, Route, RoutePoint, StitchedCollection } from "@/types";
 
 function buildActiveRouteData(
@@ -20,7 +21,7 @@ function buildActiveRouteData(
       totalAscentMeters: activeStitchedCollection.totalAscentMeters,
       totalDescentMeters: activeStitchedCollection.totalDescentMeters,
       segments: activeStitchedCollection.segments,
-      routeIds: activeStitchedCollection.segments.map((s) => s.routeId),
+      routeIds: getStitchedSourceRouteIds(activeStitchedCollection.segments),
       pointsByRouteId: activeStitchedCollection.pointsByRouteId,
     };
   }

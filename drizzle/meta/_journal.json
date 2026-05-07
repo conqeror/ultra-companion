@@ -29,6 +29,13 @@
       "when": 1777986757000,
       "tag": "0003_add_collection_planned_start",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1777986758000,
+      "tag": "0004_add_patch_route_variants",
+      "breakpoints": true
     }
   ]
 }

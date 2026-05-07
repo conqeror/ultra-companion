@@ -23,6 +23,7 @@ import type {
   StarredItem,
   Collection,
   CollectionSegment,
+  CollectionSegmentVariantKind,
   Climb,
 } from "@/types";
 
@@ -38,6 +39,15 @@ export const db = drizzle(expoDb, {
 
 // Apply schema from drizzle/migrations.ts (generated from db/schema.ts via `npm run db:migrate`)
 migrate(db, migrations);
+
+function normalizeCollectionSegment(
+  row: typeof collectionSegments.$inferSelect,
+): CollectionSegment {
+  return {
+    ...row,
+    variantKind: row.variantKind as CollectionSegmentVariantKind,
+  };
+}
 
 // --- Route CRUD ---
 
@@ -475,6 +485,10 @@ export async function insertCollectionSegment(segment: CollectionSegment): Promi
       routeId: segment.routeId,
       position: segment.position,
       isSelected: segment.isSelected,
+      variantKind: segment.variantKind,
+      baseRouteId: segment.baseRouteId,
+      replaceStartDistanceMeters: segment.replaceStartDistanceMeters,
+      replaceEndDistanceMeters: segment.replaceEndDistanceMeters,
     })
     .run();
 }
@@ -493,6 +507,20 @@ export async function deleteCollectionSegment(
     .run();
 }
 
+export async function deletePatchVariantsForBaseRoute(
+  collectionId: string,
+  baseRouteId: string,
+): Promise<void> {
+  db.delete(collectionSegments)
+    .where(
+      and(
+        eq(collectionSegments.collectionId, collectionId),
+        eq(collectionSegments.baseRouteId, baseRouteId),
+      ),
+    )
+    .run();
+}
+
 export async function getCollectionSegments(collectionId: string): Promise<CollectionSegment[]> {
   const rows = db
     .select()
@@ -500,7 +528,7 @@ export async function getCollectionSegments(collectionId: string): Promise<Colle
     .where(eq(collectionSegments.collectionId, collectionId))
     .orderBy(asc(collectionSegments.position), desc(collectionSegments.isSelected))
     .all();
-  return rows;
+  return rows.map(normalizeCollectionSegment);
 }
 
 export async function selectVariant(collectionId: string, routeId: string): Promise<void> {

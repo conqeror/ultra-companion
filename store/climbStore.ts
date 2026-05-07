@@ -2,7 +2,7 @@ import { create } from "zustand";
 import type { Climb, ClimbDifficulty, DisplayClimb, StitchedSegmentInfo } from "@/types";
 import { getClimbsForRoute, updateClimbName } from "@/db/database";
 import { MIN_GAIN_M } from "@/services/climbDetector";
-import { toDisplayClimb, toDisplayClimbs } from "@/services/displayDistance";
+import { toDisplayClimbForSpan, toDisplayClimbs } from "@/services/displayDistance";
 
 interface ClimbState {
   // Climb data per route
@@ -99,10 +99,13 @@ export const useClimbStore = create<ClimbState>((set, get) => ({
     if (segments && segments.length > 0) {
       const combined: DisplayClimb[] = [];
       for (const seg of segments) {
-        const routeClimbs = state.climbs[seg.routeId];
-        if (!routeClimbs) continue;
-        for (const c of routeClimbs) {
-          combined.push(toDisplayClimb(c, seg.distanceOffsetMeters));
+        for (const span of seg.sourceSpans) {
+          const routeClimbs = state.climbs[span.routeId];
+          if (!routeClimbs) continue;
+          for (const c of routeClimbs) {
+            const displayClimb = toDisplayClimbForSpan(c, span);
+            if (displayClimb) combined.push(displayClimb);
+          }
         }
       }
       combined.sort((a, b) => a.effectiveStartDistanceMeters - b.effectiveStartDistanceMeters);

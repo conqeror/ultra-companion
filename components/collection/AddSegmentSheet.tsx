@@ -12,6 +12,8 @@ import type { Route } from "@/types";
 
 interface AddSegmentSheetProps {
   visible: boolean;
+  title?: string;
+  subtitle?: string;
   onClose: () => void;
   onAdd: (routeId: string) => void;
   existingRouteIds: Set<string>;
@@ -19,6 +21,8 @@ interface AddSegmentSheetProps {
 
 export default function AddSegmentSheet({
   visible,
+  title = "Add Segment",
+  subtitle,
   onClose,
   onAdd,
   existingRouteIds,
@@ -46,18 +50,22 @@ export default function AddSegmentSheet({
   const renderItem = useCallback(
     ({ item: route }: { item: Route }) => {
       const isInCollection = existingRouteIds.has(route.id);
+      const disabled = isInCollection;
       return (
         <TouchableOpacity
           className="flex-row items-center px-4 py-3 min-h-[56px]"
-          onPress={() => !isInCollection && onAdd(route.id)}
-          disabled={isInCollection}
+          onPress={() => {
+            if (disabled) return;
+            onAdd(route.id);
+          }}
+          disabled={disabled}
           activeOpacity={0.7}
         >
           <View className="flex-1 mr-3">
             <Text
               className={cn(
                 "text-[15px] font-barlow-medium",
-                isInCollection ? "text-muted-foreground" : "text-foreground",
+                disabled ? "text-muted-foreground" : "text-foreground",
               )}
               numberOfLines={1}
             >
@@ -83,7 +91,14 @@ export default function AddSegmentSheet({
       style={[{ top: 48, backgroundColor: colors.background }, animatedStyle]}
     >
       <View className="flex-row items-center px-4 py-3 border-b border-border">
-        <Text className="flex-1 text-[20px] font-barlow-semibold text-foreground">Add Segment</Text>
+        <View className="flex-1 mr-3">
+          <Text className="text-[20px] font-barlow-semibold text-foreground">{title}</Text>
+          {subtitle && (
+            <Text className="text-[13px] font-barlow-medium text-muted-foreground mt-0.5">
+              {subtitle}
+            </Text>
+          )}
+        </View>
         <TouchableOpacity
           className="w-[48px] h-[48px] items-center justify-center -mr-2"
           onPress={onClose}
@@ -99,6 +114,7 @@ export default function AddSegmentSheet({
         </View>
       ) : (
         <FlatList
+          className="flex-1"
           data={sortedRoutes}
           keyExtractor={(r) => r.id}
           renderItem={renderItem}
