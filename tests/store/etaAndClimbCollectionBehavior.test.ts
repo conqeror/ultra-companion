@@ -231,14 +231,14 @@ describe("stitched collection coordinate behavior", () => {
   it("recomputes ETA cache when collection variant swaps points array with same route id", () => {
     const pointsA = [buildRoutePoint(0, 0), buildRoutePoint(1_000, 1)];
     const pointsB = [buildRoutePoint(0, 0), buildRoutePoint(1_200, 1)];
-    etaCalculatorMocks.computeRouteETA.mockReturnValueOnce([0, 100]).mockReturnValueOnce([0, 140]);
 
     useEtaStore.getState().computeETAForRoute("collection-1", pointsA);
+    const cumulativeA = useEtaStore.getState().cumulativeTime;
     useEtaStore.getState().computeETAForRoute("collection-1", pointsA);
     useEtaStore.getState().computeETAForRoute("collection-1", pointsB);
 
-    expect(etaCalculatorMocks.computeRouteETA).toHaveBeenCalledTimes(2);
-    expect(useEtaStore.getState().cumulativeTime).toEqual([0, 140]);
+    expect(useEtaStore.getState().cumulativeTime).not.toBe(cumulativeA);
+    expect(useEtaStore.getState().cumulativeTime?.[1]).toBeGreaterThan(cumulativeA?.[1] ?? 0);
     expect(useEtaStore.getState().cachedPoints).toBe(pointsB);
   });
 

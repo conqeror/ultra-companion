@@ -1,38 +1,32 @@
 import React, { useRef, useCallback, useEffect, useState, useMemo } from "react";
 import { View, AppState, useWindowDimensions } from "react-native";
-import Mapbox, { Camera, MapView as MapboxMapView, LocationPuck } from "@rnmapbox/maps";
+import Mapbox, { Camera, MapView as MapboxMapView } from "@rnmapbox/maps";
 import Constants from "expo-constants";
+import { useShallow } from "zustand/react/shallow";
 import { useMapStore } from "@/store/mapStore";
 import { useRouteStore } from "@/store/routeStore";
 import { useCollectionStore } from "@/store/collectionStore";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { usePanelStore } from "@/store/panelStore";
-import { SHEET_COMPACT_RATIO, SHEET_EXPANDED_RATIO } from "@/constants";
+import { SHEET_COMPACT_RATIO } from "@/constants";
 import { useThemeColors } from "@/theme";
 import { useMapStyle } from "@/hooks/useMapStyle";
 import { useRouteGeometryZoom } from "@/hooks/useRouteGeometryZoom";
 import { useActiveRouteTiming } from "@/hooks/useActiveRouteTiming";
+import {
+  usePreparedRouteGeometries,
+  type PreparedRouteGeometryRequest,
+} from "@/hooks/usePreparedRouteGeometries";
 import { GPS_STALE_THRESHOLD_MS } from "@/constants";
 import MapControls from "./MapControls";
-import RouteLayer from "./RouteLayer";
-import RouteMarkerLayer from "./RouteMarkerLayer";
-import POILayer from "./POILayer";
-import ClimbHighlightLayer from "./ClimbHighlightLayer";
-import TemperatureRouteOverlay from "./TemperatureRouteOverlay";
-import VariantOverlayLayer, { type VariantOverlay } from "./VariantOverlayLayer";
+import MapCanvas, { type MapCanvasRouteLayer, type MapOverlayMode } from "./MapCanvas";
+import type { VariantOverlay } from "./VariantOverlayLayer";
 import TabbedBottomPanel from "./TabbedBottomPanel";
 import { displayPOIsForActiveRoute } from "@/services/activePOIs";
-import { computeRouteTotalETA } from "@/services/etaCalculator";
-import { resolveActiveClimb } from "@/utils/climbSelect";
-import { getClimbMapBounds, getZoomLevelToFitBounds } from "@/utils/climbGeometry";
-import { isClimbAtLeastDifficulty } from "@/constants/climbHelpers";
+import { computeCachedRouteTotalETA } from "@/services/etaCalculator";
 import { resolveActiveRouteProgress } from "@/utils/routeProgress";
 import { plannedStopsFromPOIs } from "@/services/plannedStops";
-import {
-  createRidingHorizonWindow,
-  filterClimbsToRidingHorizon,
-  ridingHorizonMetersForMode,
-} from "@/utils/ridingHorizon";
+import { distanceBucketKey, WEATHER_PROGRESS_BUCKET_METERS } from "@/utils/distanceBuckets";
 import { snapToRouteDetailed } from "@/services/routeSnapping";
 import { useActiveRouteData, getActiveRouteDataImperative } from "@/hooks/useActiveRouteData";
 import { usePoiStore } from "@/store/poiStore";
@@ -48,14 +42,15 @@ import {
 } from "@/services/stitchingService";
 import { computeSliceAscentFromDistance } from "@/utils/geo";
 import { formatDistance, formatDuration, formatElevation } from "@/utils/formatters";
-import type { CollectionSegmentWithRoute, RoutePoint, UnitSystem, UserPosition } from "@/types";
-
-const CLIMB_PAN_PADDING = {
-  top: 72,
-  right: 32,
-  bottom: 40,
-  left: 32,
-};
+import { measureSync } from "@/utils/perfMarks";
+import { pickRouteRecords } from "@/utils/routeScopedRecords";
+import type {
+  CollectionSegmentWithRoute,
+  RoutePoint,
+  StitchedSegmentInfo,
+  UnitSystem,
+  UserPosition,
+} from "@/types";
 
 interface VariantMetric {
   distanceMeters: number;
@@ -130,13 +125,14 @@ function variantMetric(
   sw: CollectionSegmentWithRoute,
   pointsByRouteId: Record<string, RoutePoint[]>,
   powerConfig: ReturnType<typeof useEtaStore.getState>["powerConfig"],
+  metricKey: string,
 ): VariantMetric | null {
   const points = effectiveVariantPoints(sw, pointsByRouteId);
   if (!points || points.length < 2) return null;
   return {
     distanceMeters: routeEndDistance(points),
     ascentMeters: effectiveVariantAscentMeters(sw, pointsByRouteId),
-    ridingTime: computeRouteTotalETA(points, powerConfig),
+    ridingTime: computeCachedRouteTotalETA(metricKey, points, powerConfig),
   };
 }
 
@@ -168,6 +164,37 @@ function variantDiffLabel(metric: VariantMetric, reference: VariantMetric, units
   ].join("\n");
 }
 
+function variantMetricKey(sw: CollectionSegmentWithRoute): string {
+  return `${sw.segment.collectionId}:${sw.segment.position}:${sw.route.id}:${sw.segment.variantKind}`;
+}
+
+function plannedStopsSignature(
+  stops: readonly { distanceMeters: number; durationSeconds: number }[],
+) {
+  if (stops.length === 0) return "none";
+  return stops
+    .map((stop) => `${Math.round(stop.distanceMeters)}:${stop.durationSeconds}`)
+    .join(",");
+}
+
+function stitchedSegmentsSignature(segments: readonly StitchedSegmentInfo[] | null | undefined) {
+  if (!segments?.length) return "none";
+  return segments
+    .map((segment) =>
+      [
+        segment.position,
+        segment.routeId,
+        segment.variantKind,
+        segment.baseRouteId ?? "base:none",
+        segment.replaceStartDistanceMeters ?? "start:none",
+        segment.replaceEndDistanceMeters ?? "end:none",
+        Math.round(segment.distanceOffsetMeters),
+        Math.round(segment.segmentDistanceMeters),
+      ].join(":"),
+    )
+    .join("|");
+}
+
 // Initialize Mapbox with access token from app config
 try {
   const mapboxToken = Constants.expoConfig?.extra?.mapboxAccessToken;
@@ -184,7 +211,7 @@ export default function MapScreen() {
   const cameraRef = useRef<Camera>(null);
   const mapRef = useRef<MapboxMapView>(null);
   const [hasGpsFix, setHasGpsFix] = useState(false);
-  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+  const { height: screenHeight } = useWindowDimensions();
 
   const followUser = useMapStore((s) => s.followUser);
   const setFollowUser = useMapStore((s) => s.setFollowUser);
@@ -197,16 +224,16 @@ export default function MapScreen() {
     zoom: useMapStore.getState().zoom,
   });
   const lastCamera = useRef(initialCamera.current);
-  const { routeGeometryZoom, updateRouteGeometryZoom } = useRouteGeometryZoom(
+  const { routeGeometryToleranceMeters, updateRouteGeometryZoom } = useRouteGeometryZoom(
     initialCamera.current.zoom,
+    initialCamera.current.center[1],
   );
-  const panelTab = usePanelStore((s) => s.panelTab);
-  const panelMode = usePanelStore((s) => s.panelMode);
-  const isPanelExpanded = usePanelStore((s) => s.isExpanded);
+  const mapOverlayMode = usePanelStore(
+    (s): MapOverlayMode =>
+      s.panelTab === "climbs" ? "climbs" : s.panelTab === "weather" ? "weather" : "normal",
+  );
   const { bottom: safeBottom } = useSafeAreaInsets();
   const compactPanelHeight = Math.round(screenHeight * SHEET_COMPACT_RATIO) + safeBottom;
-  const expandedPanelHeight = Math.round(screenHeight * SHEET_EXPANDED_RATIO) + safeBottom;
-  const overlayPanelHeight = isPanelExpanded ? expandedPanelHeight : compactPanelHeight;
 
   const routes = useRouteStore((s) => s.routes);
   const visibleRoutePoints = useRouteStore((s) => s.visibleRoutePoints);
@@ -220,7 +247,6 @@ export default function MapScreen() {
   const getCollectionSegmentsWithRoutes = useCollectionStore(
     (s) => s.getCollectionSegmentsWithRoutes,
   );
-  const allPois = usePoiStore((s) => s.pois);
   const loadPOIs = usePoiStore((s) => s.loadPOIs);
   const computeETAForRoute = useEtaStore((s) => s.computeETAForRoute);
   const cumulativeTime = useEtaStore((s) => s.cumulativeTime);
@@ -237,20 +263,31 @@ export default function MapScreen() {
   const [activeVariantPointsByRouteId, setActiveVariantPointsByRouteId] = useState<
     Record<string, RoutePoint[]>
   >({});
+  const [activeVariantMetricsByKey, setActiveVariantMetricsByKey] = useState<
+    Record<string, VariantMetric>
+  >({});
 
   // Unified active context — works for both standalone routes and collections
   const activeData = useActiveRouteData();
   const activeRoutePoints = activeData?.points ?? null;
   const timing = useActiveRouteTiming(activeData);
   const activeRouteIds = useMemo(() => activeData?.routeIds ?? [], [activeData?.routeIds]);
+  const allPois = usePoiStore(useShallow((s) => pickRouteRecords(s.pois, activeRouteIds)));
   const plannedStops = useMemo(
     () =>
-      plannedStopsFromPOIs(
-        displayPOIsForActiveRoute(activeRouteIds, activeData?.segments ?? null, allPois),
+      measureSync("map.activePlannedStops", () =>
+        plannedStopsFromPOIs(
+          displayPOIsForActiveRoute(activeRouteIds, activeData?.segments ?? null, allPois),
+        ),
       ),
     [activeRouteIds, activeData?.segments, allPois],
   );
+  const plannedStopsKey = useMemo(() => plannedStopsSignature(plannedStops), [plannedStops]);
   const activeRouteIdsKey = useMemo(() => activeRouteIds.join(","), [activeRouteIds]);
+  const activeSegmentsKey = useMemo(
+    () => stitchedSegmentsSignature(activeData?.segments),
+    [activeData?.segments],
+  );
   const activeRouteProgress = useMemo(
     () =>
       resolveActiveRouteProgress(activeData, snappedPosition, {
@@ -259,14 +296,9 @@ export default function MapScreen() {
     [activeData, snappedPosition, timing.plannedStartMs],
   );
   const activeProgressDistanceMeters = activeRouteProgress?.distanceAlongRouteMeters ?? null;
-  const climbHorizonWindow = useMemo(
-    () =>
-      createRidingHorizonWindow(
-        activeProgressDistanceMeters,
-        ridingHorizonMetersForMode(panelMode),
-        { totalDistanceMeters: activeData?.totalDistanceMeters },
-      ),
-    [activeProgressDistanceMeters, panelMode, activeData?.totalDistanceMeters],
+  const weatherProgressBucketKey = distanceBucketKey(
+    activeProgressDistanceMeters,
+    WEATHER_PROGRESS_BUCKET_METERS,
   );
 
   useEffect(() => {
@@ -290,6 +322,7 @@ export default function MapScreen() {
       if (activeData?.type !== "collection") {
         setActiveCollectionSegments([]);
         setActiveVariantPointsByRouteId({});
+        setActiveVariantMetricsByKey({});
         return;
       }
 
@@ -323,15 +356,11 @@ export default function MapScreen() {
     return () => {
       cancelled = true;
     };
-  }, [activeData?.id, activeData?.type, activeData?.segments, getCollectionSegmentsWithRoutes]);
+  }, [activeData?.id, activeData?.type, activeSegmentsKey, getCollectionSegmentsWithRoutes]);
 
   const loadClimbs = useClimbStore((s) => s.loadClimbs);
   const updateCurrentClimb = useClimbStore((s) => s.updateCurrentClimb);
-  const selectedClimb = useClimbStore((s) => s.selectedClimb);
   const setSelectedClimb = useClimbStore((s) => s.setSelectedClimb);
-  const minimumDifficulty = useClimbStore((s) => s.minimumDifficulty);
-  const getClimbsForDisplay = useClimbStore((s) => s.getClimbsForDisplay);
-  const allClimbData = useClimbStore((s) => s.climbs);
 
   // Clear stale climb selection and progress when active route/collection geometry changes.
   const activeContextKey = activeData ? `${activeData.id}:${activeRouteIdsKey}` : null;
@@ -362,7 +391,9 @@ export default function MapScreen() {
 
   useEffect(() => {
     if (activeData && activeRoutePoints?.length) {
-      computeETAForRoute(activeData.id, activeRoutePoints);
+      measureSync("map.activeETAEffect", () =>
+        computeETAForRoute(activeData.id, activeRoutePoints),
+      );
     }
     // Intentional: fire only when id/points change; full activeData reference not needed
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -377,25 +408,27 @@ export default function MapScreen() {
       cumulativeTime &&
       isConnected
     ) {
-      fetchWeather(
-        activeData.id,
-        activeRoutePoints,
-        activeRouteProgress.distanceAlongRouteMeters,
-        cumulativeTime,
-        timing.futureStartMs,
-        plannedStops,
-      );
+      measureSync("map.weatherGate", () => {
+        fetchWeather(
+          activeData.id,
+          activeRoutePoints,
+          activeRouteProgress.distanceAlongRouteMeters,
+          cumulativeTime,
+          timing.futureStartMs,
+          plannedStops,
+        );
+      });
     }
-    // Intentional: fire on id/progress changes, not full object identities
+    // Intentional: fire on meaningful weather context changes, not every exact progress update
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     activeData?.id,
-    activeProgressDistanceMeters,
+    weatherProgressBucketKey,
     isConnected,
     cumulativeTime,
     fetchWeather,
     timing.futureStartMs,
-    plannedStops,
+    plannedStopsKey,
   ]);
 
   const applyRouteSnap = useCallback(
@@ -499,19 +532,6 @@ export default function MapScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeProgressDistanceMeters, activeData?.id, updateCurrentClimb]);
 
-  // Fly to selected POI
-  const selectedPOI = usePoiStore((s) => s.selectedPOI);
-  useEffect(() => {
-    if (selectedPOI) {
-      setFollowUser(false);
-      cameraRef.current?.setCamera({
-        centerCoordinate: [selectedPOI.longitude, selectedPOI.latitude],
-        zoomLevel: 14,
-        animationDuration: 500,
-      });
-    }
-  }, [selectedPOI, setFollowUser]);
-
   const handlePOIClusterPress = useCallback(
     (centerCoordinate: [number, number], zoomLevel: number) => {
       setFollowUser(false);
@@ -553,7 +573,7 @@ export default function MapScreen() {
       const c = state.properties.center;
       const zoom = state.properties.zoom;
       lastCamera.current = { center: [c[0], c[1]], zoom };
-      updateRouteGeometryZoom(zoom);
+      updateRouteGeometryZoom(zoom, c[1]);
     },
     [updateRouteGeometryZoom],
   );
@@ -595,22 +615,83 @@ export default function MapScreen() {
     [routes, visibleRoutePoints],
   );
 
-  const activeCollectionRoute = useMemo(() => {
-    if (activeData?.type !== "collection") return null;
-    return {
-      id: activeData.id,
-      name: activeData.name,
-      fileName: `${activeData.id}.collection`,
-      color: "",
-      isActive: true,
-      isVisible: true,
-      totalDistanceMeters: activeData.totalDistanceMeters,
-      totalAscentMeters: activeData.totalAscentMeters,
-      totalDescentMeters: activeData.totalDescentMeters,
-      pointCount: activeRoutePoints?.length ?? 0,
-      createdAt: "",
-    };
-  }, [activeData, activeRoutePoints?.length]);
+  const activeCollectionRouteId = activeData?.type === "collection" ? activeData.id : null;
+  const routeGeometryRequests = useMemo<PreparedRouteGeometryRequest[]>(() => {
+    const requests: PreparedRouteGeometryRequest[] = [];
+    for (const route of renderedRoutes) {
+      requests.push({
+        id: `route:${route.id}`,
+        cacheKey: route.id,
+        points: visibleRoutePoints[route.id],
+        toleranceMeters: routeGeometryToleranceMeters,
+      });
+    }
+    if (activeCollectionRouteId && activeRoutePoints) {
+      requests.push({
+        id: `collection:${activeCollectionRouteId}`,
+        cacheKey: `${activeCollectionRouteId}:${activeSegmentsKey}`,
+        points: activeRoutePoints,
+        toleranceMeters: routeGeometryToleranceMeters,
+      });
+    }
+    return requests;
+  }, [
+    renderedRoutes,
+    visibleRoutePoints,
+    activeCollectionRouteId,
+    activeRoutePoints,
+    activeSegmentsKey,
+    routeGeometryToleranceMeters,
+  ]);
+  const preparedRouteGeometries = usePreparedRouteGeometries(routeGeometryRequests);
+
+  const routeLayers = useMemo<MapCanvasRouteLayer[]>(() => {
+    const layers: MapCanvasRouteLayer[] = [];
+    for (const route of renderedRoutes) {
+      const prepared = preparedRouteGeometries[`route:${route.id}`];
+      if (!prepared) continue;
+      layers.push({
+        id: route.id,
+        key: `${route.id}-${mapStyle.styleKey}`,
+        isActive: true,
+        geoJSON: prepared.geoJSON,
+      });
+    }
+    if (activeCollectionRouteId) {
+      const prepared = preparedRouteGeometries[`collection:${activeCollectionRouteId}`];
+      if (prepared) {
+        layers.push({
+          id: activeCollectionRouteId,
+          key: `${activeCollectionRouteId}-${mapStyle.styleKey}`,
+          isActive: true,
+          geoJSON: prepared.geoJSON,
+        });
+      }
+    }
+    return layers;
+  }, [renderedRoutes, preparedRouteGeometries, activeCollectionRouteId, mapStyle.styleKey]);
+
+  useEffect(() => {
+    if (activeData?.type !== "collection" || activeCollectionSegments.length === 0) {
+      setActiveVariantMetricsByKey({});
+      return;
+    }
+    const metrics: Record<string, VariantMetric> = {};
+    measureSync("map.variantMetrics", () => {
+      for (const variants of groupCollectionSegments(activeCollectionSegments)) {
+        for (const sw of variants) {
+          const metric = variantMetric(
+            sw,
+            activeVariantPointsByRouteId,
+            powerConfig,
+            variantMetricKey(sw),
+          );
+          if (metric) metrics[variantMetricKey(sw)] = metric;
+        }
+      }
+    });
+    setActiveVariantMetricsByKey(metrics);
+  }, [activeData?.type, activeCollectionSegments, activeVariantPointsByRouteId, powerConfig]);
 
   const activeVariantOverlays = useMemo<VariantOverlay[]>(() => {
     if (activeData?.type !== "collection" || activeCollectionSegments.length === 0) return [];
@@ -618,7 +699,7 @@ export default function MapScreen() {
     for (const variants of groupCollectionSegments(activeCollectionSegments)) {
       if (variants.length <= 1) continue;
       const reference = variants.find((sw) => sw.segment.isSelected) ?? variants[0];
-      const referenceMetric = variantMetric(reference, activeVariantPointsByRouteId, powerConfig);
+      const referenceMetric = activeVariantMetricsByKey[variantMetricKey(reference)];
       if (!referenceMetric) continue;
 
       for (const sw of variants) {
@@ -638,7 +719,7 @@ export default function MapScreen() {
               )
             : rawPoints;
         if (!points || points.length < 2) continue;
-        const metric = variantMetric(sw, activeVariantPointsByRouteId, powerConfig);
+        const metric = activeVariantMetricsByKey[variantMetricKey(sw)];
         if (!metric) continue;
         overlays.push({
           id: sw.route.id,
@@ -652,7 +733,7 @@ export default function MapScreen() {
     activeData?.type,
     activeCollectionSegments,
     activeVariantPointsByRouteId,
-    powerConfig,
+    activeVariantMetricsByKey,
     units,
   ]);
 
@@ -662,184 +743,49 @@ export default function MapScreen() {
     const ids = renderedRoutes.map(
       (route) => `${route.id}:${visibleRoutePoints[route.id]?.length ?? 0}`,
     );
-    if (activeCollectionRoute) {
-      ids.push(`${activeCollectionRoute.id}:${activeRoutePoints?.length ?? 0}`);
+    if (activeCollectionRouteId) {
+      ids.push(`${activeCollectionRouteId}:${activeRoutePoints?.length ?? 0}`);
     }
     return `${ids.sort().join(",")}-${mapStyle.styleKey}`;
   }, [
     renderedRoutes,
     visibleRoutePoints,
-    activeCollectionRoute,
+    activeCollectionRouteId,
     activeRoutePoints?.length,
     mapStyle.styleKey,
   ]);
 
-  // Climb to highlight on the map — active when Climbs tab is selected
-  const highlightedClimb = useMemo(() => {
-    if (panelTab !== "climbs") return null;
-    const displayed = filterClimbsToRidingHorizon(
-      getClimbsForDisplay(activeRouteIds, activeData?.segments ?? null),
-      climbHorizonWindow,
-    ).filter((c) => isClimbAtLeastDifficulty(c.difficultyScore, minimumDifficulty));
-    const selected =
-      selectedClimb && displayed.some((c) => c.id === selectedClimb.id) ? selectedClimb : null;
-    return resolveActiveClimb(displayed, activeProgressDistanceMeters, selected);
-    // allClimbData is a reactivity trigger: getClimbsForDisplay reads store via get() and is not itself reactive
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    panelTab,
-    selectedClimb,
-    activeRouteIds,
-    activeData?.segments,
-    activeProgressDistanceMeters,
-    minimumDifficulty,
-    climbHorizonWindow,
-    allClimbData,
-  ]);
-
-  const climbStackKey = `${routeStackKey}-${highlightedClimb?.id ?? "none"}`;
-  const hasWeatherTemperatureOverlay =
-    panelTab === "weather" &&
-    activeRoutePoints != null &&
-    weatherRouteId === activeData?.id &&
-    weatherTimeline.length > 1;
-  const weatherStackKey = hasWeatherTemperatureOverlay ? "weather:on" : "weather:off";
-  const overlayStackKey = `${climbStackKey}-${activeContextKey ?? "none"}-markers:${
-    showDistanceMarkers ? "on" : "off"
-  }-${weatherStackKey}-pois:${showPOIs ? "on" : "off"}`;
-
-  // Center highlighted climbs without increasing zoom; zoom out only when the climb cannot fit.
-  useEffect(() => {
-    if (!highlightedClimb || !activeRoutePoints?.length) return;
-    const climbBounds = getClimbMapBounds(
-      activeRoutePoints,
-      highlightedClimb.effectiveStartDistanceMeters,
-      highlightedClimb.effectiveEndDistanceMeters,
-    );
-    if (!climbBounds) return;
-    const bounds = climbBounds;
-
-    setFollowUser(false);
-    cameraRef.current?.setCamera({
-      centerCoordinate: bounds.center,
-      padding: {
-        paddingTop: 0,
-        paddingRight: 0,
-        paddingBottom: overlayPanelHeight,
-        paddingLeft: 0,
-      },
-      zoomLevel: getZoomLevelToFitBounds(
-        lastCamera.current.zoom,
-        bounds,
-        screenWidth,
-        screenHeight,
-        {
-          top: CLIMB_PAN_PADDING.top,
-          right: CLIMB_PAN_PADDING.right,
-          bottom: overlayPanelHeight + CLIMB_PAN_PADDING.bottom,
-          left: CLIMB_PAN_PADDING.left,
-        },
-      ),
-      animationMode: "easeTo",
-      animationDuration: 500,
-    });
-  }, [
-    highlightedClimb,
-    activeRoutePoints,
-    overlayPanelHeight,
-    screenHeight,
-    screenWidth,
-    setFollowUser,
-  ]);
-
-  const currentPOIDistanceMeters = activeProgressDistanceMeters;
-
   return (
     <View className="flex-1">
-      <MapboxMapView
-        ref={mapRef}
-        style={{ flex: 1 }}
-        {...mapStyle.props}
-        compassEnabled={false}
-        scaleBarEnabled={false}
-        rotateEnabled={false}
-        pitchEnabled={false}
+      <MapCanvas
+        mapRef={mapRef}
+        cameraRef={cameraRef}
+        lastCamera={lastCamera}
+        initialCamera={initialCamera.current}
+        mapStyle={mapStyle}
+        cameraPadding={cameraPadding}
+        pulsingConfig={pulsingConfig}
+        routeLayers={routeLayers}
+        routeStackKey={routeStackKey}
+        activeRoutePoints={activeRoutePoints}
+        activeRouteIds={activeRouteIds}
+        activeSegments={activeData?.segments ?? null}
+        activeDataId={activeData?.id ?? null}
+        activeContextKey={activeContextKey}
+        activeTotalDistanceMeters={activeData?.totalDistanceMeters ?? null}
+        activeProgressDistanceMeters={activeProgressDistanceMeters}
+        mapOverlayMode={mapOverlayMode}
+        activeVariantOverlays={activeVariantOverlays}
+        weatherRouteId={weatherRouteId}
+        weatherTimeline={weatherTimeline}
+        weatherTemperatureMode={weatherTemperatureMode}
+        showDistanceMarkers={showDistanceMarkers}
+        showPOIs={showPOIs}
         onTouchStart={handleTouchStart}
         onCameraChanged={handleCameraChanged}
-      >
-        <Camera
-          ref={cameraRef}
-          defaultSettings={{
-            centerCoordinate: initialCamera.current.center,
-            zoomLevel: initialCamera.current.zoom,
-          }}
-          animationDuration={500}
-          padding={cameraPadding}
-        />
-        {renderedRoutes.map((route) => {
-          const styledRoute = route.isActive ? route : { ...route, isActive: true };
-          return (
-            <RouteLayer
-              key={`${route.id}-${mapStyle.styleKey}`}
-              route={styledRoute}
-              points={visibleRoutePoints[route.id]}
-              zoomLevel={routeGeometryZoom}
-              dimmed={highlightedClimb != null}
-            />
-          );
-        })}
-        {activeVariantOverlays.length > 0 && (
-          <VariantOverlayLayer
-            key={`collection-variants-${routeStackKey}`}
-            overlays={activeVariantOverlays}
-          />
-        )}
-        {activeCollectionRoute && activeRoutePoints && activeRoutePoints.length > 1 && (
-          <RouteLayer
-            key={`${activeCollectionRoute.id}-${mapStyle.styleKey}`}
-            route={activeCollectionRoute}
-            points={activeRoutePoints}
-            zoomLevel={routeGeometryZoom}
-            dimmed={highlightedClimb != null}
-          />
-        )}
-        {highlightedClimb && activeRoutePoints && (
-          <ClimbHighlightLayer
-            key={`climb-${highlightedClimb.id}-${routeStackKey}`}
-            climb={highlightedClimb}
-            points={activeRoutePoints}
-          />
-        )}
-        {hasWeatherTemperatureOverlay && activeRoutePoints && (
-          <TemperatureRouteOverlay
-            key={`weather-temperature-${overlayStackKey}`}
-            points={activeRoutePoints}
-            timeline={weatherTimeline}
-            temperatureMode={weatherTemperatureMode}
-          />
-        )}
-        <RouteMarkerLayer
-          key={`route-markers-${overlayStackKey}`}
-          points={activeRoutePoints ?? []}
-          showDistanceMarkers={showDistanceMarkers}
-        />
-        {(showPOIs || selectedPOI) && activeRouteIds.length > 0 && (
-          <POILayer
-            key={`pois-${overlayStackKey}`}
-            routeIds={activeRouteIds}
-            segments={activeData?.segments ?? null}
-            currentDistanceMeters={currentPOIDistanceMeters}
-            onClusterPress={handlePOIClusterPress}
-            showOnlySelected={!showPOIs}
-          />
-        )}
-        <LocationPuck
-          key={`puck-${overlayStackKey}`}
-          puckBearing="heading"
-          puckBearingEnabled
-          pulsing={pulsingConfig}
-        />
-      </MapboxMapView>
+        onClusterPress={handlePOIClusterPress}
+        setFollowUser={setFollowUser}
+      />
 
       <MapControls onLocate={handleLocate} />
       <TabbedBottomPanel activeData={activeData} />

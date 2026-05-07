@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  computeCachedRouteETA,
+  computeCachedRouteTotalETA,
   computeRouteETA,
   computeRouteTotalETA,
   getETABetweenIndices,
@@ -58,6 +60,37 @@ describe("etaCalculator", () => {
     expect(computeRouteTotalETA([basePoint(0, 0, 0)], DEFAULT_POWER_CONFIG)).toBeNull();
     expect(computeRouteTotalETA(points, DEFAULT_POWER_CONFIG)).toBe(
       cumulative[cumulative.length - 1],
+    );
+  });
+
+  it("caches ETA arrays by route key, point fingerprint, and power config", () => {
+    const points = [basePoint(0, 100, 0), basePoint(500, 120, 1), basePoint(1_000, 110, 2)];
+    const equivalent = points.map((p) => ({ ...p }));
+    const higherPower = {
+      ...DEFAULT_POWER_CONFIG,
+      powerWatts: DEFAULT_POWER_CONFIG.powerWatts + 20,
+    };
+
+    expect(computeCachedRouteETA("r1", points, DEFAULT_POWER_CONFIG)).toBe(
+      computeCachedRouteETA("r1", equivalent, DEFAULT_POWER_CONFIG),
+    );
+    expect(computeCachedRouteETA("r1", points, DEFAULT_POWER_CONFIG)).not.toBe(
+      computeCachedRouteETA("r1", points, higherPower),
+    );
+  });
+
+  it("caches total ETA by route key while preserving computed values", () => {
+    const points = [basePoint(0, 100, 0), basePoint(500, 120, 1), basePoint(1_000, 110, 2)];
+
+    expect(computeCachedRouteTotalETA("variant-a", points, DEFAULT_POWER_CONFIG)).toBe(
+      computeRouteTotalETA(points, DEFAULT_POWER_CONFIG),
+    );
+    expect(computeCachedRouteTotalETA("variant-a", points, DEFAULT_POWER_CONFIG)).toBe(
+      computeCachedRouteTotalETA(
+        "variant-a",
+        points.map((p) => Object.assign({}, p)),
+        DEFAULT_POWER_CONFIG,
+      ),
     );
   });
 

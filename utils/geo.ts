@@ -1,18 +1,32 @@
 import type { RoutePoint } from "@/types";
+import { measureSync } from "@/utils/perfMarks";
 
 const EARTH_RADIUS_M = 6_371_000;
 const METERS_PER_LAT_DEGREE = 111_320;
 const MAP_SIMPLIFY_TOLERANCE_M = 20;
-const MAP_SIMPLIFY_TOLERANCE_BY_ZOOM = [
-  { minZoom: 15, toleranceMeters: 3 },
-  { minZoom: 13, toleranceMeters: 8 },
-  { minZoom: 11, toleranceMeters: MAP_SIMPLIFY_TOLERANCE_M },
-  { minZoom: 9, toleranceMeters: 60 },
-  { minZoom: 0, toleranceMeters: 180 },
+const WEB_MERCATOR_WORLD_SIZE_PX = 512;
+const EARTH_CIRCUMFERENCE_M = 2 * Math.PI * 6_378_137;
+const DEFAULT_MAP_GEOMETRY_VIEWPORT = {
+  latitude: 48.2,
+  widthPx: 390,
+  heightPx: 844,
+};
+const MAP_SIMPLIFY_TOLERANCE_BY_VISIBLE_SPAN = [
+  { maxVisibleSpanMeters: 30_000, toleranceMeters: 0 },
+  { maxVisibleSpanMeters: 250_000, toleranceMeters: 12 },
+  { maxVisibleSpanMeters: Infinity, toleranceMeters: 120 },
 ] as const;
 const mapGeoJSONCache = new WeakMap<
   RoutePoint[],
   Map<number, GeoJSON.Feature<GeoJSON.LineString>>
+>();
+const keyedMapGeoJSONCache = new Map<
+  string,
+  {
+    points: RoutePoint[];
+    fingerprint: string;
+    geoJSON: GeoJSON.Feature<GeoJSON.LineString>;
+  }
 >();
 
 export function toRad(deg: number): number {
@@ -879,14 +893,69 @@ export function routeToGeoJSON(points: RoutePoint[]): GeoJSON.Feature<GeoJSON.Li
   };
 }
 
-export function getMapSimplifyToleranceForZoom(zoomLevel?: number): number {
-  if (zoomLevel == null || !Number.isFinite(zoomLevel)) return MAP_SIMPLIFY_TOLERANCE_M;
+export interface MapSimplifyViewport {
+  latitude?: number | null;
+  viewportWidthPx?: number | null;
+  viewportHeightPx?: number | null;
+}
 
-  for (const bucket of MAP_SIMPLIFY_TOLERANCE_BY_ZOOM) {
-    if (zoomLevel >= bucket.minZoom) return bucket.toleranceMeters;
+export function estimateMapVisibleSpanMeters(
+  zoomLevel: number | null | undefined,
+  viewport: MapSimplifyViewport = {},
+): number | null {
+  if (zoomLevel == null || !Number.isFinite(zoomLevel)) return null;
+  const latitude = Number.isFinite(viewport.latitude)
+    ? Math.max(-85, Math.min(85, viewport.latitude ?? 0))
+    : DEFAULT_MAP_GEOMETRY_VIEWPORT.latitude;
+  const widthPx =
+    viewport.viewportWidthPx != null && Number.isFinite(viewport.viewportWidthPx)
+      ? Math.max(1, viewport.viewportWidthPx)
+      : DEFAULT_MAP_GEOMETRY_VIEWPORT.widthPx;
+  const heightPx =
+    viewport.viewportHeightPx != null && Number.isFinite(viewport.viewportHeightPx)
+      ? Math.max(1, viewport.viewportHeightPx)
+      : DEFAULT_MAP_GEOMETRY_VIEWPORT.heightPx;
+  const metersPerPixel =
+    (EARTH_CIRCUMFERENCE_M * Math.cos(toRad(latitude))) /
+    (WEB_MERCATOR_WORLD_SIZE_PX * 2 ** zoomLevel);
+  return Math.max(widthPx, heightPx) * metersPerPixel;
+}
+
+export function getMapSimplifyToleranceForVisibleSpan(
+  visibleSpanMeters: number | null | undefined,
+): number {
+  if (visibleSpanMeters == null || !Number.isFinite(visibleSpanMeters)) {
+    return MAP_SIMPLIFY_TOLERANCE_M;
+  }
+
+  for (const bucket of MAP_SIMPLIFY_TOLERANCE_BY_VISIBLE_SPAN) {
+    if (visibleSpanMeters <= bucket.maxVisibleSpanMeters) return bucket.toleranceMeters;
   }
 
   return MAP_SIMPLIFY_TOLERANCE_M;
+}
+
+export function getMapSimplifyToleranceForZoom(
+  zoomLevel?: number,
+  viewport?: MapSimplifyViewport,
+): number {
+  return getMapSimplifyToleranceForVisibleSpan(estimateMapVisibleSpanMeters(zoomLevel, viewport));
+}
+
+export function routePointArrayFingerprint(points: RoutePoint[]): string {
+  if (points.length === 0) return "empty";
+  return points
+    .map((point, index) => {
+      return [
+        index,
+        point.idx,
+        Math.round(point.distanceFromStartMeters),
+        point.latitude.toFixed(6),
+        point.longitude.toFixed(6),
+        point.elevationMeters == null ? "n" : Math.round(point.elevationMeters),
+      ].join(":");
+    })
+    .join("|");
 }
 
 function projectedPoint(point: RoutePoint, origin: RoutePoint): { x: number; y: number } {
@@ -921,6 +990,7 @@ export function simplifyRoutePointsForMap(
   toleranceMeters = MAP_SIMPLIFY_TOLERANCE_M,
 ): RoutePoint[] {
   if (points.length <= 2) return points;
+  if (toleranceMeters <= 0 || !Number.isFinite(toleranceMeters)) return points;
 
   const origin = points[0];
   const projected = points.map((point) => projectedPoint(point, origin));
@@ -971,8 +1041,58 @@ export function routeToMapGeoJSON(
   const cached = cachedByTolerance.get(toleranceMeters);
   if (cached) return cached;
 
-  const simplified = simplifyRoutePointsForMap(points, toleranceMeters);
-  const geoJSON = routeToGeoJSON(simplified);
+  const geoJSON = measureSync("map.routeGeoJSON", () => {
+    const simplified = simplifyRoutePointsForMap(points, toleranceMeters);
+    return routeToGeoJSON(simplified);
+  });
   cachedByTolerance.set(toleranceMeters, geoJSON);
+  return geoJSON;
+}
+
+export function routeToMapGeoJSONForKey(
+  cacheKey: string,
+  points: RoutePoint[],
+  toleranceMeters = MAP_SIMPLIFY_TOLERANCE_M,
+): GeoJSON.Feature<GeoJSON.LineString> {
+  const key = `${cacheKey}:${toleranceMeters}`;
+  const cached = keyedMapGeoJSONCache.get(key);
+  if (cached?.points === points) return cached.geoJSON;
+
+  const fingerprint = routePointArrayFingerprint(points);
+  if (cached?.fingerprint === fingerprint) return cached.geoJSON;
+
+  return prepareRouteMapGeoJSONForKey(cacheKey, points, toleranceMeters, fingerprint);
+}
+
+export function peekRouteMapGeoJSONForKey(
+  cacheKey: string,
+  points: RoutePoint[],
+  toleranceMeters = MAP_SIMPLIFY_TOLERANCE_M,
+): GeoJSON.Feature<GeoJSON.LineString> | null {
+  const key = `${cacheKey}:${toleranceMeters}`;
+  const cached = keyedMapGeoJSONCache.get(key);
+  if (cached?.points === points) return cached.geoJSON;
+  if (!cached) return null;
+
+  const fingerprint = routePointArrayFingerprint(points);
+  return cached.fingerprint === fingerprint ? cached.geoJSON : null;
+}
+
+export function prepareRouteMapGeoJSONForKey(
+  cacheKey: string,
+  points: RoutePoint[],
+  toleranceMeters = MAP_SIMPLIFY_TOLERANCE_M,
+  knownFingerprint?: string,
+): GeoJSON.Feature<GeoJSON.LineString> {
+  const cached = peekRouteMapGeoJSONForKey(cacheKey, points, toleranceMeters);
+  if (cached) return cached;
+
+  const fingerprint = knownFingerprint ?? routePointArrayFingerprint(points);
+  const geoJSON = measureSync("map.routeGeoJSON", () => {
+    const simplified = simplifyRoutePointsForMap(points, toleranceMeters);
+    return routeToGeoJSON(simplified);
+  });
+  const key = `${cacheKey}:${toleranceMeters}`;
+  keyedMapGeoJSONCache.set(key, { points, fingerprint, geoJSON });
   return geoJSON;
 }

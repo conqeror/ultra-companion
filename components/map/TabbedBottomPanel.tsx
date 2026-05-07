@@ -48,7 +48,7 @@ interface TabbedBottomPanelProps {
   activeData: ActiveRouteData | null;
 }
 
-export default function TabbedBottomPanel({ activeData }: TabbedBottomPanelProps) {
+function TabbedBottomPanel({ activeData }: TabbedBottomPanelProps) {
   const colors = useThemeColors();
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const { top: safeTop, bottom: safeBottom } = useSafeAreaInsets();
@@ -213,3 +213,5 @@ export default function TabbedBottomPanel({ activeData }: TabbedBottomPanelProps
     </Animated.View>
   );
 }
+
+export default React.memo(TabbedBottomPanel, (prev, next) => prev.activeData === next.activeData);

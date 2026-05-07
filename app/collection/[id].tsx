@@ -30,6 +30,10 @@ import type {
 } from "@/types";
 import { useMapStyle } from "@/hooks/useMapStyle";
 import { useRouteGeometryZoom } from "@/hooks/useRouteGeometryZoom";
+import {
+  usePreparedRouteGeometries,
+  type PreparedRouteGeometryRequest,
+} from "@/hooks/usePreparedRouteGeometries";
 import { formatDistance, formatElevation } from "@/utils/formatters";
 import { computeBounds } from "@/utils/geo";
 import {
@@ -81,7 +85,7 @@ export default function CollectionDetailScreen() {
   const cameraRef = useRef<Camera>(null);
   const colors = useThemeColors();
   const mapStyle = useMapStyle();
-  const { routeGeometryZoom, updateRouteGeometryZoom } = useRouteGeometryZoom();
+  const { routeGeometryToleranceMeters, updateRouteGeometryZoom } = useRouteGeometryZoom();
 
   const [collection, setCollection] = useState<Collection | null>(null);
   const [segmentsWithRoutes, setSegmentsWithRoutes] = useState<CollectionSegmentWithRoute[]>([]);
@@ -209,6 +213,24 @@ export default function CollectionDetailScreen() {
     () => (collection ? `collection-${collection.id}` : "collection"),
     [collection],
   );
+  const routeGeometryRequests = useMemo<PreparedRouteGeometryRequest[]>(() => {
+    const requests = variantRouteOverlays.map((overlay) => ({
+      id: overlay.route.id,
+      cacheKey: overlay.route.id,
+      points: overlay.points,
+      toleranceMeters: routeGeometryToleranceMeters,
+    }));
+    if (stitched?.points.length) {
+      requests.push({
+        id: selectedRouteLayerId,
+        cacheKey: selectedRouteLayerId,
+        points: stitched.points,
+        toleranceMeters: routeGeometryToleranceMeters,
+      });
+    }
+    return requests;
+  }, [variantRouteOverlays, stitched?.points, selectedRouteLayerId, routeGeometryToleranceMeters]);
+  const preparedRouteGeometries = usePreparedRouteGeometries(routeGeometryRequests);
 
   // Fit mini map camera when bounds change (defaultSettings only applies on mount)
   useEffect(() => {
@@ -610,32 +632,26 @@ export default function CollectionDetailScreen() {
                     : undefined
                 }
               />
-              {variantRouteOverlays.map((overlay) => (
+              {variantRouteOverlays.map((overlay) => {
+                const prepared = preparedRouteGeometries[overlay.route.id];
+                if (!prepared) return null;
+                return (
+                  <RouteLayer
+                    key={`${overlay.route.id}-${mapStyle.styleKey}`}
+                    routeId={overlay.route.id}
+                    geoJSON={prepared.geoJSON}
+                    isActive={false}
+                  />
+                );
+              })}
+              {preparedRouteGeometries[selectedRouteLayerId] && (
                 <RouteLayer
-                  key={`${overlay.route.id}-${mapStyle.styleKey}`}
-                  route={overlay.route}
-                  points={overlay.points}
-                  zoomLevel={routeGeometryZoom}
+                  key={`${collection.id}-${mapStyle.styleKey}`}
+                  routeId={selectedRouteLayerId}
+                  geoJSON={preparedRouteGeometries[selectedRouteLayerId].geoJSON}
+                  isActive
                 />
-              ))}
-              <RouteLayer
-                key={`${collection.id}-${mapStyle.styleKey}`}
-                route={{
-                  id: selectedRouteLayerId,
-                  name: collection.name,
-                  fileName: `${collection.id}.collection`,
-                  color: "#0D9488",
-                  isActive: true,
-                  isVisible: true,
-                  totalDistanceMeters: stitched.totalDistanceMeters,
-                  totalAscentMeters: stitched.totalAscentMeters,
-                  totalDescentMeters: stitched.totalDescentMeters,
-                  pointCount: stitched.points.length,
-                  createdAt: collection.createdAt,
-                }}
-                points={stitched.points}
-                zoomLevel={routeGeometryZoom}
-              />
+              )}
             </MapboxMapView>
           </View>
         )}

@@ -1,0 +1,203 @@
+import { climbDifficultyColor } from "@/constants/climbHelpers";
+import { getCategoryMeta, ohStatusColorKey } from "@/constants/poiHelpers";
+import {
+  departureTimeAfterPlannedStop,
+  getPlannedStopDurationMinutes,
+} from "@/services/plannedStops";
+import type { UpcomingEvent, UpcomingEventKind } from "@/services/upcomingTimeline";
+import { getOpeningHoursStatus } from "@/services/openingHoursParser";
+import { formatDistance, formatDuration, formatElevation, formatETA } from "@/utils/formatters";
+import type { ThemeColors } from "@/theme";
+import type { UnitSystem } from "@/types";
+
+type ThemeColorValues = Record<keyof ThemeColors, string>;
+
+export type UpcomingRowColor =
+  | { kind: "theme"; key: keyof ThemeColors }
+  | { kind: "value"; value: string };
+
+export type UpcomingRowIcon =
+  | { kind: "poi"; iconName: string }
+  | { kind: "climb" }
+  | { kind: "segment" }
+  | { kind: "finish" };
+
+export interface UpcomingRowModel {
+  id: string;
+  itemType: UpcomingEventKind;
+  event: UpcomingEvent;
+  isPressable: boolean;
+  title: string;
+  subtitle: string;
+  subtitleColor: UpcomingRowColor;
+  accentColor: UpcomingRowColor;
+  icon: UpcomingRowIcon;
+  clockLabel: string;
+  departureLabel: string | null;
+  climbEndLabel: string | null;
+  ridingTimeLabel: string;
+  distanceLabel: string;
+  distanceDirectionLabel: "ahead" | "behind";
+  hasStopInterval: boolean;
+  hasClimbInterval: boolean;
+  accessibilityLabel: string;
+}
+
+export interface BuildUpcomingRowModelsInput {
+  events: readonly UpcomingEvent[];
+  currentDistanceMeters: number | null;
+  units: UnitSystem;
+  referenceTime?: Date;
+}
+
+interface BuildUpcomingRowModelInput {
+  event: UpcomingEvent;
+  currentDistanceMeters: number | null;
+  units: UnitSystem;
+  referenceTime?: Date;
+}
+
+export function buildUpcomingRowModels({
+  events,
+  currentDistanceMeters,
+  units,
+  referenceTime,
+}: BuildUpcomingRowModelsInput): UpcomingRowModel[] {
+  return events.map((event) =>
+    buildUpcomingRowModel({ event, currentDistanceMeters, units, referenceTime }),
+  );
+}
+
+export function getUpcomingRowItemType(item: UpcomingRowModel): UpcomingEventKind {
+  return item.itemType;
+}
+
+export function resolveUpcomingRowColor(color: UpcomingRowColor, colors: ThemeColorValues): string {
+  return color.kind === "theme" ? colors[color.key] : color.value;
+}
+
+function buildUpcomingRowModel({
+  event,
+  currentDistanceMeters,
+  units,
+  referenceTime,
+}: BuildUpcomingRowModelInput): UpcomingRowModel {
+  const distanceAhead =
+    currentDistanceMeters != null
+      ? event.distanceMeters - currentDistanceMeters
+      : event.distanceMeters;
+  const distanceLabel =
+    distanceAhead >= 0
+      ? formatDistance(distanceAhead, units)
+      : `-${formatDistance(Math.abs(distanceAhead), units)}`;
+  const distanceDirectionLabel = distanceAhead >= 0 ? "ahead" : "behind";
+  const eta = event.eta;
+  const plannedStopMinutes = event.kind === "poi" ? getPlannedStopDurationMinutes(event.poi) : 0;
+  const departureTime =
+    event.kind === "poi" ? departureTimeAfterPlannedStop(eta, plannedStopMinutes) : null;
+  const hasStopInterval = plannedStopMinutes > 0 && eta != null && departureTime != null;
+  const hasClimbInterval = event.kind === "climb-span" && !event.isActive && event.endEta != null;
+  const clockLabel = eta ? formatETA(eta.eta) : "--:--";
+  const departureLabel = departureTime ? formatETA(departureTime) : null;
+  const climbEndLabel =
+    event.kind === "climb-span" && event.endEta ? formatETA(event.endEta.eta) : null;
+  const primaryRidingTime = eta ?? (event.kind === "climb-span" ? event.endEta : null);
+  const ridingTimeLabel =
+    primaryRidingTime && primaryRidingTime.ridingTimeSeconds > 0
+      ? `~${formatDuration(primaryRidingTime.ridingTimeSeconds)}`
+      : "no ETA";
+  const content = upcomingEventContent(event, units, referenceTime);
+  const isPressable = event.kind === "poi" || event.kind === "climb-span";
+  const accessibilityLabel = [
+    content.title,
+    content.subtitle,
+    eta ? `ETA ${clockLabel}` : null,
+    hasStopInterval && departureLabel ? `depart ${departureLabel}` : null,
+    hasClimbInterval && climbEndLabel ? `end ${climbEndLabel}` : null,
+    `${distanceLabel} ${distanceDirectionLabel}`,
+  ]
+    .filter(Boolean)
+    .join(", ");
+
+  return {
+    id: event.id,
+    itemType: event.kind,
+    event,
+    isPressable,
+    title: content.title,
+    subtitle: content.subtitle,
+    subtitleColor: content.subtitleColor,
+    accentColor: content.accentColor,
+    icon: content.icon,
+    clockLabel,
+    departureLabel,
+    climbEndLabel,
+    ridingTimeLabel,
+    distanceLabel,
+    distanceDirectionLabel,
+    hasStopInterval,
+    hasClimbInterval,
+    accessibilityLabel,
+  };
+}
+
+function upcomingEventContent(
+  event: UpcomingEvent,
+  units: UnitSystem,
+  referenceTime?: Date,
+): Pick<UpcomingRowModel, "title" | "subtitle" | "subtitleColor" | "accentColor" | "icon"> {
+  switch (event.kind) {
+    case "poi": {
+      const meta = getCategoryMeta(event.poi.category);
+      const ohStatus = event.poi.tags.opening_hours
+        ? getOpeningHoursStatus(event.poi.tags.opening_hours, referenceTime)
+        : null;
+      const ohColorKey = ohStatusColorKey(ohStatus);
+      const offRoute =
+        event.poi.distanceFromRouteMeters > 50
+          ? ` · ${Math.round(event.poi.distanceFromRouteMeters)} m off`
+          : "";
+      const status = ohStatus
+        ? `${ohStatus.label}${ohStatus.detail ? ` · ${ohStatus.detail}` : ""}`
+        : (meta?.label ?? "POI");
+      return {
+        title: event.poi.name ?? meta?.label ?? "Unnamed POI",
+        subtitle: `${status}${offRoute}`,
+        subtitleColor: ohColorKey
+          ? { kind: "theme", key: ohColorKey }
+          : { kind: "value", value: meta?.color ?? "#9C958E" },
+        accentColor: { kind: "value", value: meta?.color ?? "#9C958E" },
+        icon: { kind: "poi", iconName: meta?.iconName ?? "MapPin" },
+      };
+    }
+    case "climb-span": {
+      const color = climbDifficultyColor(event.climb.difficultyScore);
+      return {
+        title: event.climb.name ?? "Climb",
+        subtitle: `${formatDistance(event.climb.lengthMeters, units)} · +${formatElevation(
+          event.climb.totalAscentMeters,
+          units,
+        )} · ${event.climb.averageGradientPercent}% avg`,
+        subtitleColor: { kind: "value", value: color },
+        accentColor: { kind: "value", value: color },
+        icon: { kind: "climb" },
+      };
+    }
+    case "segment-transition":
+      return {
+        title: `End ${event.fromSegment.routeName}`,
+        subtitle: `Start ${event.toSegment.routeName}`,
+        subtitleColor: { kind: "theme", key: "textSecondary" },
+        accentColor: { kind: "theme", key: "info" },
+        icon: { kind: "segment" },
+      };
+    case "finish":
+      return {
+        title: event.label,
+        subtitle: "End of active route",
+        subtitleColor: { kind: "theme", key: "textSecondary" },
+        accentColor: { kind: "theme", key: "accent" },
+        icon: { kind: "finish" },
+      };
+  }
+}

@@ -14,6 +14,7 @@ import { formatDistance, formatElevation } from "@/utils/formatters";
 import { categoryColor, getCategoryMeta } from "@/constants/poiHelpers";
 import { climbDifficultyColor } from "@/constants/climbHelpers";
 import { POI_ICON_MAP } from "@/constants/poiIcons";
+import { measureSync } from "@/utils/perfMarks";
 import type { RoutePoint, UnitSystem, DisplayPOI, DisplayClimb } from "@/types";
 
 interface SegmentBoundary {
@@ -71,6 +72,7 @@ const X_TICK_TARGET_PX = 120;
 const AnimatedRect = createAnimatedComponent(Rect);
 
 type Sample = { distance: number; elevation: number };
+const sampleCache = new WeakMap<RoutePoint[], Map<number, Sample[]>>();
 
 function resampleAtInterval(points: RoutePoint[], intervalM: number): Sample[] {
   if (points.length === 0) return [];
@@ -106,6 +108,24 @@ function resampleAtInterval(points: RoutePoint[], intervalM: number): Sample[] {
   }
 
   return result;
+}
+
+function resampleAtIntervalCached(points: RoutePoint[], intervalM: number): Sample[] {
+  const intervalKey = Math.round(intervalM * 100) / 100;
+  let byInterval = sampleCache.get(points);
+  if (!byInterval) {
+    byInterval = new Map();
+    sampleCache.set(points, byInterval);
+  }
+
+  const cached = byInterval.get(intervalKey);
+  if (cached) return cached;
+
+  const samples = measureSync("profile.resampleElevation", () =>
+    resampleAtInterval(points, intervalM),
+  );
+  byInterval.set(intervalKey, samples);
+  return samples;
 }
 
 function interpolateElevation(samples: Sample[], distance: number): number {
@@ -239,7 +259,7 @@ export default function ElevationProfile({
   }, [isScrollable, totalMeters, innerWidth]);
 
   const samples = useMemo(
-    () => resampleAtInterval(points, detailInterval),
+    () => resampleAtIntervalCached(points, detailInterval),
     [points, detailInterval],
   );
 
@@ -249,7 +269,7 @@ export default function ElevationProfile({
   }, [overviewShown, totalMeters]);
 
   const overviewSamples = useMemo(
-    () => (overviewShown ? resampleAtInterval(points, overviewInterval) : []),
+    () => (overviewShown ? resampleAtIntervalCached(points, overviewInterval) : []),
     [overviewShown, points, overviewInterval],
   );
 

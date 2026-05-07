@@ -1,18 +1,16 @@
 import React, { useCallback, useEffect, useMemo, useRef } from "react";
+import { FlashList, type FlashListRef, type ListRenderItem } from "@shopify/flash-list";
 import {
-  FlatList,
   TouchableOpacity,
   View,
-  type ListRenderItem,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Clock3, Flag, GitBranch, MapPin, Mountain } from "lucide-react-native";
+import { useShallow } from "zustand/react/shallow";
 import { Text } from "@/components/ui/text";
 import { POI_ICON_MAP } from "@/constants/poiIcons";
-import { getCategoryMeta, ohStatusColorKey } from "@/constants/poiHelpers";
-import { climbDifficultyColor } from "@/constants/climbHelpers";
 import { useThemeColors } from "@/theme";
 import { useClimbStore } from "@/store/climbStore";
 import { useEtaStore } from "@/store/etaStore";
@@ -27,47 +25,45 @@ import {
   resolveUpcomingHorizonETA,
   type UpcomingEvent,
 } from "@/services/upcomingTimeline";
-import { getOpeningHoursStatus } from "@/services/openingHoursParser";
-import {
-  departureTimeAfterPlannedStop,
-  getPlannedStopDurationMinutes,
-  plannedStopsFromPOIs,
-} from "@/services/plannedStops";
-import { formatDistance, formatDuration, formatElevation, formatETA } from "@/utils/formatters";
+import { plannedStopsFromPOIs } from "@/services/plannedStops";
+import { formatDuration } from "@/utils/formatters";
 import { resolveActiveRouteProgress } from "@/utils/routeProgress";
+import { bucketDistanceForDerivedWork } from "@/utils/distanceBuckets";
 import {
   createRidingHorizonWindow,
   ridingHorizonLabelForMode,
   ridingHorizonMetersForMode,
   ridingHorizonScopeLabelForMode,
 } from "@/utils/ridingHorizon";
-import type { ActiveRouteData, PanelMode, UnitSystem } from "@/types";
+import { measureSync } from "@/utils/perfMarks";
+import { pickRouteRecords } from "@/utils/routeScopedRecords";
+import {
+  buildUpcomingRowModels,
+  getUpcomingRowItemType,
+  resolveUpcomingRowColor,
+  type UpcomingRowIcon,
+  type UpcomingRowModel,
+} from "@/utils/upcomingRowModels";
+import type { ActiveRouteData, PanelMode } from "@/types";
 
 interface UpcomingTabContentProps {
   activeData: ActiveRouteData | null;
 }
 
-const INITIAL_RENDER_COUNT = 10;
-const LIST_MAX_BATCH = 8;
-const LIST_WINDOW_SIZE = 5;
-const LIST_BATCHING_PERIOD_MS = 50;
-
-function eventKeyExtractor(event: UpcomingEvent): string {
+function eventKeyExtractor(event: UpcomingRowModel): string {
   return event.id;
 }
 
 export default function UpcomingTabContent({ activeData }: UpcomingTabContentProps) {
-  const listRef = useRef<FlatList<UpcomingEvent>>(null);
+  const listRef = useRef<FlashListRef<UpcomingRowModel>>(null);
   const initialScrollOffsetRef = useRef(usePanelStore.getState().upcomingScrollOffset);
   const restoredScrollOffsetRef = useRef(false);
   const colors = useThemeColors();
   const { bottom: safeBottom } = useSafeAreaInsets();
   const units = useSettingsStore((s) => s.units);
   const snappedPosition = useRouteStore((s) => s.snappedPosition);
-  const allPois = usePoiStore((s) => s.pois);
   const starredPOIIds = usePoiStore((s) => s.starredPOIIds);
   const setSelectedPOI = usePoiStore((s) => s.setSelectedPOI);
-  const allClimbs = useClimbStore((s) => s.climbs);
   const getClimbsForDisplay = useClimbStore((s) => s.getClimbsForDisplay);
   const setSelectedClimb = useClimbStore((s) => s.setSelectedClimb);
   const cumulativeTime = useEtaStore((s) => s.cumulativeTime);
@@ -80,6 +76,8 @@ export default function UpcomingTabContent({ activeData }: UpcomingTabContentPro
   const segments = activeData?.segments ?? null;
   const routePoints = activeData?.points ?? null;
   const totalDistanceMeters = activeData?.totalDistanceMeters ?? 0;
+  const routePois = usePoiStore(useShallow((s) => pickRouteRecords(s.pois, routeIds)));
+  const routeClimbs = useClimbStore(useShallow((s) => pickRouteRecords(s.climbs, routeIds)));
   const activeRouteProgress = useMemo(
     () =>
       resolveActiveRouteProgress(activeData, snappedPosition, {
@@ -88,49 +86,54 @@ export default function UpcomingTabContent({ activeData }: UpcomingTabContentPro
     [activeData, snappedPosition, timing.plannedStartMs],
   );
   const currentDistanceMeters = activeRouteProgress?.distanceAlongRouteMeters ?? null;
+  const derivedCurrentDistanceMeters = bucketDistanceForDerivedWork(currentDistanceMeters);
   const ridingHorizonMeters = ridingHorizonMetersForMode(panelMode);
   const horizonWindow = useMemo(
     () =>
-      createRidingHorizonWindow(currentDistanceMeters, ridingHorizonMeters, {
+      createRidingHorizonWindow(derivedCurrentDistanceMeters, ridingHorizonMeters, {
         totalDistanceMeters,
       }),
-    [currentDistanceMeters, ridingHorizonMeters, totalDistanceMeters],
+    [derivedCurrentDistanceMeters, ridingHorizonMeters, totalDistanceMeters],
   );
 
   const displayPOIs = useMemo(() => {
-    return displayPOIsForActiveRoute(routeIds, segments, allPois);
-  }, [routeIds, segments, allPois]);
+    return measureSync("upcoming.displayPOIs", () =>
+      displayPOIsForActiveRoute(routeIds, segments, routePois),
+    );
+  }, [routeIds, segments, routePois]);
 
   const displayClimbs = useMemo(
-    () => getClimbsForDisplay(routeIds, segments),
-    // allClimbs is a reactivity trigger: getClimbsForDisplay reads store via get() and is not itself reactive
+    () => measureSync("upcoming.displayClimbs", () => getClimbsForDisplay(routeIds, segments)),
+    // routeClimbs is a route-scoped reactivity trigger: getClimbsForDisplay reads store via get()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [routeIds, segments, allClimbs, getClimbsForDisplay],
+    [routeIds, segments, routeClimbs, getClimbsForDisplay],
   );
   const plannedStops = useMemo(() => plannedStopsFromPOIs(displayPOIs), [displayPOIs]);
 
   const events = useMemo(
     () =>
-      buildUpcomingTimeline({
-        pois: displayPOIs,
-        starredPOIIds,
-        climbs: displayClimbs,
-        segments,
-        totalDistanceMeters,
-        currentDistanceMeters,
-        horizonWindow,
-        routePoints,
-        cumulativeTime,
-        etaStartTimeMs: timing.futureStartMs,
-        plannedStops,
-      }),
+      measureSync("upcoming.timeline", () =>
+        buildUpcomingTimeline({
+          pois: displayPOIs,
+          starredPOIIds,
+          climbs: displayClimbs,
+          segments,
+          totalDistanceMeters,
+          currentDistanceMeters: derivedCurrentDistanceMeters,
+          horizonWindow,
+          routePoints,
+          cumulativeTime,
+          etaStartTimeMs: timing.futureStartMs,
+          plannedStops,
+        }),
+      ),
     [
       displayPOIs,
       starredPOIIds,
       displayClimbs,
       segments,
       totalDistanceMeters,
-      currentDistanceMeters,
+      derivedCurrentDistanceMeters,
       horizonWindow,
       routePoints,
       cumulativeTime,
@@ -139,11 +142,23 @@ export default function UpcomingTabContent({ activeData }: UpcomingTabContentPro
     ],
   );
 
+  const rowModels = useMemo(
+    () =>
+      measureSync("upcoming.rows", () =>
+        buildUpcomingRowModels({
+          events,
+          currentDistanceMeters: derivedCurrentDistanceMeters,
+          units,
+        }),
+      ),
+    [events, derivedCurrentDistanceMeters, units],
+  );
+
   const horizonETA = useMemo(
     () =>
       resolveUpcomingHorizonETA({
         totalDistanceMeters,
-        currentDistanceMeters,
+        currentDistanceMeters: derivedCurrentDistanceMeters,
         horizonWindow,
         routePoints,
         cumulativeTime,
@@ -152,7 +167,7 @@ export default function UpcomingTabContent({ activeData }: UpcomingTabContentPro
       }),
     [
       totalDistanceMeters,
-      currentDistanceMeters,
+      derivedCurrentDistanceMeters,
       horizonWindow,
       routePoints,
       cumulativeTime,
@@ -163,13 +178,13 @@ export default function UpcomingTabContent({ activeData }: UpcomingTabContentPro
 
   useEffect(() => {
     const offset = initialScrollOffsetRef.current;
-    if (restoredScrollOffsetRef.current || offset <= 0 || events.length === 0) return;
+    if (restoredScrollOffsetRef.current || offset <= 0 || rowModels.length === 0) return;
 
     restoredScrollOffsetRef.current = true;
     requestAnimationFrame(() => {
       listRef.current?.scrollToOffset({ offset, animated: false });
     });
-  }, [events.length]);
+  }, [rowModels.length]);
 
   const handleScroll = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -190,16 +205,9 @@ export default function UpcomingTabContent({ activeData }: UpcomingTabContentPro
     [setPanelTab, setSelectedClimb, setSelectedPOI],
   );
 
-  const renderEvent = useCallback<ListRenderItem<UpcomingEvent>>(
-    ({ item }) => (
-      <UpcomingEventRow
-        event={item}
-        currentDistanceMeters={currentDistanceMeters}
-        units={units}
-        onPress={handleEventPress}
-      />
-    ),
-    [currentDistanceMeters, units, handleEventPress],
+  const renderEvent = useCallback<ListRenderItem<UpcomingRowModel>>(
+    ({ item }) => <UpcomingEventRow model={item} onPress={handleEventPress} />,
+    [handleEventPress],
   );
 
   const scopeLabel = ridingHorizonScopeLabelForMode(panelMode);
@@ -212,19 +220,15 @@ export default function UpcomingTabContent({ activeData }: UpcomingTabContentPro
         horizonEtaSeconds={horizonETA?.ridingTimeSeconds ?? null}
       />
 
-      <FlatList
+      <FlashList
         ref={listRef}
-        data={events}
+        data={rowModels}
         keyExtractor={eventKeyExtractor}
         renderItem={renderEvent}
+        getItemType={getUpcomingRowItemType}
         showsVerticalScrollIndicator={false}
         onScroll={handleScroll}
         scrollEventThrottle={250}
-        initialNumToRender={INITIAL_RENDER_COUNT}
-        maxToRenderPerBatch={LIST_MAX_BATCH}
-        updateCellsBatchingPeriod={LIST_BATCHING_PERIOD_MS}
-        windowSize={LIST_WINDOW_SIZE}
-        removeClippedSubviews
         contentContainerStyle={{ paddingBottom: safeBottom }}
         ListEmptyComponent={
           <View className="items-center justify-center px-5 py-12">
@@ -275,97 +279,60 @@ function UpcomingHeader({
 }
 
 const UpcomingEventRow = React.memo(function UpcomingEventRow({
-  event,
-  currentDistanceMeters,
-  units,
+  model,
   onPress,
 }: {
-  event: UpcomingEvent;
-  currentDistanceMeters: number | null;
-  units: UnitSystem;
+  model: UpcomingRowModel;
   onPress: (event: UpcomingEvent) => void;
 }) {
   const colors = useThemeColors();
-  const distanceAhead =
-    currentDistanceMeters != null
-      ? event.distanceMeters - currentDistanceMeters
-      : event.distanceMeters;
-  const distanceLabel =
-    distanceAhead >= 0
-      ? formatDistance(distanceAhead, units)
-      : `-${formatDistance(Math.abs(distanceAhead), units)}`;
-  const eta = event.eta;
-  const plannedStopMinutes = event.kind === "poi" ? getPlannedStopDurationMinutes(event.poi) : 0;
-  const departureTime =
-    event.kind === "poi" ? departureTimeAfterPlannedStop(eta, plannedStopMinutes) : null;
-  const hasStopInterval = plannedStopMinutes > 0 && eta != null && departureTime != null;
-  const hasClimbInterval = event.kind === "climb-span" && !event.isActive && event.endEta != null;
-  const clockLabel = eta ? formatETA(eta.eta) : "--:--";
-  const departureLabel = departureTime ? formatETA(departureTime) : null;
-  const climbEndLabel =
-    event.kind === "climb-span" && event.endEta ? formatETA(event.endEta.eta) : null;
-  const primaryRidingTime = eta ?? (event.kind === "climb-span" ? event.endEta : null);
-  const ridingTimeLabel =
-    primaryRidingTime && primaryRidingTime.ridingTimeSeconds > 0
-      ? `~${formatDuration(primaryRidingTime.ridingTimeSeconds)}`
-      : "no ETA";
-  const isPressable = event.kind === "poi" || event.kind === "climb-span";
-  const content = eventContent(event, units, colors);
-  const accessibilityLabel = [
-    content.title,
-    content.subtitle,
-    eta ? `ETA ${clockLabel}` : null,
-    hasStopInterval && departureLabel ? `depart ${departureLabel}` : null,
-    hasClimbInterval && climbEndLabel ? `end ${climbEndLabel}` : null,
-    `${distanceLabel} ahead`,
-  ]
-    .filter(Boolean)
-    .join(", ");
+  const accentColor = resolveUpcomingRowColor(model.accentColor, colors);
+  const subtitleColor = resolveUpcomingRowColor(model.subtitleColor, colors);
 
   return (
     <TouchableOpacity
       className="flex-row items-center px-3 py-2.5 border-b border-border"
-      disabled={!isPressable}
-      onPress={() => onPress(event)}
-      accessibilityRole={isPressable ? "button" : "text"}
-      accessibilityLabel={accessibilityLabel}
+      disabled={!model.isPressable}
+      onPress={() => onPress(model.event)}
+      accessibilityRole={model.isPressable ? "button" : "text"}
+      accessibilityLabel={model.accessibilityLabel}
     >
       <View className="w-[70px]">
         <Text className="text-[20px] font-barlow-sc-semibold text-foreground" numberOfLines={1}>
-          {clockLabel}
+          {model.clockLabel}
         </Text>
-        {hasStopInterval && departureLabel && (
+        {model.hasStopInterval && model.departureLabel && (
           <Text className="text-[20px] font-barlow-sc-semibold text-foreground" numberOfLines={1}>
-            {departureLabel}
+            {model.departureLabel}
           </Text>
         )}
-        {hasClimbInterval && climbEndLabel && (
+        {model.hasClimbInterval && model.climbEndLabel && (
           <Text className="text-[20px] font-barlow-sc-semibold text-foreground" numberOfLines={1}>
-            {climbEndLabel}
+            {model.climbEndLabel}
           </Text>
         )}
         <Text className="text-[12px] font-barlow-sc-medium text-muted-foreground" numberOfLines={1}>
-          {ridingTimeLabel}
+          {model.ridingTimeLabel}
         </Text>
       </View>
 
       <View
         className="w-[42px] h-[42px] rounded-full items-center justify-center mx-2"
-        style={{ backgroundColor: content.color + "1A" }}
+        style={{ backgroundColor: accentColor + "1A" }}
       >
-        {content.icon}
+        <RenderUpcomingRowIcon icon={model.icon} color={accentColor} />
       </View>
 
       <View className="flex-1 min-w-0">
         <Text className="text-[15px] font-barlow-semibold text-foreground" numberOfLines={1}>
-          {content.title}
+          {model.title}
         </Text>
         <Text
           className="text-[13px] font-barlow-medium"
-          style={{ color: content.subtitleColor ?? colors.textSecondary }}
+          style={{ color: subtitleColor }}
           numberOfLines={1}
         >
-          {content.subtitle}
+          {model.subtitle}
         </Text>
       </View>
 
@@ -376,71 +343,27 @@ const UpcomingEventRow = React.memo(function UpcomingEventRow({
           adjustsFontSizeToFit
           minimumFontScale={0.72}
         >
-          {distanceLabel}
+          {model.distanceLabel}
         </Text>
         <Text className="text-[11px] font-barlow-medium text-muted-foreground" numberOfLines={1}>
-          {distanceAhead >= 0 ? "ahead" : "behind"}
+          {model.distanceDirectionLabel}
         </Text>
       </View>
     </TouchableOpacity>
   );
 });
 
-function eventContent(
-  event: UpcomingEvent,
-  units: UnitSystem,
-  colors: ReturnType<typeof useThemeColors>,
-) {
-  switch (event.kind) {
+function RenderUpcomingRowIcon({ icon, color }: { icon: UpcomingRowIcon; color: string }) {
+  switch (icon.kind) {
     case "poi": {
-      const meta = getCategoryMeta(event.poi.category);
-      const IconComp = meta ? POI_ICON_MAP[meta.iconName] : MapPin;
-      const ohStatus = event.poi.tags.opening_hours
-        ? getOpeningHoursStatus(event.poi.tags.opening_hours)
-        : null;
-      const ohColorKey = ohStatusColorKey(ohStatus);
-      const ohColor = ohColorKey ? colors[ohColorKey] : colors.textSecondary;
-      const offRoute =
-        event.poi.distanceFromRouteMeters > 50
-          ? ` · ${Math.round(event.poi.distanceFromRouteMeters)} m off`
-          : "";
-      const status = ohStatus
-        ? `${ohStatus.label}${ohStatus.detail ? ` · ${ohStatus.detail}` : ""}`
-        : (meta?.label ?? "POI");
-      return {
-        title: event.poi.name ?? meta?.label ?? "Unnamed POI",
-        subtitle: `${status}${offRoute}`,
-        subtitleColor: ohStatus ? ohColor : meta?.color,
-        color: meta?.color ?? colors.textTertiary,
-        icon: <IconComp size={20} color={meta?.color ?? colors.textPrimary} />,
-      };
+      const IconComp = POI_ICON_MAP[icon.iconName] ?? MapPin;
+      return <IconComp size={20} color={color} />;
     }
-    case "climb-span": {
-      const color = climbDifficultyColor(event.climb.difficultyScore);
-      return {
-        title: event.climb.name ?? "Climb",
-        subtitle: `${formatDistance(event.climb.lengthMeters, units)} · +${formatElevation(
-          event.climb.totalAscentMeters,
-          units,
-        )} · ${event.climb.averageGradientPercent}% avg`,
-        subtitleColor: color,
-        color,
-        icon: <Mountain size={20} color={color} />,
-      };
-    }
-    case "segment-transition":
-      return {
-        title: `End ${event.fromSegment.routeName}`,
-        subtitle: `Start ${event.toSegment.routeName}`,
-        color: colors.info,
-        icon: <GitBranch size={20} color={colors.info} />,
-      };
+    case "climb":
+      return <Mountain size={20} color={color} />;
+    case "segment":
+      return <GitBranch size={20} color={color} />;
     case "finish":
-      return {
-        title: event.label,
-        subtitle: "End of active route",
-        color: colors.accent,
-        icon: <Flag size={20} color={colors.accent} />,
-      };
+      return <Flag size={20} color={color} />;
   }
 }

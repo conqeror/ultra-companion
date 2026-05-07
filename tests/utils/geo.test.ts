@@ -9,8 +9,13 @@ import {
   findFirstPointAtOrAfterDistance,
   findLastPointAtOrBeforeDistance,
   findNearestPointIndexAtDistance,
+  estimateMapVisibleSpanMeters,
+  getMapSimplifyToleranceForVisibleSpan,
   getMapSimplifyToleranceForZoom,
   interpolateRoutePointAtDistance,
+  peekRouteMapGeoJSONForKey,
+  prepareRouteMapGeoJSONForKey,
+  routeToMapGeoJSONForKey,
   routeToMapGeoJSON,
   simplifyRoutePointsForMap,
   splitRoutePointsByDistance,
@@ -185,16 +190,45 @@ describe("geo route performance helpers", () => {
     expect(routeToMapGeoJSON(points)).toBe(routeToMapGeoJSON(points));
   });
 
-  it("chooses map simplification tolerance from zoom buckets", () => {
-    expect(getMapSimplifyToleranceForZoom()).toBe(20);
-    expect(getMapSimplifyToleranceForZoom(8)).toBe(180);
-    expect(getMapSimplifyToleranceForZoom(10)).toBe(60);
-    expect(getMapSimplifyToleranceForZoom(12)).toBe(20);
-    expect(getMapSimplifyToleranceForZoom(14)).toBe(8);
-    expect(getMapSimplifyToleranceForZoom(16)).toBe(3);
+  it("chooses map simplification tolerance from visible map span", () => {
+    expect(getMapSimplifyToleranceForVisibleSpan(null)).toBe(20);
+    expect(getMapSimplifyToleranceForVisibleSpan(10_000)).toBe(0);
+    expect(getMapSimplifyToleranceForVisibleSpan(30_000)).toBe(0);
+    expect(getMapSimplifyToleranceForVisibleSpan(30_001)).toBe(12);
+    expect(getMapSimplifyToleranceForVisibleSpan(250_000)).toBe(12);
+    expect(getMapSimplifyToleranceForVisibleSpan(250_001)).toBe(120);
+
+    expect(
+      getMapSimplifyToleranceForZoom(11, {
+        latitude: 0,
+        viewportWidthPx: 512,
+        viewportHeightPx: 512,
+      }),
+    ).toBe(0);
+    expect(
+      getMapSimplifyToleranceForZoom(10, {
+        latitude: 0,
+        viewportWidthPx: 512,
+        viewportHeightPx: 512,
+      }),
+    ).toBe(12);
+    expect(
+      getMapSimplifyToleranceForZoom(7, {
+        latitude: 0,
+        viewportWidthPx: 512,
+        viewportHeightPx: 512,
+      }),
+    ).toBe(120);
+    expect(
+      estimateMapVisibleSpanMeters(11, {
+        latitude: 0,
+        viewportWidthPx: 512,
+        viewportHeightPx: 512,
+      }),
+    ).toBeLessThan(30_000);
   });
 
-  it("returns more detailed route geometry at high map zoom", () => {
+  it("returns full route geometry at detailed map scale", () => {
     const points = [
       point(0, 0, 0),
       point(1, 100, 0),
@@ -204,20 +238,50 @@ describe("geo route performance helpers", () => {
       point(5, 500, 0),
     ];
 
-    const midZoom = routeToMapGeoJSON(points, 12);
-    const highZoom = routeToMapGeoJSON(points, 14);
+    const overview = routeToMapGeoJSON(points, 8);
+    const detailed = routeToMapGeoJSON(points, 16);
 
-    expect(highZoom.geometry.coordinates.length).toBeGreaterThan(
-      midZoom.geometry.coordinates.length,
-    );
-    expect(highZoom.geometry.coordinates).toContainEqual([points[3].longitude, points[3].latitude]);
+    expect(detailed.geometry.coordinates.length).toBe(points.length);
+    expect(overview.geometry.coordinates.length).toBeLessThan(detailed.geometry.coordinates.length);
+    expect(detailed.geometry.coordinates).toContainEqual([points[3].longitude, points[3].latitude]);
   });
 
   it("caches map GeoJSON per route point reference and zoom bucket", () => {
     const points = [point(0, 0), point(1, 100), point(2, 200)];
 
-    expect(routeToMapGeoJSON(points, 12)).toBe(routeToMapGeoJSON(points, 12.5));
-    expect(routeToMapGeoJSON(points, 12)).not.toBe(routeToMapGeoJSON(points, 14));
+    expect(routeToMapGeoJSON(points, 11)).toBe(routeToMapGeoJSON(points, 12));
+    expect(routeToMapGeoJSON(points, 8)).not.toBe(routeToMapGeoJSON(points, 11));
+  });
+
+  it("caches keyed map GeoJSON across equivalent route point arrays", () => {
+    const points = [point(0, 0), point(1, 100), point(2, 200)];
+    const equivalent = points.map((p) => ({ ...p }));
+    const changed = [point(0, 0), point(1, 110), point(2, 200)];
+
+    expect(routeToMapGeoJSONForKey("route-a", points, 20)).toBe(
+      routeToMapGeoJSONForKey("route-a", equivalent, 20),
+    );
+    expect(routeToMapGeoJSONForKey("route-a", points, 20)).not.toBe(
+      routeToMapGeoJSONForKey("route-a", changed, 20),
+    );
+    expect(routeToMapGeoJSONForKey("route-a", points, 20)).not.toBe(
+      routeToMapGeoJSONForKey("route-a", points, 8),
+    );
+  });
+
+  it("prepares and peeks keyed map GeoJSON without render-time generation", () => {
+    const points = [point(0, 0), point(1, 100), point(2, 200)];
+    const equivalent = points.map((p) => ({ ...p }));
+    const changed = [point(0, 0), point(1, 110), point(2, 200)];
+
+    expect(peekRouteMapGeoJSONForKey("route-prep", points, 20)).toBeNull();
+
+    const prepared = prepareRouteMapGeoJSONForKey("route-prep", points, 20);
+
+    expect(peekRouteMapGeoJSONForKey("route-prep", points, 20)).toBe(prepared);
+    expect(peekRouteMapGeoJSONForKey("route-prep", equivalent, 20)).toBe(prepared);
+    expect(peekRouteMapGeoJSONForKey("route-prep", changed, 20)).toBeNull();
+    expect(prepareRouteMapGeoJSONForKey("route-prep", points, 8)).not.toBe(prepared);
   });
 
   it("matches full POI route association when using a segment spatial index", () => {

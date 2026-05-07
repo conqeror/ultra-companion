@@ -318,6 +318,8 @@ export const usePoiStore = create<POIState>((set, get) => ({
   },
 
   loadPOIs: async (routeId) => {
+    if (get().pois[routeId]) return;
+
     // Read from DB to derive counts. Merge with in-memory sourceInfo so we
     // never clobber an active "fetching" or surfaced "error" status — only
     // fall back to MMKV when there's no in-memory entry yet (cold start).

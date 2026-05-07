@@ -13,6 +13,10 @@ import { useClimbStore } from "@/store/climbStore";
 import type { RouteWithPoints, Climb } from "@/types";
 import { useMapStyle } from "@/hooks/useMapStyle";
 import { useRouteGeometryZoom } from "@/hooks/useRouteGeometryZoom";
+import {
+  usePreparedRouteGeometries,
+  type PreparedRouteGeometryRequest,
+} from "@/hooks/usePreparedRouteGeometries";
 import { formatDistance, formatElevation } from "@/utils/formatters";
 import {
   computeBounds,
@@ -38,7 +42,7 @@ export default function RouteDetailScreen() {
   const cameraRef = useRef<Camera>(null);
   const colors = useThemeColors();
   const mapStyle = useMapStyle();
-  const { routeGeometryZoom, updateRouteGeometryZoom } = useRouteGeometryZoom();
+  const { routeGeometryToleranceMeters, updateRouteGeometryZoom } = useRouteGeometryZoom();
 
   const [route, setRoute] = useState<RouteWithPoints | null>(null);
   const [loading, setLoading] = useState(true);
@@ -103,6 +107,22 @@ export default function RouteDetailScreen() {
     if (!route?.points.length) return null;
     return computeBounds(route.points);
   }, [route]);
+  const routeGeometryRequests = useMemo<PreparedRouteGeometryRequest[]>(
+    () =>
+      route
+        ? [
+            {
+              id: "route",
+              cacheKey: route.id,
+              points: route.points,
+              toleranceMeters: routeGeometryToleranceMeters,
+            },
+          ]
+        : [],
+    [route, routeGeometryToleranceMeters],
+  );
+  const preparedRouteGeometries = usePreparedRouteGeometries(routeGeometryRequests);
+  const routeGeoJSON = preparedRouteGeometries.route?.geoJSON ?? null;
 
   const savedPOITargets = useMemo<SavedPOITarget[]>(() => {
     if (!route) return [];
@@ -182,12 +202,14 @@ export default function RouteDetailScreen() {
                   : undefined
               }
             />
-            <RouteLayer
-              key={mapStyle.styleKey}
-              route={{ ...route, isActive: true }}
-              points={route.points}
-              zoomLevel={routeGeometryZoom}
-            />
+            {routeGeoJSON && (
+              <RouteLayer
+                key={mapStyle.styleKey}
+                routeId={route.id}
+                geoJSON={routeGeoJSON}
+                isActive
+              />
+            )}
           </MapboxMapView>
         </View>
 

@@ -14,12 +14,7 @@ interface ClimbListItemProps {
   onPress: (climb: DisplayClimb) => void;
 }
 
-export default function ClimbListItem({
-  climb,
-  currentDistAlongRoute,
-  isPast,
-  onPress,
-}: ClimbListItemProps) {
+function ClimbListItem({ climb, currentDistAlongRoute, isPast, onPress }: ClimbListItemProps) {
   const units = useSettingsStore((s) => s.units);
   const getETAToDistance = useEtaStore((s) => s.getETAToDistance);
 
@@ -106,3 +101,12 @@ export default function ClimbListItem({
     </TouchableOpacity>
   );
 }
+
+export default React.memo(ClimbListItem, (prev, next) => {
+  return (
+    prev.climb === next.climb &&
+    prev.currentDistAlongRoute === next.currentDistAlongRoute &&
+    prev.isPast === next.isPast &&
+    prev.onPress === next.onPress
+  );
+});

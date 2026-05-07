@@ -1,6 +1,7 @@
 import React, { useMemo } from "react";
 import { View, TouchableOpacity, StyleSheet, ScrollView } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useShallow } from "zustand/react/shallow";
 import { Text } from "@/components/ui/text";
 import { useThemeColors } from "@/theme";
 import { usePanelStore } from "@/store/panelStore";
@@ -16,11 +17,14 @@ import {
   findNearestPointIndexAtDistance,
 } from "@/utils/geo";
 import { resolveRouteProgress } from "@/utils/routeProgress";
+import { bucketDistanceForDerivedWork } from "@/utils/distanceBuckets";
 import { formatDistance, formatElevation } from "@/utils/formatters";
 import { climbDifficultyColor } from "@/constants/climbHelpers";
 import { stitchPOIs } from "@/services/stitchingService";
 import { toDisplayPOIs } from "@/services/displayDistance";
 import { ridingHorizonMetersForMode, ridingHorizonScopeLabelForMode } from "@/utils/ridingHorizon";
+import { measureSync } from "@/utils/perfMarks";
+import { pickRouteRecords } from "@/utils/routeScopedRecords";
 import UpcomingElevation from "./UpcomingElevation";
 import ElevationProfile from "@/components/elevation/ElevationProfile";
 import type { POI, ActiveRouteData, DisplayClimb } from "@/types";
@@ -59,29 +63,35 @@ export default function ProfileTabContent({ activeData, width, height }: Profile
   );
   const isSnapped = activeRouteProgress != null;
   const currentDistanceMeters = activeRouteProgress?.distanceAlongRouteMeters ?? null;
+  const derivedCurrentDistanceMeters = bucketDistanceForDerivedWork(currentDistanceMeters);
 
   const getStarredPOIs = usePoiStore((s) => s.getStarredPOIs);
   const starredPOIIds = usePoiStore((s) => s.starredPOIIds);
+  const routePois = usePoiStore(useShallow((s) => pickRouteRecords(s.pois, activeRouteIds)));
   const poisForChart = useMemo(() => {
     if (!activeId || activeRouteIds.length === 0) return [];
-    if (activeSegments) {
-      const poisByRoute: Record<string, POI[]> = {};
-      for (const routeId of activeRouteIds) {
-        poisByRoute[routeId] = getStarredPOIs(routeId);
+    return measureSync("profile.poisForChart", () => {
+      if (activeSegments) {
+        const poisByRoute: Record<string, POI[]> = {};
+        for (const routeId of activeRouteIds) {
+          poisByRoute[routeId] = getStarredPOIs(routeId);
+        }
+        return stitchPOIs(activeSegments, poisByRoute);
       }
-      return stitchPOIs(activeSegments, poisByRoute);
-    }
-    return toDisplayPOIs(getStarredPOIs(activeRouteIds[0]));
+      return toDisplayPOIs(getStarredPOIs(activeRouteIds[0]));
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeId, activeRouteIds, activeSegments, getStarredPOIs, starredPOIIds]);
+  }, [activeId, activeRouteIds, activeSegments, getStarredPOIs, starredPOIIds, routePois]);
 
   const getClimbsForDisplay = useClimbStore((s) => s.getClimbsForDisplay);
-  const allClimbs = useClimbStore((s) => s.climbs);
+  const routeClimbs = useClimbStore(useShallow((s) => pickRouteRecords(s.climbs, activeRouteIds)));
   const climbsForChart = useMemo(() => {
     if (!activeId || activeRouteIds.length === 0) return [];
-    return getClimbsForDisplay(activeRouteIds, activeSegments);
+    return measureSync("profile.climbsForChart", () =>
+      getClimbsForDisplay(activeRouteIds, activeSegments),
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeId, activeRouteIds, activeSegments, getClimbsForDisplay, allClimbs]);
+  }, [activeId, activeRouteIds, activeSegments, getClimbsForDisplay, routeClimbs]);
 
   const currentClimbId = useClimbStore((s) => s.currentClimbId);
   const isClimbZoomed = useClimbStore((s) => s.isClimbZoomed);
@@ -143,22 +153,20 @@ export default function ProfileTabContent({ activeData, width, height }: Profile
 
   // Slice bounds (matches UpcomingElevation's window)
   const { windowStartDist, windowEndDist } = useMemo(() => {
-    if (currentDistanceMeters == null || !activeRoutePoints?.length) {
+    if (derivedCurrentDistanceMeters == null || !activeRoutePoints?.length) {
       return { windowStartDist: 0, windowEndDist: 0 };
     }
-    const distDone = currentDistanceMeters;
+    const distDone = derivedCurrentDistanceMeters;
     const la = ridingHorizonMetersForMode(panelMode);
     if (la == null) return { windowStartDist: distDone, windowEndDist: activeTotalDistance };
     const endDist = Math.min(distDone + la, activeTotalDistance);
     return { windowStartDist: distDone, windowEndDist: endDist };
-  }, [currentDistanceMeters, activeRoutePoints, panelMode, activeTotalDistance]);
+  }, [derivedCurrentDistanceMeters, activeRoutePoints, panelMode, activeTotalDistance]);
 
   const statsText = useMemo(() => {
     if (!isSnapped || !activeRoutePoints?.length) return null;
-    const { ascent: asc, descent: desc } = computeSliceElevationTotalsFromDistance(
-      activeRoutePoints,
-      windowStartDist,
-      windowEndDist,
+    const { ascent: asc, descent: desc } = measureSync("profile.sliceElevationTotals", () =>
+      computeSliceElevationTotalsFromDistance(activeRoutePoints, windowStartDist, windowEndDist),
     );
     return `↑ ${formatElevation(asc, units)}  ·  ↓ ${formatElevation(desc, units)}`;
   }, [isSnapped, activeRoutePoints, windowStartDist, windowEndDist, units]);

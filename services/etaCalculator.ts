@@ -1,6 +1,21 @@
 import type { RoutePoint, PowerModelConfig, ETAResult } from "@/types";
 import { computeSegmentTime } from "./powerModel";
-import { findFirstPointAtOrAfterDistance } from "@/utils/geo";
+import { findFirstPointAtOrAfterDistance, routePointArrayFingerprint } from "@/utils/geo";
+import { measureSync } from "@/utils/perfMarks";
+
+const routeEtaCache = new Map<string, { fingerprint: string; cumulative: number[] }>();
+const routeTotalEtaCache = new Map<string, { fingerprint: string; total: number | null }>();
+
+export function powerConfigKey(config: PowerModelConfig): string {
+  return Object.keys(config)
+    .sort()
+    .map((key) => `${key}:${config[key as keyof PowerModelConfig]}`)
+    .join("|");
+}
+
+function cacheKey(routeKey: string, config: PowerModelConfig): string {
+  return `${routeKey}:${powerConfigKey(config)}`;
+}
 
 /**
  * Compute cumulative riding time (seconds) at each route point.
@@ -26,6 +41,21 @@ export function computeRouteETA(points: RoutePoint[], config: PowerModelConfig):
   return cumulative;
 }
 
+export function computeCachedRouteETA(
+  routeKey: string,
+  points: RoutePoint[],
+  config: PowerModelConfig,
+): number[] {
+  const key = cacheKey(routeKey, config);
+  const fingerprint = routePointArrayFingerprint(points);
+  const cached = routeEtaCache.get(key);
+  if (cached?.fingerprint === fingerprint) return cached.cumulative;
+
+  const cumulative = measureSync("eta.computeRouteETA", () => computeRouteETA(points, config));
+  routeEtaCache.set(key, { fingerprint, cumulative });
+  return cumulative;
+}
+
 /**
  * Compute total riding time without allocating the full cumulative ETA array.
  */
@@ -48,6 +78,21 @@ export function computeRouteTotalETA(
   }
 
   return totalSeconds;
+}
+
+export function computeCachedRouteTotalETA(
+  routeKey: string,
+  points: RoutePoint[],
+  config: PowerModelConfig,
+): number | null {
+  const key = cacheKey(routeKey, config);
+  const fingerprint = routePointArrayFingerprint(points);
+  const cached = routeTotalEtaCache.get(key);
+  if (cached?.fingerprint === fingerprint) return cached.total;
+
+  const total = measureSync("eta.computeRouteTotalETA", () => computeRouteTotalETA(points, config));
+  routeTotalEtaCache.set(key, { fingerprint, total });
+  return total;
 }
 
 /**

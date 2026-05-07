@@ -8,6 +8,7 @@ import {
   ScrollView,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useShallow } from "zustand/react/shallow";
 import { Text } from "@/components/ui/text";
 import { Mountain, Pencil, Check, ChevronLeft, ChevronRight } from "lucide-react-native";
 import { cn } from "@/lib/cn";
@@ -34,6 +35,8 @@ import {
   ridingHorizonMetersForMode,
   ridingHorizonScopeLabelForMode,
 } from "@/utils/ridingHorizon";
+import { bucketDistanceForDerivedWork } from "@/utils/distanceBuckets";
+import { pickRouteRecords } from "@/utils/routeScopedRecords";
 import ElevationProfile from "@/components/elevation/ElevationProfile";
 import ClimbListItem from "@/components/climb/ClimbListItem";
 import { resolveActiveClimb } from "@/utils/climbSelect";
@@ -76,7 +79,6 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
   const { width: screenWidth } = useWindowDimensions();
   const snappedPosition = useRouteStore((s) => s.snappedPosition);
   const getClimbsForDisplay = useClimbStore((s) => s.getClimbsForDisplay);
-  const allClimbs = useClimbStore((s) => s.climbs);
   const selectedClimb = useClimbStore((s) => s.selectedClimb);
   const setSelectedClimb = useClimbStore((s) => s.setSelectedClimb);
   const minimumDifficulty = useClimbStore((s) => s.minimumDifficulty);
@@ -94,7 +96,10 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
   const [graphHeight, setGraphHeight] = useState(0);
 
   const activeId = activeData?.id ?? null;
+  const activeRoutePoints = activeData?.points ?? null;
   const routeIds = useMemo(() => activeData?.routeIds ?? [], [activeData?.routeIds]);
+  const routePois = usePoiStore(useShallow((s) => pickRouteRecords(s.pois, routeIds)));
+  const routeClimbs = useClimbStore(useShallow((s) => pickRouteRecords(s.climbs, routeIds)));
   const segments = activeData?.segments ?? null;
   const activeTotalDistance = activeData?.totalDistanceMeters;
   const activeRouteProgress = useMemo(
@@ -102,13 +107,14 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
     [activeData, snappedPosition],
   );
   const currentDist = activeRouteProgress?.distanceAlongRouteMeters ?? null;
+  const derivedCurrentDist = bucketDistanceForDerivedWork(currentDist);
   const ridingHorizonMeters = ridingHorizonMetersForMode(panelMode);
   const horizonWindow = useMemo(
     () =>
-      createRidingHorizonWindow(currentDist, ridingHorizonMeters, {
+      createRidingHorizonWindow(derivedCurrentDist, ridingHorizonMeters, {
         totalDistanceMeters: activeTotalDistance,
       }),
-    [currentDist, ridingHorizonMeters, activeTotalDistance],
+    [derivedCurrentDist, ridingHorizonMeters, activeTotalDistance],
   );
   const horizonScopeLabel = ridingHorizonScopeLabelForMode(panelMode);
 
@@ -122,15 +128,15 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
       return stitchPOIs(segments, poisByRoute);
     }
     return toDisplayPOIs(getStarredPOIs(routeIds[0]));
-    // starredPOIIds is a reactivity trigger: getStarredPOIs reads store via get() and is not itself reactive
+    // starredPOIIds/routePois are reactivity triggers: getStarredPOIs reads store via get()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeId, routeIds, segments, getStarredPOIs, starredPOIIds]);
+  }, [activeId, routeIds, segments, getStarredPOIs, starredPOIIds, routePois]);
 
   const displayedClimbs = useMemo(
     () => getClimbsForDisplay(routeIds, segments),
-    // allClimbs is a reactivity trigger: getClimbsForDisplay reads store via get() and is not itself reactive
+    // routeClimbs is a reactivity trigger: getClimbsForDisplay reads store via get()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [routeIds, segments, allClimbs, getClimbsForDisplay],
+    [routeIds, segments, getClimbsForDisplay, routeClimbs],
   );
 
   const sortedClimbs = useMemo(
@@ -179,8 +185,8 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
   }, [climb, currentDist]);
 
   const climbProfile = useMemo(() => {
-    if (!climb || !activeData?.points?.length) return null;
-    const points = activeData.points;
+    if (!climb || !activeRoutePoints?.length) return null;
+    const points = activeRoutePoints;
     let startIdx = 0;
     for (let i = 0; i < points.length; i++) {
       if (points[i].distanceFromStartMeters >= climb.effectiveStartDistanceMeters) {
@@ -208,7 +214,7 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
       currentIdxInSlice,
       currentDistanceInSliceMeters,
     };
-  }, [climb, activeData, currentDist]);
+  }, [climb, activeRoutePoints, currentDist]);
 
   const climbProfilePOIs = useMemo(() => {
     if (!climbProfile) return undefined;
@@ -263,6 +269,18 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
       setSelectedClimb(c);
     },
     [setSelectedClimb],
+  );
+
+  const renderClimbItem = useCallback(
+    ({ item }: { item: DisplayClimb }) => (
+      <ClimbListItem
+        climb={item}
+        currentDistAlongRoute={derivedCurrentDist}
+        isPast={derivedCurrentDist != null && item.effectiveEndDistanceMeters < derivedCurrentDist}
+        onPress={handleClimbPress}
+      />
+    ),
+    [derivedCurrentDist, handleClimbPress],
   );
 
   // Empty state
@@ -462,14 +480,7 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
           <FlatList
             data={filteredClimbs}
             keyExtractor={(item) => item.id}
-            renderItem={({ item }) => (
-              <ClimbListItem
-                climb={item}
-                currentDistAlongRoute={currentDist}
-                isPast={currentDist != null && item.effectiveEndDistanceMeters < currentDist}
-                onPress={handleClimbPress}
-              />
-            )}
+            renderItem={renderClimbItem}
             ListEmptyComponent={
               <View className="items-center justify-center py-8 px-4">
                 <Text className="text-[13px] text-muted-foreground font-barlow-medium">

@@ -1,15 +1,15 @@
-import React, { useEffect, useMemo, useState, useCallback } from "react";
+import React, { useDeferredValue, useEffect, useMemo, useState, useCallback } from "react";
+import { FlashList, type ListRenderItem } from "@shopify/flash-list";
 import {
   View,
-  FlatList,
   ScrollView,
   TouchableOpacity,
   TextInput as RNTextInput,
   Alert,
   Linking,
-  type ListRenderItem,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useShallow } from "zustand/react/shallow";
 import { Text } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
 import {
@@ -30,23 +30,35 @@ import { usePanelStore } from "@/store/panelStore";
 import { useEtaStore } from "@/store/etaStore";
 import { POI_CATEGORIES, POI_BEHIND_THRESHOLD_M } from "@/constants";
 import { POI_ICON_MAP } from "@/constants/poiIcons";
-import { getCategoryMeta, ohStatusColorKey } from "@/constants/poiHelpers";
+import { ohStatusColorKey } from "@/constants/poiHelpers";
 import { formatDistance, formatDuration, formatETA } from "@/utils/formatters";
 import { getOpeningHoursStatus, isOpenAt, getDaySchedules } from "@/services/openingHoursParser";
 import {
   departureTimeAfterPlannedStop,
   getPlannedStopDurationMinutes,
+  plannedStopsFromPOIs,
 } from "@/services/plannedStops";
-import { stitchPOIs } from "@/services/stitchingService";
-import { toDisplayPOIForSegments, toDisplayPOIs } from "@/services/displayDistance";
-import { getETAToDistanceFromDistance as resolveETAToDistance } from "@/services/etaCalculator";
+import { toDisplayPOIForSegments } from "@/services/displayDistance";
+import { displayPOIsForActiveRoute } from "@/services/activePOIs";
+import { useActiveRouteTiming } from "@/hooks/useActiveRouteTiming";
 import { resolveActiveRouteProgress } from "@/utils/routeProgress";
+import { bucketDistanceForDerivedWork } from "@/utils/distanceBuckets";
 import {
   createRidingHorizonWindow,
-  isDistanceInWindow,
   ridingHorizonMetersForMode,
   ridingHorizonScopeLabelForMode,
 } from "@/utils/ridingHorizon";
+import { measureSync } from "@/utils/perfMarks";
+import { pickRouteRecords } from "@/utils/routeScopedRecords";
+import {
+  buildCompactPOIRowModels,
+  buildPOICategoryCounts,
+  buildPOIListRowModels,
+  buildStarredPOIsForActiveRoute,
+  buildVisiblePOIsForActiveRoute,
+  type CompactPOIRowModel,
+  type POIListRowModel,
+} from "@/utils/poiListModels";
 import POIFilterBar from "@/components/map/POIFilterBar";
 import POIListItem from "@/components/poi/POIListItem";
 import AddSavedPOISheet from "@/components/poi/AddSavedPOISheet";
@@ -65,29 +77,21 @@ interface POITabContentProps {
   activeData: ActiveRouteData | null;
 }
 
-type StarredDisplayPOI = DisplayPOI & { ridingTimeSeconds: number | null };
-
-const EXPANDED_POI_INITIAL_RENDER_COUNT = 10;
-const COMPACT_POI_INITIAL_RENDER_COUNT = 6;
-const POI_LIST_MAX_BATCH = 8;
-const POI_LIST_WINDOW_SIZE = 5;
-const POI_LIST_BATCHING_PERIOD_MS = 50;
 const EXPANDED_POI_CONTENT_STYLE = { paddingBottom: 8 };
+const EMPTY_DISPLAY_POIS: DisplayPOI[] = [];
 
-function poiKeyExtractor(item: Pick<DisplayPOI, "id">): string {
+function poiKeyExtractor(item: { id: string }): string {
   return item.id;
 }
 
 export default function POITabContent({ activeData }: POITabContentProps) {
   const colors = useThemeColors();
   const { bottom: safeBottom } = useSafeAreaInsets();
+  const units = useSettingsStore((s) => s.units);
   const snappedPosition = useRouteStore((s) => s.snappedPosition);
-  const getStarredPOIs = usePoiStore((s) => s.getStarredPOIs);
   const starredPOIIds = usePoiStore((s) => s.starredPOIIds);
   const selectedPOI = usePoiStore((s) => s.selectedPOI);
   const setSelectedPOI = usePoiStore((s) => s.setSelectedPOI);
-  const getVisiblePOIs = usePoiStore((s) => s.getVisiblePOIs);
-  const allPois = usePoiStore((s) => s.pois);
   const enabledCategories = usePoiStore((s) => s.enabledCategories);
   const showOpenOnly = usePoiStore((s) => s.showOpenOnly);
   const cumulativeTime = useEtaStore((s) => s.cumulativeTime);
@@ -98,24 +102,28 @@ export default function POITabContent({ activeData }: POITabContentProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [showAddPOI, setShowAddPOI] = useState(false);
   const [loadedSavedPOITargets, setLoadedSavedPOITargets] = useState<SavedPOITarget[] | null>(null);
+  const deferredSearchQuery = useDeferredValue(searchQuery);
 
   const routeIds = useMemo(() => activeData?.routeIds ?? [], [activeData?.routeIds]);
   const routePoints = activeData?.points ?? null;
   const segments = activeData?.segments ?? null;
   const activeTotalDistance = activeData?.totalDistanceMeters;
+  const routePois = usePoiStore(useShallow((s) => pickRouteRecords(s.pois, routeIds)));
+  const timing = useActiveRouteTiming(activeData);
   const activeRouteProgress = useMemo(
     () => resolveActiveRouteProgress(activeData, snappedPosition),
     [activeData, snappedPosition],
   );
   const currentDist = activeRouteProgress?.distanceAlongRouteMeters ?? null;
+  const derivedCurrentDist = bucketDistanceForDerivedWork(currentDist);
   const ridingHorizonMeters = ridingHorizonMetersForMode(panelMode);
   const horizonWindow = useMemo(
     () =>
-      createRidingHorizonWindow(currentDist, ridingHorizonMeters, {
+      createRidingHorizonWindow(derivedCurrentDist, ridingHorizonMeters, {
         behindMeters: POI_BEHIND_THRESHOLD_M,
         totalDistanceMeters: activeTotalDistance,
       }),
-    [currentDist, ridingHorizonMeters, activeTotalDistance],
+    [derivedCurrentDist, ridingHorizonMeters, activeTotalDistance],
   );
   const horizonScopeLabel = ridingHorizonScopeLabelForMode(panelMode);
 
@@ -140,93 +148,119 @@ export default function POITabContent({ activeData }: POITabContentProps) {
     setLoadedSavedPOITargets(null);
   }, [activeData?.id]);
 
-  const starredUpcoming = useMemo(() => {
-    if (routeIds.length === 0) return [];
-    const poisByRoute: Record<string, POI[]> = {};
-    for (const routeId of routeIds) {
-      poisByRoute[routeId] = getStarredPOIs(routeId);
-    }
-    const displayed = segments
-      ? stitchPOIs(segments, poisByRoute, horizonWindow)
-      : routeIds.flatMap((routeId) =>
-          toDisplayPOIs(
-            (poisByRoute[routeId] ?? []).filter((poi) =>
-              isDistanceInWindow(poi.distanceAlongRouteMeters, horizonWindow),
-            ),
-          ),
-        );
-    const allStarred: StarredDisplayPOI[] = [];
-    for (const poi of displayed) {
-      const effectiveDist = poi.effectiveDistanceMeters;
-      let ridingTime: number | null = null;
-      if (cumulativeTime && routePoints && currentDist != null && effectiveDist > currentDist) {
-        const eta = resolveETAToDistance(cumulativeTime, routePoints, currentDist, effectiveDist);
-        if (eta && eta.ridingTimeSeconds > 0) ridingTime = eta.ridingTimeSeconds;
-      }
-      allStarred.push({ ...poi, ridingTimeSeconds: ridingTime });
-    }
-    allStarred.sort((a, b) => a.effectiveDistanceMeters - b.effectiveDistanceMeters);
-    return allStarred;
-    // starredPOIIds is a reactivity trigger: getStarredPOIs reads from store via get() and is not itself reactive
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    routeIds,
-    segments,
-    getStarredPOIs,
-    starredPOIIds,
-    currentDist,
-    cumulativeTime,
-    routePoints,
-    horizonWindow,
-  ]);
+  const categoryCounts = useMemo(
+    () => buildPOICategoryCounts(routePois, routeIds),
+    [routePois, routeIds],
+  );
+  const totalPOICount = useMemo(
+    () => Object.values(categoryCounts).reduce((sum, count) => sum + (count ?? 0), 0),
+    [categoryCounts],
+  );
 
-  const totalPOICount = usePoiStore((s) => {
-    let count = 0;
-    for (const routeId of routeIds) {
-      count += s.pois[routeId]?.length ?? 0;
-    }
-    return count;
-  });
+  const activeDisplayPOIs = useMemo(
+    () =>
+      measureSync("poi.activeDisplayPOIs", () =>
+        displayPOIsForActiveRoute(routeIds, segments, routePois),
+      ),
+    [routeIds, segments, routePois],
+  );
+  const plannedStops = useMemo(() => plannedStopsFromPOIs(activeDisplayPOIs), [activeDisplayPOIs]);
+
+  const starredPOIs = useMemo(
+    () =>
+      measureSync("poi.starredVisible", () =>
+        buildStarredPOIsForActiveRoute({
+          routeIds,
+          segments,
+          poisByRoute: routePois,
+          horizonWindow,
+          starredPOIIds,
+        }),
+      ),
+    [routeIds, segments, routePois, horizonWindow, starredPOIIds],
+  );
+
+  const compactPOIModels = useMemo(
+    () =>
+      measureSync("poi.compactRows", () =>
+        buildCompactPOIRowModels({
+          pois: starredPOIs,
+          currentDistanceMeters: derivedCurrentDist,
+          routePoints,
+          cumulativeTime,
+          plannedStops,
+          etaStartTimeMs: timing.futureStartMs,
+          starredPOIIds,
+          units,
+        }),
+      ),
+    [
+      starredPOIs,
+      derivedCurrentDist,
+      routePoints,
+      cumulativeTime,
+      plannedStops,
+      timing.futureStartMs,
+      starredPOIIds,
+      units,
+    ],
+  );
 
   // --- Expanded: full POI list with search + filters ---
-  const visiblePOIs = useMemo(() => {
-    if (!isExpanded) return [];
-    if (segments) {
-      const poisByRoute: Record<string, POI[]> = {};
-      for (const routeId of routeIds) {
-        poisByRoute[routeId] = getVisiblePOIs(routeId);
-      }
-      return stitchPOIs(segments, poisByRoute, horizonWindow);
-    }
-    return routeIds.flatMap((routeId) =>
-      toDisplayPOIs(
-        getVisiblePOIs(routeId).filter((poi) =>
-          isDistanceInWindow(poi.distanceAlongRouteMeters, horizonWindow),
-        ),
+  const visiblePOIs = useMemo(
+    () =>
+      isExpanded
+        ? measureSync("poi.visibleFiltered", () =>
+            buildVisiblePOIsForActiveRoute({
+              routeIds,
+              segments,
+              poisByRoute: routePois,
+              horizonWindow,
+              enabledCategories,
+              showOpenOnly,
+              starredPOIIds,
+            }),
+          )
+        : EMPTY_DISPLAY_POIS,
+    [
+      isExpanded,
+      routeIds,
+      segments,
+      routePois,
+      horizonWindow,
+      enabledCategories,
+      showOpenOnly,
+      starredPOIIds,
+    ],
+  );
+
+  const filteredPOIModels = useMemo(
+    () =>
+      measureSync("poi.expandedRows", () =>
+        buildPOIListRowModels({
+          pois: visiblePOIs,
+          currentDistanceMeters: derivedCurrentDist,
+          routePoints,
+          cumulativeTime,
+          plannedStops,
+          etaStartTimeMs: timing.futureStartMs,
+          starredPOIIds,
+          units,
+          searchQuery: deferredSearchQuery,
+        }),
       ),
-    );
-    // allPois/enabledCategories/starredPOIIds are reactivity triggers: getVisiblePOIs reads store via get() and is not itself reactive
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    isExpanded,
-    routeIds,
-    segments,
-    allPois,
-    enabledCategories,
-    starredPOIIds,
-    showOpenOnly,
-    horizonWindow,
-  ]);
-
-  const sortedAllPOIs = useMemo(() => {
-    return [...visiblePOIs].sort((a, b) => a.effectiveDistanceMeters - b.effectiveDistanceMeters);
-  }, [visiblePOIs]);
-
-  const filteredPOIs = useMemo(() => {
-    if (!searchQuery.trim()) return sortedAllPOIs;
-    const q = searchQuery.trim().toLowerCase();
-    return sortedAllPOIs.filter((p) => p.name?.toLowerCase().includes(q));
-  }, [sortedAllPOIs, searchQuery]);
+    [
+      visiblePOIs,
+      derivedCurrentDist,
+      routePoints,
+      cumulativeTime,
+      plannedStops,
+      timing.futureStartMs,
+      starredPOIIds,
+      units,
+      deferredSearchQuery,
+    ],
+  );
 
   const handlePOIPress = useCallback(
     (poi: DisplayPOI) => {
@@ -283,23 +317,14 @@ export default function POITabContent({ activeData }: POITabContentProps) {
     [segments, setSelectedPOI],
   );
 
-  const renderExpandedPOI = useCallback<ListRenderItem<DisplayPOI>>(
-    ({ item }) => (
-      <POIListItem poi={item} currentDistAlongRoute={currentDist} onPress={handlePOIPress} />
-    ),
-    [currentDist, handlePOIPress],
+  const renderExpandedPOI = useCallback<ListRenderItem<POIListRowModel>>(
+    ({ item }) => <POIListItem model={item} onPress={handlePOIPress} />,
+    [handlePOIPress],
   );
 
-  const renderCompactPOI = useCallback<ListRenderItem<StarredDisplayPOI>>(
-    ({ item }) => (
-      <CompactPOIRow
-        poi={item}
-        currentDist={currentDist}
-        ridingTimeSeconds={item.ridingTimeSeconds}
-        onPress={handlePOIPress}
-      />
-    ),
-    [currentDist, handlePOIPress],
+  const renderCompactPOI = useCallback<ListRenderItem<CompactPOIRowModel>>(
+    ({ item }) => <CompactPOIRow model={item} onPress={handlePOIPress} />,
+    [handlePOIPress],
   );
 
   // Show inline detail when a POI is selected
@@ -385,7 +410,7 @@ export default function POITabContent({ activeData }: POITabContentProps) {
 
         {/* Category filters */}
         <View style={{ borderBottomWidth: 1, borderBottomColor: colors.borderSubtle }}>
-          <POIFilterBar routeIds={routeIds} />
+          <POIFilterBar categoryCounts={categoryCounts} />
         </View>
 
         <View
@@ -397,24 +422,19 @@ export default function POITabContent({ activeData }: POITabContentProps) {
           }}
         >
           <Text className="text-[11px] font-barlow-semibold text-muted-foreground">
-            {filteredPOIs.length} POIs · {scopeLabel}
+            {filteredPOIModels.length} POIs · {scopeLabel}
           </Text>
         </View>
 
         {/* POI list */}
-        <FlatList
-          data={filteredPOIs}
+        <FlashList
+          data={filteredPOIModels}
           keyExtractor={poiKeyExtractor}
           renderItem={renderExpandedPOI}
+          getItemType={() => "poi"}
           contentContainerStyle={EXPANDED_POI_CONTENT_STYLE}
           showsVerticalScrollIndicator={false}
-          initialNumToRender={EXPANDED_POI_INITIAL_RENDER_COUNT}
-          maxToRenderPerBatch={POI_LIST_MAX_BATCH}
-          updateCellsBatchingPeriod={POI_LIST_BATCHING_PERIOD_MS}
-          windowSize={POI_LIST_WINDOW_SIZE}
-          removeClippedSubviews
           keyboardShouldPersistTaps="handled"
-          extraData={`${currentDist ?? "none"}:${panelMode}`}
           ListEmptyComponent={
             <View className="items-center justify-center px-5 py-10">
               <MapPin size={24} color={colors.textTertiary} />
@@ -441,25 +461,20 @@ export default function POITabContent({ activeData }: POITabContentProps) {
   return (
     <>
       <View className="flex-1">
-        {starredUpcoming.length > 0 ? (
+        {compactPOIModels.length > 0 ? (
           <>
             <View className="flex-row items-center justify-between px-3 py-1.5">
               <Text className="text-[11px] font-barlow-semibold text-muted-foreground">
-                {starredUpcoming.length} starred · {horizonScopeLabel}
+                {compactPOIModels.length} starred · {horizonScopeLabel}
               </Text>
             </View>
-            <FlatList
-              data={starredUpcoming}
+            <FlashList
+              data={compactPOIModels}
               keyExtractor={poiKeyExtractor}
               renderItem={renderCompactPOI}
+              getItemType={() => "compact-poi"}
               showsVerticalScrollIndicator={false}
               contentContainerStyle={{ paddingBottom: safeBottom }}
-              initialNumToRender={COMPACT_POI_INITIAL_RENDER_COUNT}
-              maxToRenderPerBatch={POI_LIST_MAX_BATCH}
-              updateCellsBatchingPeriod={POI_LIST_BATCHING_PERIOD_MS}
-              windowSize={POI_LIST_WINDOW_SIZE}
-              removeClippedSubviews
-              extraData={currentDist}
             />
           </>
         ) : (
@@ -487,95 +502,55 @@ export default function POITabContent({ activeData }: POITabContentProps) {
 }
 
 const CompactPOIRow = React.memo(function CompactPOIRow({
-  poi,
-  currentDist,
-  ridingTimeSeconds,
+  model,
   onPress,
 }: {
-  poi: DisplayPOI;
-  currentDist: number | null;
-  ridingTimeSeconds: number | null;
+  model: CompactPOIRowModel;
   onPress: (poi: DisplayPOI) => void;
 }) {
   const colors = useThemeColors();
-  const units = useSettingsStore((s) => s.units);
-
-  const catMeta = getCategoryMeta(poi.category);
-  const IconComp = catMeta ? POI_ICON_MAP[catMeta.iconName] : null;
-  const distAhead = currentDist != null ? poi.effectiveDistanceMeters - currentDist : null;
-
-  const ohStatus = useMemo(() => {
-    const tag = poi.tags?.opening_hours;
-    return tag ? getOpeningHoursStatus(tag) : null;
-  }, [poi.tags?.opening_hours]);
-
-  const ohColor = useMemo(() => {
-    const key = ohStatusColorKey(ohStatus);
-    return key ? colors[key] : undefined;
-  }, [ohStatus, colors]);
-
-  const distanceLabel =
-    distAhead != null
-      ? distAhead >= 0
-        ? `${formatDistance(distAhead, units)} ahead`
-        : `${formatDistance(Math.abs(distAhead), units)} behind`
-      : null;
-  const ridingTimeLabel =
-    ridingTimeSeconds != null ? `${formatDuration(ridingTimeSeconds)} riding` : null;
-  const offRouteLabel =
-    poi.distanceFromRouteMeters > 50 ? `${Math.round(poi.distanceFromRouteMeters)} m off` : null;
-  const accessibilityLabel = [
-    poi.name ?? catMeta?.label ?? "POI",
-    distanceLabel,
-    ridingTimeLabel,
-    ohStatus?.label,
-    offRouteLabel,
-  ]
-    .filter(Boolean)
-    .join(", ");
+  const IconComp = POI_ICON_MAP[model.iconName] ?? null;
+  const ohColor = model.openingHoursColorKey ? colors[model.openingHoursColorKey] : undefined;
 
   return (
     <TouchableOpacity
       className="flex-row items-center px-3 py-2.5"
-      onPress={() => onPress(poi)}
+      onPress={() => onPress(model.poi)}
       accessibilityRole="button"
-      accessibilityLabel={accessibilityLabel}
+      accessibilityLabel={model.accessibilityLabel}
     >
       <View
         className="w-[42px] h-[42px] rounded-full items-center justify-center"
-        style={{ backgroundColor: (catMeta?.color ?? colors.textTertiary) + "1A" }}
+        style={{ backgroundColor: model.categoryColor + "1A" }}
       >
-        {IconComp && <IconComp size={20} color={catMeta?.color ?? colors.textPrimary} />}
+        {IconComp && <IconComp size={20} color={model.categoryColor} />}
       </View>
 
       <View className="flex-1 ml-3 min-w-0">
         <View className="flex-row items-baseline">
-          {distAhead != null && (
+          {model.signedDistanceText != null && (
             <Text className="text-[20px] font-barlow-sc-semibold text-foreground">
-              {distAhead >= 0
-                ? formatDistance(distAhead, units)
-                : `-${formatDistance(Math.abs(distAhead), units)}`}
+              {model.signedDistanceText}
             </Text>
           )}
-          {ridingTimeSeconds != null && (
+          {model.ridingTimeText != null && (
             <Text className="ml-2 text-[18px] text-foreground font-barlow-sc-semibold">
-              ~{formatDuration(ridingTimeSeconds)}
+              ~{model.ridingTimeText}
             </Text>
           )}
         </View>
         <View className="flex-row items-center mt-0.5 min-w-0">
-          {ohStatus && (
+          {model.openingHoursText && (
             <>
               <View className="w-[5px] h-[5px] rounded-full" style={{ backgroundColor: ohColor }} />
               <Text className="ml-1 text-[14px] font-barlow-medium" style={{ color: ohColor }}>
-                {ohStatus.label}
-                {ohStatus.detail ? ` · ${ohStatus.detail}` : ""}
+                {model.openingHoursText}
               </Text>
             </>
           )}
-          {offRouteLabel && (
+          {model.offRouteText && (
             <Text className="ml-2 text-[14px] text-muted-foreground font-barlow-sc-medium">
-              {offRouteLabel}
+              {model.offRouteText}
             </Text>
           )}
         </View>
@@ -586,17 +561,15 @@ const CompactPOIRow = React.memo(function CompactPOIRow({
           className="text-[14px] font-barlow-medium text-foreground text-right"
           numberOfLines={1}
         >
-          {poi.name ?? catMeta?.label ?? "Unnamed"}
+          {model.title}
         </Text>
-        {catMeta && (
-          <Text
-            className="text-[13px] font-barlow-medium text-right"
-            style={{ color: catMeta.color }}
-            numberOfLines={1}
-          >
-            {catMeta.label}
-          </Text>
-        )}
+        <Text
+          className="text-[13px] font-barlow-medium text-right"
+          style={{ color: model.categoryColor }}
+          numberOfLines={1}
+        >
+          {model.categoryLabel}
+        </Text>
       </View>
     </TouchableOpacity>
   );

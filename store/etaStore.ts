@@ -9,7 +9,7 @@ import type {
 } from "@/types";
 import { DEFAULT_POWER_CONFIG } from "@/constants";
 import { displayPOIsForActiveRoute } from "@/services/activePOIs";
-import { computeRouteETA, getETAToDistanceFromDistance } from "@/services/etaCalculator";
+import { computeCachedRouteETA, getETAToDistanceFromDistance } from "@/services/etaCalculator";
 import { toDisplayPOIForSegments } from "@/services/displayDistance";
 import { futureStartMs } from "@/utils/activeRouteTiming";
 import {
@@ -101,7 +101,7 @@ export const useEtaStore = create<ETAState>((set, get) => ({
     if (get().routeId === routeId && get().cachedPoints === points && get().cumulativeTime) {
       return;
     }
-    const cumulative = computeRouteETA(points, get().powerConfig);
+    const cumulative = computeCachedRouteETA(routeId, points, get().powerConfig);
     set({ cumulativeTime: cumulative, routeId, cachedPoints: points });
   },
 
