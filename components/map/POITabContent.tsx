@@ -1,5 +1,5 @@
-import React, { useDeferredValue, useEffect, useMemo, useState, useCallback } from "react";
-import { FlashList, type ListRenderItem } from "@shopify/flash-list";
+import React, { useDeferredValue, useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { FlashList, type FlashListRef, type ListRenderItem } from "@shopify/flash-list";
 import {
   View,
   ScrollView,
@@ -57,12 +57,13 @@ import { pickRouteRecords } from "@/utils/routeScopedRecords";
 import {
   buildCompactPOIRowModels,
   buildPOICategoryCounts,
+  buildPOICategoryCountsFromPOIs,
   buildPOIListRowModels,
   buildVisiblePOIsForActiveRoute,
   type CompactPOIRowModel,
   type POIListRowModel,
 } from "@/utils/poiListModels";
-import POIFilterBar from "@/components/map/POIFilterBar";
+import POIFilterBar, { POISelectedFilterSummary } from "@/components/map/POIFilterBar";
 import POIListItem from "@/components/poi/POIListItem";
 import AddSavedPOISheet from "@/components/poi/AddSavedPOISheet";
 import type { ActiveRouteData, DisplayPOI, POI, StitchedSegmentInfo } from "@/types";
@@ -81,6 +82,7 @@ interface POITabContentProps {
 }
 
 const EXPANDED_POI_CONTENT_STYLE = { paddingBottom: 8 };
+const ALL_POI_CATEGORY_KEYS = POI_CATEGORIES.map((category) => category.key);
 
 function poiKeyExtractor(item: { id: string }): string {
   return item.id;
@@ -102,8 +104,10 @@ export default function POITabContent({ activeData }: POITabContentProps) {
 
   const [searchQuery, setSearchQuery] = useState("");
   const [showAddPOI, setShowAddPOI] = useState(false);
+  const [poiFiltersExpanded, setPOIFiltersExpanded] = useState(true);
   const [loadedSavedPOITargets, setLoadedSavedPOITargets] = useState<SavedPOITarget[] | null>(null);
   const deferredSearchQuery = useDeferredValue(searchQuery);
+  const expandedListRef = useRef<FlashListRef<POIListRowModel> | null>(null);
 
   const routeIds = useMemo(() => activeData?.routeIds ?? [], [activeData?.routeIds]);
   const routePoints = activeData?.points ?? null;
@@ -149,13 +153,13 @@ export default function POITabContent({ activeData }: POITabContentProps) {
     setLoadedSavedPOITargets(null);
   }, [activeData?.id]);
 
-  const categoryCounts = useMemo(
+  const routeCategoryCounts = useMemo(
     () => buildPOICategoryCounts(routePois, routeIds),
     [routePois, routeIds],
   );
   const totalPOICount = useMemo(
-    () => Object.values(categoryCounts).reduce((sum, count) => sum + (count ?? 0), 0),
-    [categoryCounts],
+    () => Object.values(routeCategoryCounts).reduce((sum, count) => sum + (count ?? 0), 0),
+    [routeCategoryCounts],
   );
 
   const activeDisplayPOIs = useMemo(
@@ -166,6 +170,25 @@ export default function POITabContent({ activeData }: POITabContentProps) {
     [routeIds, segments, routePois],
   );
   const plannedStops = useMemo(() => plannedStopsFromPOIs(activeDisplayPOIs), [activeDisplayPOIs]);
+
+  const scopedPOIsForFilters = useMemo(
+    () =>
+      measureSync("poi.filterScope", () =>
+        buildVisiblePOIsForActiveRoute({
+          routeIds,
+          segments,
+          poisByRoute: routePois,
+          horizonWindow,
+          enabledCategories: ALL_POI_CATEGORY_KEYS,
+          starredPOIIds,
+        }),
+      ),
+    [routeIds, segments, routePois, horizonWindow, starredPOIIds],
+  );
+  const categoryCounts = useMemo(
+    () => buildPOICategoryCountsFromPOIs(scopedPOIsForFilters),
+    [scopedPOIsForFilters],
+  );
 
   const visiblePOIs = useMemo(
     () =>
@@ -302,6 +325,19 @@ export default function POITabContent({ activeData }: POITabContentProps) {
     [handlePOIPress],
   );
 
+  const handleExpandedListScrollBegin = useCallback(() => {
+    setPOIFiltersExpanded(false);
+  }, []);
+
+  useEffect(() => {
+    if (!isExpanded) return;
+    expandedListRef.current?.scrollToOffset({ offset: 0, animated: false });
+  }, [activeData?.id, deferredSearchQuery, enabledCategories, isExpanded, panelMode]);
+
+  useEffect(() => {
+    if (isExpanded) setPOIFiltersExpanded(true);
+  }, [activeData?.id, isExpanded]);
+
   // Show inline detail when a POI is selected
   if (selectedPOI) {
     return (
@@ -344,7 +380,6 @@ export default function POITabContent({ activeData }: POITabContentProps) {
 
   // --- Expanded mode: full POI list with search + filters ---
   if (isExpanded) {
-    const scopeLabel = horizonScopeLabel;
     const emptyTitle = searchQuery.trim()
       ? "No POIs match this search"
       : !horizonWindow
@@ -358,51 +393,53 @@ export default function POITabContent({ activeData }: POITabContentProps) {
       <View className="flex-1">
         {/* Search */}
         <View
-          className="flex-row items-center px-4 py-2"
+          className="px-3 py-1.5"
           style={{ borderBottomWidth: 1, borderBottomColor: colors.borderSubtle }}
         >
-          <Search size={16} color={colors.textTertiary} />
-          <RNTextInput
-            className="flex-1 ml-2 text-[15px] font-barlow text-foreground"
-            placeholder="Search by name..."
-            placeholderTextColor={colors.textTertiary}
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            autoCorrect={false}
-            returnKeyType="search"
-            clearButtonMode="while-editing"
-            accessibilityLabel="Search POIs"
-          />
-          <TouchableOpacity
-            className="w-[48px] h-[48px] items-center justify-center ml-2"
-            onPress={handleOpenAddPOI}
-            disabled={!activeData}
-            accessibilityLabel="Add POI"
-          >
-            <Plus size={20} color={colors.accent} />
-          </TouchableOpacity>
+          <View className="flex-row items-center gap-2">
+            <View
+              className="flex-1 min-h-[48px] flex-row items-center rounded-xl bg-muted px-3"
+              style={{ borderWidth: 1, borderColor: colors.border }}
+            >
+              <Search size={20} color={colors.textSecondary} />
+              <RNTextInput
+                className="flex-1 ml-2 min-h-[48px] text-[18px] font-barlow-medium text-foreground"
+                placeholder="Search POIs"
+                placeholderTextColor={colors.textSecondary}
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                autoCapitalize="none"
+                autoCorrect={false}
+                returnKeyType="search"
+                clearButtonMode="while-editing"
+                accessibilityLabel="Search POIs"
+              />
+            </View>
+            <TouchableOpacity
+              className="w-[48px] h-[48px] items-center justify-center rounded-xl"
+              style={{ backgroundColor: colors.accentSubtle }}
+              onPress={handleOpenAddPOI}
+              disabled={!activeData}
+              accessibilityLabel="Add POI"
+              accessibilityRole="button"
+            >
+              <Plus size={24} color={activeData ? colors.accent : colors.textTertiary} />
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Category filters */}
         <View style={{ borderBottomWidth: 1, borderBottomColor: colors.borderSubtle }}>
-          <POIFilterBar categoryCounts={categoryCounts} />
-        </View>
-
-        <View
-          className="flex-row items-center justify-between px-3"
-          style={{
-            height: 52,
-            borderBottomWidth: 1,
-            borderBottomColor: colors.borderSubtle,
-          }}
-        >
-          <Text className="text-[11px] font-barlow-semibold text-muted-foreground">
-            {filteredPOIModels.length} POIs · {scopeLabel}
-          </Text>
+          <POIFilterBar
+            categoryCounts={categoryCounts}
+            expanded={poiFiltersExpanded}
+            onExpandedChange={setPOIFiltersExpanded}
+          />
         </View>
 
         {/* POI list */}
         <FlashList
+          ref={expandedListRef}
           data={filteredPOIModels}
           keyExtractor={poiKeyExtractor}
           renderItem={renderExpandedPOI}
@@ -410,6 +447,7 @@ export default function POITabContent({ activeData }: POITabContentProps) {
           contentContainerStyle={EXPANDED_POI_CONTENT_STYLE}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
+          onScrollBeginDrag={handleExpandedListScrollBegin}
           ListEmptyComponent={
             <View className="items-center justify-center px-5 py-10">
               <MapPin size={24} color={colors.textTertiary} />
@@ -438,10 +476,8 @@ export default function POITabContent({ activeData }: POITabContentProps) {
       <View className="flex-1">
         {compactPOIModels.length > 0 ? (
           <>
-            <View className="flex-row items-center justify-between px-3 py-1.5">
-              <Text className="text-[11px] font-barlow-semibold text-muted-foreground">
-                {compactPOIModels.length} POIs · {horizonScopeLabel}
-              </Text>
+            <View className="pt-1.5">
+              <POISelectedFilterSummary categoryCounts={categoryCounts} showAllWhenInactive />
             </View>
             <FlashList
               data={compactPOIModels}

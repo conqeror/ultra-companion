@@ -114,6 +114,14 @@ export function buildPOICategoryCounts(
   return counts;
 }
 
+export function buildPOICategoryCountsFromPOIs(pois: readonly DisplayPOI[]): POICategoryCountMap {
+  const counts: POICategoryCountMap = {};
+  for (const poi of pois) {
+    counts[poi.category] = (counts[poi.category] ?? 0) + 1;
+  }
+  return counts;
+}
+
 export function buildVisiblePOIsForActiveRoute({
   routeIds,
   segments,

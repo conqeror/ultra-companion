@@ -374,7 +374,7 @@ The map takes 100% of the screen. Everything else floats.
 
 - **Map markers**: Category icons over colored marker backgrounds. Starred/saved POIs are more important than generic fetched POIs.
 - **POI tab**: Scopes to the shared riding horizon by default; `FULL` becomes route-wide planning. Rows should make distance ahead, ETA/riding time, opening status, and off-route cost easy to scan.
-- **Filters**: Horizontal category/group chips. Starred POIs remain visible even when their category is filtered out.
+- **Filters**: Open by default as a wrapped compact chip grid with an `All` chip to reset; collapse to a compact selected-filter readout when the POI list scrolls. Use a short measured height/opacity transition for expand/collapse so the list does not jump. The compact sheet shows compact per-category count chips instead of a separate aggregate POI count. Avoid horizontal scroll rails. Starred POIs remain visible even when their category is filtered out.
 - **Details**: Keep route distance, off-route distance, opening state, phone/maps/share actions, notes, and planned stop duration close together.
 
 ### Upcoming
