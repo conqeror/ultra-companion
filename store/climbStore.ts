@@ -11,14 +11,12 @@ interface ClimbState {
   // UI state
   selectedClimb: DisplayClimb | null;
   currentClimbId: string | null;
-  isClimbZoomed: boolean;
   minimumDifficulty: ClimbDifficulty;
 
   // Actions
   loadClimbs: (routeId: string) => Promise<void>;
   renameClimb: (climbId: string, routeId: string, name: string | null) => Promise<void>;
   setSelectedClimb: (climb: DisplayClimb | null) => void;
-  setClimbZoomed: (zoomed: boolean) => void;
   setMinimumDifficulty: (difficulty: ClimbDifficulty) => void;
   clearClimbCache: () => void;
 
@@ -39,7 +37,6 @@ export const useClimbStore = create<ClimbState>((set, get) => ({
   climbs: {},
   selectedClimb: null,
   currentClimbId: null,
-  isClimbZoomed: false,
   minimumDifficulty: "low",
 
   loadClimbs: async (routeId) => {
@@ -89,7 +86,6 @@ export const useClimbStore = create<ClimbState>((set, get) => ({
   },
 
   setSelectedClimb: (climb) => set({ selectedClimb: climb }),
-  setClimbZoomed: (zoomed) => set({ isClimbZoomed: zoomed }),
   setMinimumDifficulty: (minimumDifficulty) => set({ minimumDifficulty, selectedClimb: null }),
   clearClimbCache: () => set({ climbs: {} }),
 
@@ -141,7 +137,6 @@ export const useClimbStore = create<ClimbState>((set, get) => ({
     if (newId !== state.currentClimbId) {
       set({
         currentClimbId: newId,
-        isClimbZoomed: newId !== null,
       });
     }
   },

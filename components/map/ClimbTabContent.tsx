@@ -37,6 +37,7 @@ import {
 } from "@/utils/ridingHorizon";
 import { bucketDistanceForDerivedWork } from "@/utils/distanceBuckets";
 import { pickRouteRecords } from "@/utils/routeScopedRecords";
+import { getClimbProgress } from "@/utils/climbProgress";
 import ElevationProfile from "@/components/elevation/ElevationProfile";
 import ClimbListItem from "@/components/climb/ClimbListItem";
 import { resolveActiveClimb } from "@/utils/climbSelect";
@@ -179,11 +180,6 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
     [climb, filteredClimbs],
   );
 
-  const distToStart = useMemo(() => {
-    if (!climb || currentDist == null) return null;
-    return climb.effectiveDistanceMeters - currentDist;
-  }, [climb, currentDist]);
-
   const climbProfile = useMemo(() => {
     if (!climb || !activeRoutePoints?.length) return null;
     const points = activeRoutePoints;
@@ -276,7 +272,6 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
       <ClimbListItem
         climb={item}
         currentDistAlongRoute={derivedCurrentDist}
-        isPast={derivedCurrentDist != null && item.effectiveEndDistanceMeters < derivedCurrentDist}
         onPress={handleClimbPress}
       />
     ),
@@ -320,33 +315,43 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
   const climbPositionLabel =
     climbIndex >= 0 ? `${climbIndex + 1}/${filteredClimbs.length}` : `-/${filteredClimbs.length}`;
   const climbTitle = `${climbPositionLabel}: ${climb.name ?? "Climb"}`;
+  const progress = getClimbProgress(climb, currentDist);
+  const progressPercent = Math.round(progress.progressRatio * 100);
   const compactDistanceText =
-    distToStart == null
-      ? null
-      : distToStart >= 0
-        ? `in ${formatDistance(distToStart, units)}`
-        : distToStart > -climb.lengthMeters
-          ? "on it"
-          : `${formatDistance(Math.abs(distToStart), units)} past`;
+    progress.state === "upcoming" && progress.distanceToStartMeters != null
+      ? `in ${formatDistance(progress.distanceToStartMeters, units)}`
+      : progress.state === "active" && progress.distanceToTopMeters != null
+        ? `${formatDistance(progress.distanceToTopMeters, units)} to top`
+        : progress.state === "past" && progress.distancePastTopMeters != null
+          ? `${formatDistance(progress.distancePastTopMeters, units)} past`
+          : null;
   const compactClimbTitle = compactDistanceText
     ? `${climbTitle} (${compactDistanceText})`
     : climbTitle;
+  const progressDetailText =
+    progress.state === "active"
+      ? `${progressPercent}% done · ${formatDistance(progress.completedDistanceMeters, units)} covered · ${formatDistance(progress.remainingDistanceMeters, units)} to top`
+      : progress.state === "upcoming" && progress.distanceToStartMeters != null
+        ? `Starts in ${formatDistance(progress.distanceToStartMeters, units)}`
+        : progress.state === "past" && progress.distancePastTopMeters != null
+          ? `Topped ${formatDistance(progress.distancePastTopMeters, units)} ago`
+          : null;
   const expandedDistanceLabel =
-    distToStart == null
-      ? null
-      : distToStart >= 0
-        ? "To start"
-        : distToStart > -climb.lengthMeters
-          ? "Position"
-          : "Past";
+    progress.state === "upcoming"
+      ? "To start"
+      : progress.state === "active"
+        ? "To top"
+        : progress.state === "past"
+          ? "Past"
+          : null;
   const expandedDistanceValue =
-    distToStart == null
-      ? null
-      : distToStart >= 0
-        ? formatDistance(distToStart, units)
-        : distToStart > -climb.lengthMeters
-          ? "On it"
-          : formatDistance(Math.abs(distToStart), units);
+    progress.state === "upcoming" && progress.distanceToStartMeters != null
+      ? formatDistance(progress.distanceToStartMeters, units)
+      : progress.state === "active" && progress.distanceToTopMeters != null
+        ? formatDistance(progress.distanceToTopMeters, units)
+        : progress.state === "past" && progress.distancePastTopMeters != null
+          ? formatDistance(progress.distancePastTopMeters, units)
+          : null;
   const statsRow = (
     <View className="flex-row gap-2 px-3 mt-2 mb-2">
       <StatCard label="Gain" value={`+${formatElevation(climb.totalAscentMeters, units)}`} />
@@ -434,6 +439,16 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
               {CLIMB_DIFFICULTY_LABELS[difficulty]} · {Math.round(climb.difficultyScore)}
             </Text>
           </View>
+          {isExpanded && progressDetailText && (
+            <Text
+              className="text-[12px] text-muted-foreground font-barlow-medium mt-0.5"
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.82}
+            >
+              {progressDetailText}
+            </Text>
+          )}
         </View>
 
         <ClimbArrowButton
@@ -466,6 +481,7 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
                 currentDistanceMeters={climbProfile.currentDistanceInSliceMeters}
                 pois={climbProfilePOIs}
                 onPOIPress={setSelectedPOI}
+                gradientAreaFill
               />
             )}
           </View>

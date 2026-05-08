@@ -10,10 +10,7 @@ import { useSettingsStore } from "@/store/settingsStore";
 import { usePoiStore } from "@/store/poiStore";
 import { useClimbStore } from "@/store/climbStore";
 import {
-  computeSliceAscentFromDistance,
   computeSliceElevationTotalsFromDistance,
-  extractRouteSlice,
-  findFirstPointAtOrAfterDistance,
   findNearestPointIndexAtDistance,
 } from "@/utils/geo";
 import { resolveRouteProgress } from "@/utils/routeProgress";
@@ -29,7 +26,7 @@ import UpcomingElevation from "./UpcomingElevation";
 import ElevationProfile from "@/components/elevation/ElevationProfile";
 import type { POI, ActiveRouteData, DisplayClimb } from "@/types";
 
-const STATS_HEIGHT = 44;
+const STATS_HEIGHT = 36;
 const CLIMB_ROW_HEIGHT = 36;
 const MAX_CLIMBS_AHEAD = 4;
 const HORIZONTAL_PADDING = 8;
@@ -93,63 +90,7 @@ export default function ProfileTabContent({ activeData, width, height }: Profile
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeId, activeRouteIds, activeSegments, getClimbsForDisplay, routeClimbs]);
 
-  const currentClimbId = useClimbStore((s) => s.currentClimbId);
-  const isClimbZoomed = useClimbStore((s) => s.isClimbZoomed);
-  const setClimbZoomed = useClimbStore((s) => s.setClimbZoomed);
   const setSelectedClimb = useClimbStore((s) => s.setSelectedClimb);
-
-  const currentClimb = useMemo(() => {
-    if (!currentClimbId) return null;
-    return climbsForChart.find((c) => c.id === currentClimbId) ?? null;
-  }, [currentClimbId, climbsForChart]);
-
-  const climbSlice = useMemo(() => {
-    if (!currentClimb || !activeRoutePoints?.length) return null;
-    const padding = 500;
-    const startDist = Math.max(0, currentClimb.effectiveStartDistanceMeters - padding);
-    const firstAtOrAfterStart = findFirstPointAtOrAfterDistance(activeRoutePoints, startDist);
-    const startIdx =
-      activeRoutePoints[firstAtOrAfterStart]?.distanceFromStartMeters === startDist
-        ? firstAtOrAfterStart
-        : Math.max(0, firstAtOrAfterStart - 1);
-    const totalSliceM =
-      currentClimb.effectiveEndDistanceMeters +
-      padding -
-      activeRoutePoints[startIdx].distanceFromStartMeters;
-    const sliced = extractRouteSlice(activeRoutePoints, startIdx, totalSliceM);
-    let currentIdxInSlice: number | undefined;
-    let currentDistanceInSliceMeters: number | undefined;
-    if (currentDistanceMeters != null) {
-      const relativeDistanceMeters =
-        currentDistanceMeters - activeRoutePoints[startIdx].distanceFromStartMeters;
-      const sliceEndMeters = sliced[sliced.length - 1]?.distanceFromStartMeters ?? 0;
-      if (relativeDistanceMeters >= 0 && relativeDistanceMeters <= sliceEndMeters) {
-        currentIdxInSlice = findNearestPointIndexAtDistance(sliced, relativeDistanceMeters);
-        currentDistanceInSliceMeters = relativeDistanceMeters;
-      }
-    }
-    return {
-      points: sliced,
-      currentIdxInSlice,
-      currentDistanceInSliceMeters,
-      offsetMeters: activeRoutePoints[startIdx].distanceFromStartMeters,
-    };
-  }, [currentClimb, activeRoutePoints, currentDistanceMeters]);
-
-  const climbProgressText = useMemo(() => {
-    if (!currentClimb || !activeRouteProgress || !activeRoutePoints?.length) return null;
-    const currentDist = activeRouteProgress.distanceAlongRouteMeters;
-    const distToTop = currentClimb.effectiveEndDistanceMeters - currentDist;
-    if (distToTop <= 0) return null;
-    const ascentRemaining = computeSliceAscentFromDistance(
-      activeRoutePoints,
-      currentDist,
-      currentClimb.effectiveEndDistanceMeters,
-    );
-    return `↑ ${formatElevation(ascentRemaining, units)} remaining  ·  ${formatDistance(distToTop, units)} to top  ·  ${currentClimb.averageGradientPercent}% avg`;
-  }, [currentClimb, activeRouteProgress, activeRoutePoints, units]);
-
-  const showClimbZoom = isClimbZoomed && currentClimb && climbSlice && climbSlice.points.length > 1;
 
   // Slice bounds (matches UpcomingElevation's window)
   const { windowStartDist, windowEndDist } = useMemo(() => {
@@ -170,7 +111,7 @@ export default function ProfileTabContent({ activeData, width, height }: Profile
     );
     return `↑ ${formatElevation(asc, units)}  ·  ↓ ${formatElevation(desc, units)}`;
   }, [isSnapped, activeRoutePoints, windowStartDist, windowEndDist, units]);
-  const horizonSummaryText = statsText ? `${horizonScopeLabel}: ${statsText}` : null;
+  const horizonSummaryText = statsText;
 
   const climbsAhead = useMemo<DisplayClimb[]>(() => {
     if (climbsForChart.length === 0) return [];
@@ -194,17 +135,15 @@ export default function ProfileTabContent({ activeData, width, height }: Profile
 
   const lookAhead = ridingHorizonMetersForMode(panelMode) ?? activeTotalDistance;
 
-  const showClimbBar = showClimbZoom && !!climbProgressText;
-  const showStats = !showClimbZoom && !!horizonSummaryText;
-  const showClimbsAhead = isExpanded && !showClimbZoom && climbsAhead.length > 0;
+  const showStats = !!horizonSummaryText;
+  const showClimbsAhead = isExpanded && climbsAhead.length > 0;
   const isFullRouteHorizon = panelMode === "full-route";
 
   const climbsAheadHeight = showClimbsAhead
     ? Math.min(climbsAhead.length, MAX_CLIMBS_AHEAD) * CLIMB_ROW_HEIGHT + 24
     : 0;
 
-  const headerBlockHeight =
-    (showStats ? STATS_HEIGHT : 0) + (showClimbBar ? STATS_HEIGHT : 0) + climbsAheadHeight;
+  const headerBlockHeight = (showStats ? STATS_HEIGHT : 0) + climbsAheadHeight;
 
   const chartHeight = height - headerBlockHeight - safeBottom;
   const chartWidth = width - HORIZONTAL_PADDING * 2;
@@ -219,22 +158,6 @@ export default function ProfileTabContent({ activeData, width, height }: Profile
 
   return (
     <View style={{ height }}>
-      {showClimbBar && (
-        <TouchableOpacity
-          className="justify-center items-center"
-          style={[
-            { height: STATS_HEIGHT },
-            { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
-          ]}
-          onPress={() => setClimbZoomed(false)}
-          accessibilityLabel="Exit climb zoom"
-        >
-          <Text className="text-[13px] text-foreground font-barlow-sc-semibold">
-            {climbProgressText}
-          </Text>
-        </TouchableOpacity>
-      )}
-
       {showStats && (
         <View
           className="items-center justify-center"
@@ -244,7 +167,10 @@ export default function ProfileTabContent({ activeData, width, height }: Profile
           ]}
           accessibilityLabel={`Profile summary for ${horizonScopeLabel}, ${statsText}`}
         >
-          <Text className="text-[18px] text-foreground font-barlow-sc-semibold" numberOfLines={1}>
+          <Text
+            className="text-[15px] text-muted-foreground font-barlow-sc-medium"
+            numberOfLines={1}
+          >
             {horizonSummaryText}
           </Text>
         </View>
@@ -264,24 +190,7 @@ export default function ProfileTabContent({ activeData, width, height }: Profile
       )}
 
       <View className="items-center px-2">
-        {showClimbZoom ? (
-          <ElevationProfile
-            points={climbSlice!.points}
-            units={units}
-            width={chartWidth}
-            height={chartHeight}
-            currentPointIndex={climbSlice!.currentIdxInSlice}
-            currentDistanceMeters={climbSlice!.currentDistanceInSliceMeters}
-            showLegend={false}
-            distanceOffsetMeters={climbSlice!.offsetMeters}
-            pois={poisForChart}
-            onPOIPress={(poi) => {
-              setSelectedPOI(poi);
-            }}
-            climbs={climbsForChart}
-            fitToWidth
-          />
-        ) : isFullRouteHorizon ? (
+        {isFullRouteHorizon ? (
           <ElevationProfile
             points={activeRoutePoints}
             units={units}

@@ -5,38 +5,60 @@ import { useSettingsStore } from "@/store/settingsStore";
 import { useEtaStore } from "@/store/etaStore";
 import { climbDifficultyColor } from "@/constants/climbHelpers";
 import { formatDistance, formatElevation, formatDuration, formatETA } from "@/utils/formatters";
+import { getClimbProgress } from "@/utils/climbProgress";
 import type { DisplayClimb } from "@/types";
 
 interface ClimbListItemProps {
   climb: DisplayClimb;
   currentDistAlongRoute: number | null;
-  isPast: boolean;
   onPress: (climb: DisplayClimb) => void;
 }
 
-function ClimbListItem({ climb, currentDistAlongRoute, isPast, onPress }: ClimbListItemProps) {
+function ClimbListItem({ climb, currentDistAlongRoute, onPress }: ClimbListItemProps) {
   const units = useSettingsStore((s) => s.units);
   const getETAToDistance = useEtaStore((s) => s.getETAToDistance);
 
   const diffColor = climbDifficultyColor(climb.difficultyScore);
-
-  const distAhead =
-    currentDistAlongRoute != null ? climb.effectiveDistanceMeters - currentDistAlongRoute : null;
+  const progress = useMemo(
+    () => getClimbProgress(climb, currentDistAlongRoute),
+    [climb, currentDistAlongRoute],
+  );
+  const targetDistanceMeters =
+    progress.state === "active"
+      ? climb.effectiveEndDistanceMeters
+      : climb.effectiveStartDistanceMeters;
+  const isPast = progress.state === "past";
+  const distanceValueMeters =
+    progress.state === "unknown"
+      ? null
+      : progress.state === "active"
+        ? progress.distanceToTopMeters
+        : progress.state === "past"
+          ? progress.distancePastTopMeters
+          : progress.distanceToStartMeters;
+  const distanceContext =
+    progress.state === "active"
+      ? "to top"
+      : progress.state === "past"
+        ? "past"
+        : progress.state === "upcoming"
+          ? "ahead"
+          : null;
 
   const etaResult = useMemo(
-    () => getETAToDistance(climb.effectiveDistanceMeters),
-    [climb.effectiveDistanceMeters, getETAToDistance],
+    () => (progress.state === "past" ? null : getETAToDistance(targetDistanceMeters)),
+    [progress.state, targetDistanceMeters, getETAToDistance],
   );
   const distLabel =
-    distAhead != null
-      ? distAhead >= 0
-        ? `${formatDistance(distAhead, units)} ahead`
-        : `${formatDistance(Math.abs(distAhead), units)} behind`
+    distanceValueMeters != null && distanceContext
+      ? `${formatDistance(distanceValueMeters, units)} ${distanceContext}`
       : null;
   const etaLabel =
     etaResult && etaResult.ridingTimeSeconds > 0
       ? `${formatDuration(etaResult.ridingTimeSeconds)}, ETA ${formatETA(etaResult.eta)}`
       : null;
+  const progressLabel =
+    progress.state === "active" ? `${Math.round(progress.progressRatio * 100)}% done` : null;
   const accessibilityLabel = [
     climb.name ?? "Climb",
     distLabel,
@@ -45,7 +67,7 @@ function ClimbListItem({ climb, currentDistAlongRoute, isPast, onPress }: ClimbL
     `${formatDistance(climb.lengthMeters, units)} long`,
     `${climb.averageGradientPercent}% average grade`,
     `${climb.maxGradientPercent}% max grade`,
-    isPast ? "behind" : "upcoming",
+    progress.state === "active" ? "on climb" : progress.state,
   ]
     .filter(Boolean)
     .join(", ");
@@ -65,22 +87,21 @@ function ClimbListItem({ climb, currentDistAlongRoute, isPast, onPress }: ClimbL
 
       <View className="flex-1">
         <View className="flex-row items-baseline">
-          {distAhead != null && (
+          {distanceValueMeters != null && (
             <Text className="text-[18px] font-barlow-sc-semibold text-foreground">
-              {distAhead >= 0
-                ? formatDistance(distAhead, units)
-                : `-${formatDistance(Math.abs(distAhead), units)}`}
+              {formatDistance(distanceValueMeters, units)}
             </Text>
           )}
           {etaResult && etaResult.ridingTimeSeconds > 0 ? (
             <Text className="ml-2 text-[15px] font-barlow-sc-semibold text-foreground">
               ~{formatDuration(etaResult.ridingTimeSeconds)}
             </Text>
-          ) : distAhead != null ? (
-            <Text className="ml-2 text-[14px] text-muted-foreground font-barlow">
-              {distAhead >= 0 ? "ahead" : "behind"}
-            </Text>
           ) : null}
+          {distanceContext && (
+            <Text className="ml-2 text-[14px] text-muted-foreground font-barlow">
+              {distanceContext}
+            </Text>
+          )}
         </View>
         {climb.name && (
           <Text className="text-[14px] font-barlow-medium text-foreground mb-0.5" numberOfLines={1}>
@@ -94,6 +115,7 @@ function ClimbListItem({ climb, currentDistAlongRoute, isPast, onPress }: ClimbL
           {climb.averageGradientPercent}% avg
         </Text>
         <Text className="text-[12px] text-muted-foreground font-barlow mt-0.5">
+          {progressLabel ? `${progressLabel} · ` : ""}
           max {climb.maxGradientPercent}%{"  ·  "}
           difficulty: {Math.round(climb.difficultyScore)}
         </Text>
@@ -106,7 +128,6 @@ export default React.memo(ClimbListItem, (prev, next) => {
   return (
     prev.climb === next.climb &&
     prev.currentDistAlongRoute === next.currentDistAlongRoute &&
-    prev.isPast === next.isPast &&
     prev.onPress === next.onPress
   );
 });

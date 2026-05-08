@@ -39,6 +39,9 @@ interface ElevationProfileProps {
   climbs?: DisplayClimb[];
   /** Force fit-to-width — disables horizontal scrolling and the overview minimap */
   fitToWidth?: boolean;
+  /** Fill the area under the profile with the same gradient used by the line */
+  gradientAreaFill?: boolean;
+  gradientAreaOpacity?: number;
 }
 
 const PADDING = { top: 16, right: 16, bottom: 28, left: 48 };
@@ -229,6 +232,8 @@ export default function ElevationProfile({
   segmentBoundaries,
   climbs,
   fitToWidth = false,
+  gradientAreaFill = false,
+  gradientAreaOpacity = 0.16,
 }: ElevationProfileProps) {
   const colors = useThemeColors();
 
@@ -600,6 +605,10 @@ export default function ElevationProfile({
 
         <Path d={fillPath} fill="url(#elevFill)" />
 
+        {gradientAreaFill && (
+          <Path d={fillPath} fill="url(#lineGrad)" opacity={gradientAreaOpacity} />
+        )}
+
         {climbRegions.map((region) => (
           <Path key={`climb-${region.id}`} d={region.fillPath} fill={region.color} opacity={0.2} />
         ))}
@@ -680,6 +689,8 @@ export default function ElevationProfile({
       gradientStops,
       yLabels,
       fillPath,
+      gradientAreaFill,
+      gradientAreaOpacity,
       climbRegions,
       linePath,
       currentPos,
