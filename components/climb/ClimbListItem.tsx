@@ -57,13 +57,11 @@ function ClimbListItem({ climb, currentDistAlongRoute, onPress }: ClimbListItemP
     etaResult && etaResult.ridingTimeSeconds > 0
       ? `${formatDuration(etaResult.ridingTimeSeconds)}, ETA ${formatETA(etaResult.eta)}`
       : null;
-  const progressLabel =
-    progress.state === "active" ? `${Math.round(progress.progressRatio * 100)}% done` : null;
   const accessibilityLabel = [
     climb.name ?? "Climb",
     distLabel,
     etaLabel,
-    `${formatElevation(climb.totalAscentMeters, units)} gain`,
+    `${formatElevation(climb.totalAscentMeters, units)} total gain`,
     `${formatDistance(climb.lengthMeters, units)} long`,
     `${climb.averageGradientPercent}% average grade`,
     `${climb.maxGradientPercent}% max grade`,
@@ -115,7 +113,6 @@ function ClimbListItem({ climb, currentDistAlongRoute, onPress }: ClimbListItemP
           {climb.averageGradientPercent}% avg
         </Text>
         <Text className="text-[12px] text-muted-foreground font-barlow mt-0.5">
-          {progressLabel ? `${progressLabel} · ` : ""}
           max {climb.maxGradientPercent}%{"  ·  "}
           difficulty: {Math.round(climb.difficultyScore)}
         </Text>

@@ -15,7 +15,6 @@ import {
 import { bucketDistanceForDerivedWork } from "@/utils/distanceBuckets";
 import { getClimbMapBounds, getZoomLevelToFitBounds } from "@/utils/climbGeometry";
 import { resolveActiveClimb } from "@/utils/climbSelect";
-import { isClimbAtLeastDifficulty } from "@/constants/climbHelpers";
 import { MAP_LAYER_ANCHOR_IDS } from "@/constants/mapLayers";
 import { pickRouteRecords } from "@/utils/routeScopedRecords";
 import MapLayerAnchors from "./MapLayerAnchors";
@@ -258,7 +257,6 @@ function ClimbMapOverlay({
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const { bottom: safeBottom } = useSafeAreaInsets();
   const selectedClimb = useClimbStore((s) => s.selectedClimb);
-  const minimumDifficulty = useClimbStore((s) => s.minimumDifficulty);
   const getClimbsForDisplay = useClimbStore((s) => s.getClimbsForDisplay);
   const routeClimbs = useClimbStore(useShallow((s) => pickRouteRecords(s.climbs, activeRouteIds)));
   const panelMode = usePanelStore((s) => s.panelMode);
@@ -283,7 +281,7 @@ function ClimbMapOverlay({
     const displayed = filterClimbsToRidingHorizon(
       getClimbsForDisplay(activeRouteIds, activeSegments),
       climbHorizonWindow,
-    ).filter((climb) => isClimbAtLeastDifficulty(climb.difficultyScore, minimumDifficulty));
+    );
     const selected =
       selectedClimb && displayed.some((climb) => climb.id === selectedClimb.id)
         ? selectedClimb
@@ -297,7 +295,6 @@ function ClimbMapOverlay({
     activeRouteIds,
     activeSegments,
     derivedProgressDistanceMeters,
-    minimumDifficulty,
     climbHorizonWindow,
     routeClimbs,
     getClimbsForDisplay,

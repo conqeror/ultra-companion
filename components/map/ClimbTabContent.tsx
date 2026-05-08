@@ -5,7 +5,6 @@ import {
   TextInput as RNTextInput,
   useWindowDimensions,
   FlatList,
-  ScrollView,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useShallow } from "zustand/react/shallow";
@@ -22,7 +21,6 @@ import {
   climbDifficultyColor,
   getClimbDifficulty,
   CLIMB_DIFFICULTY_LABELS,
-  isClimbAtLeastDifficulty,
 } from "@/constants/climbHelpers";
 import { extractRouteSlice, findNearestPointIndexAtDistance } from "@/utils/geo";
 import { resolveActiveRouteProgress } from "@/utils/routeProgress";
@@ -38,40 +36,15 @@ import {
 import { bucketDistanceForDerivedWork } from "@/utils/distanceBuckets";
 import { pickRouteRecords } from "@/utils/routeScopedRecords";
 import { getClimbProgress } from "@/utils/climbProgress";
+import { computeClimbSegmentStats } from "@/utils/climbSegmentStats";
 import ElevationProfile from "@/components/elevation/ElevationProfile";
 import ClimbListItem from "@/components/climb/ClimbListItem";
 import { resolveActiveClimb } from "@/utils/climbSelect";
-import type { ActiveRouteData, ClimbDifficulty, DisplayClimb, POI } from "@/types";
+import type { ActiveRouteData, DisplayClimb, POI } from "@/types";
 
 interface ClimbTabContentProps {
   activeData: ActiveRouteData | null;
 }
-
-const DIFFICULTY_FILTERS: {
-  key: ClimbDifficulty;
-  label: string;
-  accessibilityLabel: string;
-}[] = [
-  {
-    key: "low",
-    label: "Easy+",
-    accessibilityLabel: "Show easy, moderate, and hard climbs",
-  },
-  {
-    key: "medium",
-    label: "Moderate+",
-    accessibilityLabel: "Show moderate and hard climbs",
-  },
-  { key: "hard", label: "Hard", accessibilityLabel: "Show hard climbs" },
-];
-
-const DIFFICULTY_FILTER_COLOR_SCORE: Record<ClimbDifficulty, number> = {
-  low: 0,
-  medium: 150,
-  hard: 400,
-};
-
-const FILTER_BAR_HEIGHT = 56;
 
 export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
   const colors = useThemeColors();
@@ -82,8 +55,6 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
   const getClimbsForDisplay = useClimbStore((s) => s.getClimbsForDisplay);
   const selectedClimb = useClimbStore((s) => s.selectedClimb);
   const setSelectedClimb = useClimbStore((s) => s.setSelectedClimb);
-  const minimumDifficulty = useClimbStore((s) => s.minimumDifficulty);
-  const setMinimumDifficulty = useClimbStore((s) => s.setMinimumDifficulty);
   const renameClimb = useClimbStore((s) => s.renameClimb);
   const getStarredPOIs = usePoiStore((s) => s.getStarredPOIs);
   const starredPOIIds = usePoiStore((s) => s.starredPOIIds);
@@ -148,36 +119,41 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
     [displayedClimbs, horizonWindow],
   );
 
-  const filteredClimbs = useMemo(
-    () =>
-      sortedClimbs.filter((c) => isClimbAtLeastDifficulty(c.difficultyScore, minimumDifficulty)),
-    [minimumDifficulty, sortedClimbs],
-  );
-
-  const difficultyCounts = useMemo(() => {
-    const counts: Record<ClimbDifficulty, number> = { low: 0, medium: 0, hard: 0 };
-    for (const c of sortedClimbs) {
-      counts.low += 1;
-      if (isClimbAtLeastDifficulty(c.difficultyScore, "medium")) counts.medium += 1;
-      if (isClimbAtLeastDifficulty(c.difficultyScore, "hard")) counts.hard += 1;
-    }
-    return counts;
-  }, [sortedClimbs]);
-
-  const selectedClimbForFilter =
-    selectedClimb && filteredClimbs.some((c) => c.id === selectedClimb.id) ? selectedClimb : null;
+  const selectedClimbInScope =
+    selectedClimb && sortedClimbs.some((c) => c.id === selectedClimb.id) ? selectedClimb : null;
 
   const climb = useMemo(() => {
     if (editingClimb) return editingClimb;
-    return resolveActiveClimb(filteredClimbs, currentDist, selectedClimbForFilter);
-  }, [filteredClimbs, currentDist, editingClimb, selectedClimbForFilter]);
+    return resolveActiveClimb(sortedClimbs, currentDist, selectedClimbInScope);
+  }, [sortedClimbs, currentDist, editingClimb, selectedClimbInScope]);
+
+  const climbProgress = useMemo(
+    () => (climb ? getClimbProgress(climb, currentDist) : null),
+    [climb, currentDist],
+  );
+
+  const activeRemainingStats = useMemo(() => {
+    if (
+      !climb ||
+      climbProgress?.state !== "active" ||
+      !activeRoutePoints?.length ||
+      currentDist == null
+    ) {
+      return null;
+    }
+    return computeClimbSegmentStats(
+      activeRoutePoints,
+      currentDist,
+      climb.effectiveEndDistanceMeters,
+    );
+  }, [climb, climbProgress?.state, activeRoutePoints, currentDist]);
 
   const difficulty = climb ? getClimbDifficulty(climb.difficultyScore) : "low";
   const diffColor = climb ? climbDifficultyColor(climb.difficultyScore) : colors.textTertiary;
 
   const climbIndex = useMemo(
-    () => (climb ? filteredClimbs.findIndex((c) => c.id === climb.id) : -1),
-    [climb, filteredClimbs],
+    () => (climb ? sortedClimbs.findIndex((c) => c.id === climb.id) : -1),
+    [climb, sortedClimbs],
   );
 
   const climbProfile = useMemo(() => {
@@ -241,23 +217,14 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
     setEditingClimb(null);
   };
 
-  const handleMinimumDifficultyChange = useCallback(
-    (filter: ClimbDifficulty) => {
-      setIsEditing(false);
-      setEditingClimb(null);
-      setMinimumDifficulty(filter);
-    },
-    [setMinimumDifficulty],
-  );
-
   const handleNavigateClimb = useCallback(
     (direction: -1 | 1) => {
       if (climbIndex < 0) return;
-      const nextClimb = filteredClimbs[climbIndex + direction];
+      const nextClimb = sortedClimbs[climbIndex + direction];
       if (!nextClimb) return;
       setSelectedClimb(nextClimb);
     },
-    [climbIndex, filteredClimbs, setSelectedClimb],
+    [climbIndex, sortedClimbs, setSelectedClimb],
   );
 
   const handleClimbPress = useCallback(
@@ -269,13 +236,9 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
 
   const renderClimbItem = useCallback(
     ({ item }: { item: DisplayClimb }) => (
-      <ClimbListItem
-        climb={item}
-        currentDistAlongRoute={derivedCurrentDist}
-        onPress={handleClimbPress}
-      />
+      <ClimbListItem climb={item} currentDistAlongRoute={currentDist} onPress={handleClimbPress} />
     ),
-    [derivedCurrentDist, handleClimbPress],
+    [currentDist, handleClimbPress],
   );
 
   // Empty state
@@ -292,72 +255,82 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
 
   if (!climb) {
     return (
-      <View className="flex-1">
-        {isExpanded && (
-          <DifficultyFilterBar
-            activeFilter={minimumDifficulty}
-            counts={difficultyCounts}
-            onChange={handleMinimumDifficultyChange}
-          />
-        )}
-        <View className="flex-1 items-center justify-center px-4">
-          <Mountain size={24} color={colors.textTertiary} />
-          <Text className="text-[13px] text-muted-foreground font-barlow-medium mt-2 text-center">
-            {sortedClimbs.length === 0
-              ? `No climbs in ${horizonScopeLabel}`
-              : `No climbs match this filter in ${horizonScopeLabel}`}
-          </Text>
-        </View>
+      <View className="flex-1 items-center justify-center px-4">
+        <Mountain size={24} color={colors.textTertiary} />
+        <Text className="text-[13px] text-muted-foreground font-barlow-medium mt-2 text-center">
+          No climbs in {horizonScopeLabel}
+        </Text>
       </View>
     );
   }
 
   const climbPositionLabel =
-    climbIndex >= 0 ? `${climbIndex + 1}/${filteredClimbs.length}` : `-/${filteredClimbs.length}`;
+    climbIndex >= 0 ? `${climbIndex + 1}/${sortedClimbs.length}` : `-/${sortedClimbs.length}`;
   const climbTitle = `${climbPositionLabel}: ${climb.name ?? "Climb"}`;
-  const progress = getClimbProgress(climb, currentDist);
-  const progressPercent = Math.round(progress.progressRatio * 100);
+  const progress = climbProgress ?? getClimbProgress(climb, currentDist);
+  const remainingLengthMeters =
+    progress.state === "active"
+      ? (activeRemainingStats?.lengthMeters ?? progress.remainingDistanceMeters)
+      : climb.lengthMeters;
+  const remainingGainMeters =
+    progress.state === "active"
+      ? (activeRemainingStats?.gainMeters ??
+        climb.totalAscentMeters * (remainingLengthMeters / Math.max(1, climb.lengthMeters)))
+      : climb.totalAscentMeters;
+  const remainingAverageGradientPercent =
+    progress.state === "active"
+      ? (activeRemainingStats?.averageGradientPercent ??
+        (remainingLengthMeters > 0 ? (remainingGainMeters / remainingLengthMeters) * 100 : 0))
+      : climb.averageGradientPercent;
+  const remainingMaxGradientPercent =
+    progress.state === "active"
+      ? (activeRemainingStats?.maxGradientPercent ?? climb.maxGradientPercent)
+      : climb.maxGradientPercent;
   const compactDistanceText =
     progress.state === "upcoming" && progress.distanceToStartMeters != null
       ? `in ${formatDistance(progress.distanceToStartMeters, units)}`
       : progress.state === "active" && progress.distanceToTopMeters != null
-        ? `${formatDistance(progress.distanceToTopMeters, units)} to top`
+        ? `+${formatElevation(remainingGainMeters, units)}, ${formatDistance(
+            remainingLengthMeters,
+            units,
+          )} to top`
         : progress.state === "past" && progress.distancePastTopMeters != null
           ? `${formatDistance(progress.distancePastTopMeters, units)} past`
           : null;
   const compactClimbTitle = compactDistanceText
     ? `${climbTitle} (${compactDistanceText})`
     : climbTitle;
-  const progressDetailText =
-    progress.state === "active"
-      ? `${progressPercent}% done · ${formatDistance(progress.completedDistanceMeters, units)} covered · ${formatDistance(progress.remainingDistanceMeters, units)} to top`
-      : progress.state === "upcoming" && progress.distanceToStartMeters != null
-        ? `Starts in ${formatDistance(progress.distanceToStartMeters, units)}`
-        : progress.state === "past" && progress.distancePastTopMeters != null
-          ? `Topped ${formatDistance(progress.distancePastTopMeters, units)} ago`
-          : null;
   const expandedDistanceLabel =
-    progress.state === "upcoming"
-      ? "To start"
-      : progress.state === "active"
-        ? "To top"
-        : progress.state === "past"
-          ? "Past"
-          : null;
+    progress.state === "upcoming" ? "To start" : progress.state === "past" ? "Past" : null;
   const expandedDistanceValue =
     progress.state === "upcoming" && progress.distanceToStartMeters != null
       ? formatDistance(progress.distanceToStartMeters, units)
-      : progress.state === "active" && progress.distanceToTopMeters != null
-        ? formatDistance(progress.distanceToTopMeters, units)
-        : progress.state === "past" && progress.distancePastTopMeters != null
-          ? formatDistance(progress.distancePastTopMeters, units)
-          : null;
+      : progress.state === "past" && progress.distancePastTopMeters != null
+        ? formatDistance(progress.distancePastTopMeters, units)
+        : null;
+  const isActiveClimb = progress.state === "active";
   const statsRow = (
     <View className="flex-row gap-2 px-3 mt-2 mb-2">
-      <StatCard label="Gain" value={`+${formatElevation(climb.totalAscentMeters, units)}`} />
-      <StatCard label="Length" value={formatDistance(climb.lengthMeters, units)} />
-      <StatCard label="Avg" value={`${climb.averageGradientPercent}%`} />
-      <StatCard label="Max" value={`${climb.maxGradientPercent}%`} />
+      <StatCard
+        label="Gain"
+        value={`+${formatElevation(climb.totalAscentMeters, units)}`}
+        detail={isActiveClimb ? `+${formatElevation(remainingGainMeters, units)} left` : undefined}
+      />
+      <StatCard
+        label="Length"
+        value={formatDistance(climb.lengthMeters, units)}
+        detail={isActiveClimb ? `${formatDistance(remainingLengthMeters, units)} left` : undefined}
+      />
+      <StatCard
+        label="Avg"
+        value={`${climb.averageGradientPercent}%`}
+        detail={isActiveClimb ? `${roundOne(remainingAverageGradientPercent)}% left` : undefined}
+      />
+      <StatCard
+        label="Max"
+        value={`${climb.maxGradientPercent}%`}
+        detail={isActiveClimb ? `${roundOne(remainingMaxGradientPercent)}% left` : undefined}
+      />
       {expandedDistanceLabel && expandedDistanceValue && (
         <StatCard label={expandedDistanceLabel} value={expandedDistanceValue} />
       )}
@@ -366,14 +339,6 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
 
   return (
     <View className="flex-1">
-      {isExpanded && (
-        <DifficultyFilterBar
-          activeFilter={minimumDifficulty}
-          counts={difficultyCounts}
-          onChange={handleMinimumDifficultyChange}
-        />
-      )}
-
       {/* Header: name + difficulty */}
       <View className="flex-row items-center px-3 pt-1">
         <ClimbArrowButton
@@ -439,21 +404,11 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
               {CLIMB_DIFFICULTY_LABELS[difficulty]} · {Math.round(climb.difficultyScore)}
             </Text>
           </View>
-          {isExpanded && progressDetailText && (
-            <Text
-              className="text-[12px] text-muted-foreground font-barlow-medium mt-0.5"
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.82}
-            >
-              {progressDetailText}
-            </Text>
-          )}
         </View>
 
         <ClimbArrowButton
           direction="next"
-          disabled={climbIndex < 0 || climbIndex >= filteredClimbs.length - 1}
+          disabled={climbIndex < 0 || climbIndex >= sortedClimbs.length - 1}
           onPress={() => handleNavigateClimb(1)}
           compact={!isExpanded}
         />
@@ -494,16 +449,9 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
       {isExpanded && (
         <View className="flex-1 border-t border-border mt-1">
           <FlatList
-            data={filteredClimbs}
+            data={sortedClimbs}
             keyExtractor={(item) => item.id}
             renderItem={renderClimbItem}
-            ListEmptyComponent={
-              <View className="items-center justify-center py-8 px-4">
-                <Text className="text-[13px] text-muted-foreground font-barlow-medium">
-                  No climbs match this difficulty in {horizonScopeLabel}
-                </Text>
-              </View>
-            }
             contentContainerStyle={{ paddingBottom: safeBottom }}
           />
         </View>
@@ -547,83 +495,15 @@ function ClimbArrowButton({
   );
 }
 
-function DifficultyFilterBar({
-  activeFilter,
-  counts,
-  onChange,
-}: {
-  activeFilter: ClimbDifficulty;
-  counts: Record<ClimbDifficulty, number>;
-  onChange: (filter: ClimbDifficulty) => void;
-}) {
-  const colors = useThemeColors();
-
+function StatCard({ label, value, detail }: { label: string; value: string; detail?: string }) {
   return (
-    <View
-      style={{
-        height: FILTER_BAR_HEIGHT,
-        borderBottomWidth: 1,
-        borderBottomColor: colors.borderSubtle,
-      }}
-    >
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={{ height: FILTER_BAR_HEIGHT, flexGrow: 0 }}
-        contentContainerStyle={{
-          height: FILTER_BAR_HEIGHT,
-          alignItems: "center",
-          paddingHorizontal: 12,
-          gap: 8,
-        }}
+    <View className="flex-1 min-h-[74px] justify-center rounded-lg bg-muted px-2">
+      <Text
+        className="text-[12px] text-muted-foreground font-barlow-medium"
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.82}
       >
-        {DIFFICULTY_FILTERS.map((filter) => {
-          const isActive = activeFilter === filter.key;
-          const color = climbDifficultyColor(DIFFICULTY_FILTER_COLOR_SCORE[filter.key]);
-
-          return (
-            <TouchableOpacity
-              key={filter.key}
-              className={cn(
-                "flex-row items-center px-3 min-h-[48px] rounded-full",
-                isActive ? "bg-muted border border-border" : "border border-transparent",
-              )}
-              onPress={() => onChange(filter.key)}
-              accessibilityLabel={filter.accessibilityLabel}
-              accessibilityState={{ selected: isActive }}
-            >
-              <View
-                className="w-2 h-2 rounded-full"
-                style={{ backgroundColor: isActive ? color : colors.textTertiary }}
-              />
-              <Text
-                className={cn(
-                  "ml-1.5 text-[12px] font-barlow-medium",
-                  isActive ? "text-foreground" : "text-muted-foreground",
-                )}
-              >
-                {filter.label}
-              </Text>
-              <Text
-                className={cn(
-                  "ml-1 text-[10px] font-barlow-sc-medium",
-                  isActive ? "text-muted-foreground" : "text-muted-foreground/50",
-                )}
-              >
-                {counts[filter.key]}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </ScrollView>
-    </View>
-  );
-}
-
-function StatCard({ label, value }: { label: string; value: string }) {
-  return (
-    <View className="flex-1 min-h-[58px] justify-center rounded-lg bg-muted px-2">
-      <Text className="text-[12px] text-muted-foreground font-barlow-medium" numberOfLines={1}>
         {label}
       </Text>
       <Text
@@ -634,6 +514,20 @@ function StatCard({ label, value }: { label: string; value: string }) {
       >
         {value}
       </Text>
+      {detail && (
+        <Text
+          className="text-[11px] text-muted-foreground font-barlow-medium"
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.78}
+        >
+          {detail}
+        </Text>
+      )}
     </View>
   );
+}
+
+function roundOne(value: number): number {
+  return Math.round(value * 10) / 10;
 }
