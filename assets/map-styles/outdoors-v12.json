@@ -36,7 +36,7 @@
     "horizon-blend": ["interpolate", ["exponential", 1.2], ["zoom"], 4, 0.01, 6, 0.1],
     "star-intensity": ["interpolate", ["exponential", 1.2], ["zoom"], 4, 0.1, 6, 0]
   },
-  "projection": { "name": "globe" },
+  "projection": { "name": "mercator" },
   "visibility": "public",
   "version": 8,
   "layers": [

@@ -16,7 +16,9 @@ import { bucketDistanceForDerivedWork } from "@/utils/distanceBuckets";
 import { getClimbMapBounds, getZoomLevelToFitBounds } from "@/utils/climbGeometry";
 import { resolveActiveClimb } from "@/utils/climbSelect";
 import { isClimbAtLeastDifficulty } from "@/constants/climbHelpers";
+import { MAP_LAYER_ANCHOR_IDS } from "@/constants/mapLayers";
 import { pickRouteRecords } from "@/utils/routeScopedRecords";
+import MapLayerAnchors from "./MapLayerAnchors";
 import RouteLayer from "./RouteLayer";
 import RouteMarkerLayer from "./RouteMarkerLayer";
 import POILayer from "./POILayer";
@@ -53,7 +55,7 @@ interface MapCanvasProps {
   lastCamera: React.MutableRefObject<{ center: [number, number]; zoom: number }>;
   initialCamera: { center: [number, number]; zoom: number };
   mapStyle: {
-    props: { styleJSON: string } | { styleURL: string };
+    props: { styleJSON: string };
     styleKey: string;
   };
   cameraPadding: {
@@ -64,7 +66,6 @@ interface MapCanvasProps {
   };
   pulsingConfig: { isEnabled: boolean; color: string; radius: number };
   routeLayers: MapCanvasRouteLayer[];
-  routeStackKey: string;
   activeRoutePoints: RoutePoint[] | null;
   activeRouteIds: string[];
   activeSegments: StitchedSegmentInfo[] | null;
@@ -94,7 +95,6 @@ function MapCanvas({
   cameraPadding,
   pulsingConfig,
   routeLayers,
-  routeStackKey,
   activeRoutePoints,
   activeRouteIds,
   activeSegments,
@@ -128,16 +128,15 @@ function MapCanvas({
   }, [cameraRef, selectedPOI, setFollowUser]);
 
   const hasClimbHighlight = highlightedClimbId != null;
-  const climbStackKey = `${routeStackKey}-${highlightedClimbId ?? "none"}`;
   const hasWeatherTemperatureOverlay =
     mapOverlayMode === "weather" &&
     activeRoutePoints != null &&
     weatherRouteId === activeDataId &&
     weatherTimeline.length > 1;
   const weatherStackKey = hasWeatherTemperatureOverlay ? "weather:on" : "weather:off";
-  const overlayStackKey = `${climbStackKey}-${activeContextKey ?? "none"}-markers:${
-    showDistanceMarkers ? "on" : "off"
-  }-${weatherStackKey}-pois:${poiVisibility}`;
+  const overlayStackKey = `${mapStyle.styleKey}-${highlightedClimbId ?? "none"}-${
+    activeContextKey ?? "none"
+  }-markers:${showDistanceMarkers ? "on" : "off"}-${weatherStackKey}-pois:${poiVisibility}`;
 
   return (
     <MapboxMapView
@@ -160,25 +159,29 @@ function MapCanvas({
         animationDuration={500}
         padding={cameraPadding}
       />
+      <MapLayerAnchors key={`map-layer-anchors-${mapStyle.styleKey}`} />
       {routeLayers.map((route) => (
         <RouteLayer
           key={route.key}
           routeId={route.id}
           geoJSON={route.geoJSON}
           isActive={route.isActive}
+          aboveLayerID={MAP_LAYER_ANCHOR_IDS.routeLine}
           dimmed={hasClimbHighlight}
         />
       ))}
       {activeVariantOverlays.length > 0 && (
         <VariantOverlayLayer
-          key={`collection-variants-${routeStackKey}`}
+          key={`collection-variants-${mapStyle.styleKey}-${activeContextKey ?? "none"}`}
           overlays={activeVariantOverlays}
+          lineAboveLayerID={MAP_LAYER_ANCHOR_IDS.variantLine}
+          symbolAboveLayerID={MAP_LAYER_ANCHOR_IDS.variantSymbol}
         />
       )}
       <ClimbMapOverlay
         cameraRef={cameraRef}
         lastCamera={lastCamera}
-        routeStackKey={routeStackKey}
+        styleKey={mapStyle.styleKey}
         activeRoutePoints={activeRoutePoints}
         activeRouteIds={activeRouteIds}
         activeSegments={activeSegments}
@@ -194,12 +197,15 @@ function MapCanvas({
           points={activeRoutePoints}
           timeline={weatherTimeline}
           temperatureMode={weatherTemperatureMode}
+          lineAboveLayerID={MAP_LAYER_ANCHOR_IDS.weatherLine}
+          symbolAboveLayerID={MAP_LAYER_ANCHOR_IDS.weatherSymbol}
         />
       )}
       <RouteMarkerLayer
         key={`route-markers-${overlayStackKey}`}
         points={activeRoutePoints ?? []}
         showDistanceMarkers={showDistanceMarkers}
+        aboveLayerID={MAP_LAYER_ANCHOR_IDS.routeMarkerSymbol}
       />
       {(poiVisibility !== "none" || selectedPOI) && activeRouteIds.length > 0 && (
         <POILayer
@@ -209,6 +215,7 @@ function MapCanvas({
           currentDistanceMeters={activeProgressDistanceMeters}
           onClusterPress={onClusterPress}
           visibility={poiVisibility}
+          aboveLayerID={MAP_LAYER_ANCHOR_IDS.poiSymbol}
         />
       )}
       <LocationPuck
@@ -224,7 +231,7 @@ function MapCanvas({
 interface ClimbMapOverlayProps {
   cameraRef: React.RefObject<Camera | null>;
   lastCamera: React.MutableRefObject<{ center: [number, number]; zoom: number }>;
-  routeStackKey: string;
+  styleKey: string;
   activeRoutePoints: RoutePoint[] | null;
   activeRouteIds: string[];
   activeSegments: StitchedSegmentInfo[] | null;
@@ -238,7 +245,7 @@ interface ClimbMapOverlayProps {
 function ClimbMapOverlay({
   cameraRef,
   lastCamera,
-  routeStackKey,
+  styleKey,
   activeRoutePoints,
   activeRouteIds,
   activeSegments,
@@ -348,9 +355,10 @@ function ClimbMapOverlay({
 
   return (
     <ClimbHighlightLayer
-      key={`climb-${highlightedClimb.id}-${routeStackKey}`}
+      key={`climb-${highlightedClimb.id}-${styleKey}`}
       climb={highlightedClimb}
       points={activeRoutePoints}
+      aboveLayerID={MAP_LAYER_ANCHOR_IDS.climbLine}
     />
   );
 }

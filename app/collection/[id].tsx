@@ -45,6 +45,8 @@ import {
   stitchPOIs,
 } from "@/services/stitchingService";
 import ElevationProfile from "@/components/elevation/ElevationProfile";
+import { MAP_LAYER_ANCHOR_IDS } from "@/constants/mapLayers";
+import MapLayerAnchors from "@/components/map/MapLayerAnchors";
 import RouteLayer from "@/components/map/RouteLayer";
 import StatBox from "@/components/common/StatBox";
 import SegmentList from "@/components/collection/SegmentList";
@@ -632,6 +634,7 @@ export default function CollectionDetailScreen() {
                     : undefined
                 }
               />
+              <MapLayerAnchors key={`map-layer-anchors-${mapStyle.styleKey}`} />
               {variantRouteOverlays.map((overlay) => {
                 const prepared = preparedRouteGeometries[overlay.route.id];
                 if (!prepared) return null;
@@ -641,6 +644,7 @@ export default function CollectionDetailScreen() {
                     routeId={overlay.route.id}
                     geoJSON={prepared.geoJSON}
                     isActive={false}
+                    aboveLayerID={MAP_LAYER_ANCHOR_IDS.routeLine}
                   />
                 );
               })}
@@ -650,6 +654,7 @@ export default function CollectionDetailScreen() {
                   routeId={selectedRouteLayerId}
                   geoJSON={preparedRouteGeometries[selectedRouteLayerId].geoJSON}
                   isActive
+                  aboveLayerID={MAP_LAYER_ANCHOR_IDS.routeLine}
                 />
               )}
             </MapboxMapView>

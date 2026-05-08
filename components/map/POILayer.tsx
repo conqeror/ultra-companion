@@ -17,6 +17,7 @@ import {
   poiMapIconImageId,
   poiMapIconImageIdForCategory,
 } from "@/constants";
+import { MAP_LAYER_IDS } from "@/constants/mapLayers";
 import { haversineDistance } from "@/utils/geo";
 import { toDisplayPOIs } from "@/services/displayDistance";
 import { stitchPOIs } from "@/services/stitchingService";
@@ -56,6 +57,7 @@ interface POILayerProps {
   currentDistanceMeters: number | null;
   onClusterPress: (center: [number, number], zoomLevel: number) => void;
   visibility: POIMapVisibility;
+  aboveLayerID?: string;
 }
 
 function isClusterFeature(feature: GeoJSON.Feature): boolean {
@@ -154,10 +156,11 @@ function clusterSummaryIconExpression(): MapboxExpression {
   return expression;
 }
 
-function renderClusterSummaryIconLayer(): React.ReactElement {
+function renderClusterSummaryIconLayer(aboveLayerID?: string): React.ReactElement {
   return (
     <SymbolLayer
       id="poi-cluster-summary-icon"
+      aboveLayerID={aboveLayerID}
       filter={CLUSTER_FILTER}
       style={{
         iconImage: clusterSummaryIconExpression() as never,
@@ -178,6 +181,7 @@ export default function POILayer({
   currentDistanceMeters,
   onClusterPress,
   visibility,
+  aboveLayerID,
 }: POILayerProps) {
   const clusteredSourceRef = useRef<ShapeSource>(null);
   const getVisiblePOIs = usePoiStore((s) => s.getVisiblePOIs);
@@ -315,6 +319,7 @@ export default function POILayer({
         >
           <CircleLayer
             id="poi-clusters-outline"
+            aboveLayerID={aboveLayerID}
             filter={CLUSTER_FILTER}
             style={{
               circleRadius: ["step", ["get", "point_count"], 17, 10, 20, 50, 23],
@@ -324,6 +329,7 @@ export default function POILayer({
           />
           <CircleLayer
             id="poi-clusters-fill"
+            aboveLayerID="poi-clusters-outline"
             filter={CLUSTER_FILTER}
             style={{
               circleRadius: ["step", ["get", "point_count"], 14, 10, 17, 50, 20],
@@ -331,9 +337,10 @@ export default function POILayer({
             }}
             minZoomLevel={POI_CLUSTER_MIN_ZOOM}
           />
-          {renderClusterSummaryIconLayer()}
+          {renderClusterSummaryIconLayer("poi-clusters-fill")}
           <SymbolLayer
             id="poi-cluster-summary-overflow"
+            aboveLayerID="poi-cluster-summary-icon"
             filter={["all", CLUSTER_FILTER, [">", CLUSTER_SUMMARY_TOTAL_EXPRESSION, 1]] as never}
             style={{
               textField: "+",
@@ -349,6 +356,7 @@ export default function POILayer({
           {/* Regular POIs: surface-colored ring, visible from zoom 10 */}
           <CircleLayer
             id="poi-circles-outline"
+            aboveLayerID="poi-cluster-summary-overflow"
             filter={UNCLUSTERED_FILTER}
             style={{
               circleRadius: REGULAR_POI_OUTLINE_RADIUS,
@@ -359,6 +367,7 @@ export default function POILayer({
           />
           <CircleLayer
             id="poi-circles"
+            aboveLayerID="poi-circles-outline"
             filter={UNCLUSTERED_FILTER}
             style={{
               circleRadius: REGULAR_POI_FILL_RADIUS,
@@ -368,7 +377,8 @@ export default function POILayer({
             minZoomLevel={10}
           />
           <SymbolLayer
-            id="poi-icons"
+            id={MAP_LAYER_IDS.poiIcons}
+            aboveLayerID="poi-circles"
             filter={UNCLUSTERED_FILTER}
             style={{
               iconImage: ["get", "iconImage"],
@@ -395,6 +405,7 @@ export default function POILayer({
           {/* Starred POIs: gold ring, larger, visible from zoom 8 — rendered last to be on top */}
           <CircleLayer
             id="poi-starred-outline"
+            aboveLayerID={clustered.features.length > 0 ? MAP_LAYER_IDS.poiIcons : aboveLayerID}
             style={{
               circleRadius: 17,
               circleColor: colors.warning,
@@ -403,6 +414,7 @@ export default function POILayer({
           />
           <CircleLayer
             id="poi-starred-fill"
+            aboveLayerID="poi-starred-outline"
             style={{
               circleRadius: 11,
               circleColor: ["get", "color"],
@@ -411,6 +423,7 @@ export default function POILayer({
           />
           <SymbolLayer
             id="poi-starred-icons"
+            aboveLayerID="poi-starred-fill"
             style={{
               iconImage: ["get", "iconImage"],
               iconSize: POI_MAP_ICON_SYMBOL_SIZE,

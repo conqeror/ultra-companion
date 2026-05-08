@@ -58,12 +58,16 @@ interface TemperatureRouteOverlayProps {
   points: RoutePoint[];
   timeline: WeatherPoint[];
   temperatureMode: WeatherTemperatureDisplayMode;
+  lineAboveLayerID?: string;
+  symbolAboveLayerID?: string;
 }
 
 export default function TemperatureRouteOverlay({
   points,
   timeline,
   temperatureMode,
+  lineAboveLayerID,
+  symbolAboveLayerID,
 }: TemperatureRouteOverlayProps) {
   const colors = useThemeColors();
 
@@ -151,6 +155,7 @@ export default function TemperatureRouteOverlay({
       <ShapeSource id="weather-temperature-route-source" shape={geoJSON} lineMetrics>
         <LineLayer
           id="weather-temperature-route-outline"
+          aboveLayerID={lineAboveLayerID}
           style={{
             lineColor: colors.surface,
             lineWidth: ["interpolate", ["linear"], ["zoom"], 8, 6, 13, 10],
@@ -175,6 +180,7 @@ export default function TemperatureRouteOverlay({
         <ShapeSource id="weather-temperature-label-source" shape={labelGeoJSON}>
           <SymbolLayer
             id="weather-temperature-labels"
+            aboveLayerID={symbolAboveLayerID}
             style={{
               textField: ["get", "label"],
               textSize: ["interpolate", ["linear"], ["zoom"], 9, 0, 10, 11, 14, 13],

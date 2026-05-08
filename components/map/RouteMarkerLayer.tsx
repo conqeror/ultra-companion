@@ -2,11 +2,13 @@ import React, { useMemo } from "react";
 import { CircleLayer, ShapeSource, SymbolLayer } from "@rnmapbox/maps";
 import { buildRouteMarkerFeatureCollection, DISTANCE_MARKER_BUCKETS } from "@/utils/routeMarkers";
 import { useThemeColors } from "@/theme";
+import { routeDistanceMarkerLayerId } from "@/constants/mapLayers";
 import type { RoutePoint } from "@/types";
 
 interface RouteMarkerLayerProps {
   points: RoutePoint[];
   showDistanceMarkers: boolean;
+  aboveLayerID?: string;
 }
 
 const KIND_FIELD = ["get", "kind"] as const;
@@ -33,7 +35,11 @@ function distanceBucketFilter(intervalKm: number) {
   return ["all", DISTANCE_FILTER, intervalFilter] as const;
 }
 
-export default function RouteMarkerLayer({ points, showDistanceMarkers }: RouteMarkerLayerProps) {
+export default function RouteMarkerLayer({
+  points,
+  showDistanceMarkers,
+  aboveLayerID,
+}: RouteMarkerLayerProps) {
   const colors = useThemeColors();
 
   const shape = useMemo(
@@ -41,12 +47,18 @@ export default function RouteMarkerLayer({ points, showDistanceMarkers }: RouteM
     [points, showDistanceMarkers],
   );
 
-  const layers = useMemo(
-    () => [
-      ...DISTANCE_MARKER_BUCKETS.map((bucket) => (
+  const layers = useMemo(() => {
+    let previousLayerID = aboveLayerID;
+    const distanceLayers = DISTANCE_MARKER_BUCKETS.map((bucket) => {
+      const layerID = routeDistanceMarkerLayerId(bucket.intervalKm);
+      const layerAboveID = previousLayerID;
+      previousLayerID = layerID;
+
+      return (
         <SymbolLayer
-          key={`route-distance-${bucket.intervalKm}`}
-          id={`route-distance-${bucket.intervalKm}`}
+          key={layerID}
+          id={layerID}
+          aboveLayerID={layerAboveID}
           filter={distanceBucketFilter(bucket.intervalKm) as never}
           minZoomLevel={bucket.minZoom}
           maxZoomLevel={bucket.maxZoom}
@@ -63,10 +75,17 @@ export default function RouteMarkerLayer({ points, showDistanceMarkers }: RouteM
             visibility: showDistanceMarkers ? "visible" : "none",
           }}
         />
-      )),
+      );
+    });
+
+    const endpointOutlineAboveLayerID = previousLayerID;
+
+    return [
+      ...distanceLayers,
       <CircleLayer
         key="endpoint-outline"
         id="route-endpoint-outline"
+        aboveLayerID={endpointOutlineAboveLayerID}
         filter={ENDPOINT_FILTER as never}
         style={{
           circleRadius: 15,
@@ -77,6 +96,7 @@ export default function RouteMarkerLayer({ points, showDistanceMarkers }: RouteM
       <CircleLayer
         key="start-marker"
         id="route-start-marker"
+        aboveLayerID="route-endpoint-outline"
         filter={START_FILTER as never}
         style={{
           circleRadius: 11,
@@ -86,6 +106,7 @@ export default function RouteMarkerLayer({ points, showDistanceMarkers }: RouteM
       <CircleLayer
         key="finish-marker"
         id="route-finish-marker"
+        aboveLayerID="route-start-marker"
         filter={FINISH_FILTER as never}
         style={{
           circleRadius: 11,
@@ -95,6 +116,7 @@ export default function RouteMarkerLayer({ points, showDistanceMarkers }: RouteM
       <SymbolLayer
         key="endpoint-label"
         id="route-endpoint-label"
+        aboveLayerID="route-finish-marker"
         filter={ENDPOINT_FILTER as never}
         style={{
           textField: ["get", "markerLabel"],
@@ -105,9 +127,8 @@ export default function RouteMarkerLayer({ points, showDistanceMarkers }: RouteM
           symbolSortKey: SORT_KEY_FIELD as never,
         }}
       />,
-    ],
-    [colors.positive, colors.surface, colors.textPrimary, showDistanceMarkers],
-  );
+    ];
+  }, [aboveLayerID, colors.positive, colors.surface, colors.textPrimary, showDistanceMarkers]);
 
   if (points.length < 2) return null;
 

@@ -26,6 +26,8 @@ import {
 import { resolveRouteProgress } from "@/utils/routeProgress";
 import { toDisplayClimbs, toDisplayPOIs } from "@/services/displayDistance";
 import ElevationProfile from "@/components/elevation/ElevationProfile";
+import { MAP_LAYER_ANCHOR_IDS } from "@/constants/mapLayers";
+import MapLayerAnchors from "@/components/map/MapLayerAnchors";
 import RouteLayer from "@/components/map/RouteLayer";
 import StatBox from "@/components/common/StatBox";
 import DataSection from "@/components/route/DataSection";
@@ -202,12 +204,14 @@ export default function RouteDetailScreen() {
                   : undefined
               }
             />
+            <MapLayerAnchors key={`map-layer-anchors-${mapStyle.styleKey}`} />
             {routeGeoJSON && (
               <RouteLayer
                 key={mapStyle.styleKey}
                 routeId={route.id}
                 geoJSON={routeGeoJSON}
                 isActive
+                aboveLayerID={MAP_LAYER_ANCHOR_IDS.routeLine}
               />
             )}
           </MapboxMapView>

@@ -7,11 +7,12 @@ interface RouteLayerProps {
   routeId: string;
   geoJSON: GeoJSON.Feature<GeoJSON.LineString>;
   isActive: boolean;
+  aboveLayerID?: string;
   /** Dim the route line (e.g. when a climb highlight is shown on top) */
   dimmed?: boolean;
 }
 
-function RouteLayer({ routeId, geoJSON, isActive, dimmed }: RouteLayerProps) {
+function RouteLayer({ routeId, geoJSON, isActive, aboveLayerID, dimmed }: RouteLayerProps) {
   const colors = useThemeColors();
   const isDark = colors.background === "#0E0E0C";
 
@@ -41,7 +42,7 @@ function RouteLayer({ routeId, geoJSON, isActive, dimmed }: RouteLayerProps) {
 
   return (
     <ShapeSource id={`route-source-${routeId}`} shape={geoJSON}>
-      <LineLayer id={`route-outline-${routeId}`} style={outlineStyle} />
+      <LineLayer id={`route-outline-${routeId}`} aboveLayerID={aboveLayerID} style={outlineStyle} />
       <LineLayer
         id={`route-line-${routeId}`}
         style={lineStyle}
@@ -56,6 +57,7 @@ export default React.memo(RouteLayer, (prev, next) => {
     prev.routeId === next.routeId &&
     prev.geoJSON === next.geoJSON &&
     prev.isActive === next.isActive &&
+    prev.aboveLayerID === next.aboveLayerID &&
     prev.dimmed === next.dimmed
   );
 });

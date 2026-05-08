@@ -737,24 +737,6 @@ export default function MapScreen() {
     units,
   ]);
 
-  // RNMapbox inserts native layers in mount order. Key upper overlay tiers so they remount
-  // above lower tiers when route/climb/weather/visibility state changes.
-  const routeStackKey = useMemo(() => {
-    const ids = renderedRoutes.map(
-      (route) => `${route.id}:${visibleRoutePoints[route.id]?.length ?? 0}`,
-    );
-    if (activeCollectionRouteId) {
-      ids.push(`${activeCollectionRouteId}:${activeRoutePoints?.length ?? 0}`);
-    }
-    return `${ids.sort().join(",")}-${mapStyle.styleKey}`;
-  }, [
-    renderedRoutes,
-    visibleRoutePoints,
-    activeCollectionRouteId,
-    activeRoutePoints?.length,
-    mapStyle.styleKey,
-  ]);
-
   return (
     <View className="flex-1">
       <MapCanvas
@@ -766,7 +748,6 @@ export default function MapScreen() {
         cameraPadding={cameraPadding}
         pulsingConfig={pulsingConfig}
         routeLayers={routeLayers}
-        routeStackKey={routeStackKey}
         activeRoutePoints={activeRoutePoints}
         activeRouteIds={activeRouteIds}
         activeSegments={activeData?.segments ?? null}

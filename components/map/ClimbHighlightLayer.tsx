@@ -8,13 +8,18 @@ import type { DisplayClimb, RoutePoint } from "@/types";
 interface ClimbHighlightLayerProps {
   climb: DisplayClimb;
   points: RoutePoint[];
+  aboveLayerID?: string;
 }
 
 /**
  * Renders a climb segment on the map with a smooth gradient-colored line.
  * Uses Mapbox lineGradient on a single LineString for seamless color blending.
  */
-export default function ClimbHighlightLayer({ climb, points }: ClimbHighlightLayerProps) {
+export default function ClimbHighlightLayer({
+  climb,
+  points,
+  aboveLayerID,
+}: ClimbHighlightLayerProps) {
   const colors = useThemeColors();
   const climbStart = climb.effectiveStartDistanceMeters;
   const climbEnd = climb.effectiveEndDistanceMeters;
@@ -94,6 +99,7 @@ export default function ClimbHighlightLayer({ climb, points }: ClimbHighlightLay
       {/* Outline for contrast */}
       <LineLayer
         id="climb-highlight-outline"
+        aboveLayerID={aboveLayerID}
         style={{
           lineColor: colors.surface,
           lineWidth: 8,
