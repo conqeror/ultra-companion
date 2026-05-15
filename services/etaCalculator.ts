@@ -1,5 +1,6 @@
 import type { RoutePoint, PowerModelConfig, ETAResult } from "@/types";
 import { computeSegmentTime } from "./powerModel";
+import { computeWindowedGradient } from "@/utils/elevation";
 import { findFirstPointAtOrAfterDistance, routePointArrayFingerprint } from "@/utils/geo";
 import { measureSync } from "@/utils/perfMarks";
 
@@ -32,8 +33,7 @@ export function computeRouteETA(points: RoutePoint[], config: PowerModelConfig):
     const curr = points[i];
 
     const dist = curr.distanceFromStartMeters - prev.distanceFromStartMeters;
-    const elevDiff = (curr.elevationMeters ?? 0) - (prev.elevationMeters ?? 0);
-    const gradient = dist > 0 ? elevDiff / dist : 0;
+    const gradient = computeWindowedGradient(points, i);
 
     cumulative[i] = cumulative[i - 1] + computeSegmentTime(dist, gradient, config);
   }
@@ -71,8 +71,7 @@ export function computeRouteTotalETA(
     const curr = points[i];
 
     const dist = curr.distanceFromStartMeters - prev.distanceFromStartMeters;
-    const elevDiff = (curr.elevationMeters ?? 0) - (prev.elevationMeters ?? 0);
-    const gradient = dist > 0 ? elevDiff / dist : 0;
+    const gradient = computeWindowedGradient(points, i);
 
     totalSeconds += computeSegmentTime(dist, gradient, config);
   }
@@ -93,6 +92,11 @@ export function computeCachedRouteTotalETA(
   const total = measureSync("eta.computeRouteTotalETA", () => computeRouteTotalETA(points, config));
   routeTotalEtaCache.set(key, { fingerprint, total });
   return total;
+}
+
+export function clearRouteEtaCaches(): void {
+  routeEtaCache.clear();
+  routeTotalEtaCache.clear();
 }
 
 /**

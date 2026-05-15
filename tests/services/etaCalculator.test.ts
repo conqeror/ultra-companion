@@ -9,6 +9,7 @@ import {
   getETAToDistanceFromDistance,
 } from "@/services/etaCalculator";
 import { DEFAULT_POWER_CONFIG } from "@/constants";
+import { computeSegmentTime } from "@/services/powerModel";
 import type { RoutePoint } from "@/types";
 
 const basePoint = (
@@ -44,6 +45,16 @@ describe("etaCalculator", () => {
     expect(cumulative[2]).toBeGreaterThanOrEqual(cumulative[1]);
     expect(cumulative[3]).toBeGreaterThanOrEqual(cumulative[2]);
     expect(Number.isFinite(cumulative[3])).toBe(true);
+  });
+
+  it("does not let a short adjacent elevation spike dominate ETA", () => {
+    const points = [basePoint(0, 100, 0), basePoint(10, 106, 1), basePoint(200, 100, 2)];
+
+    const cumulative = computeRouteETA(points, DEFAULT_POWER_CONFIG);
+    const firstSegmentSeconds = cumulative[1] - cumulative[0];
+    const flatSegmentSeconds = computeSegmentTime(10, 0, DEFAULT_POWER_CONFIG);
+
+    expect(firstSegmentSeconds).toBeLessThan(flatSegmentSeconds * 2);
   });
 
   it("computeRouteTotalETA matches the final cumulative ETA without allocating lookup data", () => {

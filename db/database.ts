@@ -198,6 +198,29 @@ export async function setActiveRoute(routeId: string): Promise<void> {
   });
 }
 
+export async function updateRouteElevationData(
+  routeId: string,
+  points: RoutePoint[],
+  totals: { totalAscentMeters: number; totalDescentMeters: number },
+): Promise<void> {
+  db.transaction((tx) => {
+    tx.update(routes)
+      .set({
+        totalAscentMeters: totals.totalAscentMeters,
+        totalDescentMeters: totals.totalDescentMeters,
+      })
+      .where(eq(routes.id, routeId))
+      .run();
+
+    for (const point of points) {
+      tx.update(routePoints)
+        .set({ elevationMeters: point.elevationMeters })
+        .where(and(eq(routePoints.routeId, routeId), eq(routePoints.idx, point.idx)))
+        .run();
+    }
+  });
+}
+
 // --- POI CRUD ---
 
 export async function insertPOIs(newPois: POI[]): Promise<void> {

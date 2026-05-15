@@ -25,6 +25,7 @@ import type {
   setRoutesVisible,
   setActiveCollection,
   setStarredItem,
+  updateRouteElevationData,
   updateClimbName,
   updatePOITags,
   updateRouteVisibility,
@@ -66,6 +67,7 @@ export const databaseMocks = {
   setActiveCollection: vi.fn<typeof setActiveCollection>(),
   setRoutesVisible: vi.fn<typeof setRoutesVisible>(),
   setStarredItem: vi.fn<typeof setStarredItem>(),
+  updateRouteElevationData: vi.fn<typeof updateRouteElevationData>(),
   updateClimbName: vi.fn<typeof updateClimbName>(),
   updatePOITags: vi.fn<typeof updatePOITags>(),
   updateRouteVisibility: vi.fn<typeof updateRouteVisibility>(),
@@ -104,6 +106,7 @@ export function resetDatabaseMocks(): void {
   databaseMocks.setActiveCollection.mockResolvedValue(undefined);
   databaseMocks.setRoutesVisible.mockResolvedValue(undefined);
   databaseMocks.setStarredItem.mockResolvedValue(undefined);
+  databaseMocks.updateRouteElevationData.mockResolvedValue(undefined);
   databaseMocks.updateClimbName.mockResolvedValue(undefined);
   databaseMocks.updatePOITags.mockResolvedValue(undefined);
   databaseMocks.updateRouteVisibility.mockResolvedValue(undefined);
