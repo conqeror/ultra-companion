@@ -11,6 +11,8 @@ interface ClimbHighlightLayerProps {
   aboveLayerID?: string;
 }
 
+export const CLIMB_HIGHLIGHT_LINE_LAYER_ID = "climb-highlight-line";
+
 /**
  * Renders a climb segment on the map with a smooth gradient-colored line.
  * Uses Mapbox lineGradient on a single LineString for seamless color blending.
@@ -110,7 +112,7 @@ export default function ClimbHighlightLayer({
       />
       {/* Smooth gradient-colored line */}
       <LineLayer
-        id="climb-highlight-line"
+        id={CLIMB_HIGHLIGHT_LINE_LAYER_ID}
         aboveLayerID="climb-highlight-outline"
         style={{
           lineGradient: gradientExpr as any,

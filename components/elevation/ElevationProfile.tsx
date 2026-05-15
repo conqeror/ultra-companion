@@ -6,7 +6,17 @@ import Animated, {
   useAnimatedScrollHandler,
   useSharedValue,
 } from "react-native-reanimated";
-import Svg, { Path, Circle, Defs, LinearGradient, Stop, Line, G, Rect } from "react-native-svg";
+import Svg, {
+  Path,
+  Circle,
+  Defs,
+  LinearGradient,
+  Stop,
+  Line,
+  G,
+  Rect,
+  Text as SvgText,
+} from "react-native-svg";
 import { Text } from "@/components/ui/text";
 import { useThemeColors, gradientColor } from "@/theme";
 import { ELEVATION_STOPS } from "@/theme/elevation";
@@ -15,7 +25,9 @@ import { categoryColor, getCategoryMeta } from "@/constants/poiHelpers";
 import { climbDifficultyColor } from "@/constants/climbHelpers";
 import { POI_ICON_MAP } from "@/constants/poiIcons";
 import { measureSync } from "@/utils/perfMarks";
+import { buildClimbTickBoundaries, buildClimbTickDistances } from "@/utils/climbProfile";
 import type { RoutePoint, UnitSystem, DisplayPOI, DisplayClimb } from "@/types";
+import type { ClimbProfileSegment } from "@/utils/climbProfile";
 
 interface SegmentBoundary {
   distanceMeters: number;
@@ -32,6 +44,15 @@ interface ElevationProfileProps {
   showLegend?: boolean;
   /** Offset added to X-axis labels so they show absolute route distance */
   distanceOffsetMeters?: number;
+  /** Optional label-only X-axis offset. Defaults to distanceOffsetMeters. */
+  xAxisLabelOffsetMeters?: number;
+  /** Optional fixed X-axis tick interval, useful for climb-local kilometer markers. */
+  xTickIntervalMeters?: number;
+  /** Climb-style axes use right-side elevation labels and kilometer tick marks. */
+  axisStyle?: "standard" | "climb";
+  yAxisSide?: "left" | "right";
+  /** Minimum horizontal chart density before scrolling is enabled. */
+  minPixelsPerKm?: number;
   pois?: DisplayPOI[];
   onPOIPress?: (poi: DisplayPOI) => void;
   /** Vertical boundary lines at segment junctions (for stitched collections) */
@@ -39,9 +60,16 @@ interface ElevationProfileProps {
   climbs?: DisplayClimb[];
   /** Force fit-to-width — disables horizontal scrolling and the overview minimap */
   fitToWidth?: boolean;
+  /** Show the overview scrubber when the chart is horizontally scrollable. */
+  showScrollOverview?: boolean;
   /** Fill the area under the profile with the same gradient used by the line */
   gradientAreaFill?: boolean;
   gradientAreaOpacity?: number;
+  /** Optional climb-local gradient bands shown along the chart base. */
+  gradientSegments?: ClimbProfileSegment[];
+  /** Optional override for the profile stroke. Defaults to the elevation gradient. */
+  lineStrokeColor?: string;
+  lineStrokeWidth?: number;
 }
 
 const PADDING = { top: 16, right: 16, bottom: 28, left: 48 };
@@ -69,8 +97,15 @@ const Y_LABEL_MIN_STEP_M = 5;
 const Y_LABEL_MIN_SPACING_PX = 18;
 const X_LABEL_WIDTH = 48;
 const X_LABEL_HALF_WIDTH = X_LABEL_WIDTH / 2;
+const CLIMB_X_LABEL_WIDTH = 20;
+const CLIMB_X_LABEL_HALF_WIDTH = CLIMB_X_LABEL_WIDTH / 2;
+const CLIMB_Y_AXIS_WIDTH = 30;
+const X_TICK_HEIGHT = 8;
 // Target ~one X-axis tick per this many pixels of scrollable content.
 const X_TICK_TARGET_PX = 120;
+const CLIMB_GRADIENT_AXIS_LABEL_MIN_WIDTH = 11;
+const GRADIENT_SEGMENT_LABEL_MIN_WIDTH = 34;
+const GRADIENT_SEGMENT_LABEL_MIN_HEIGHT = 18;
 
 const AnimatedRect = createAnimatedComponent(Rect);
 
@@ -196,6 +231,25 @@ function buildXTicks(totalD: number, targetCount: number): number[] {
   return ticks;
 }
 
+function buildFixedXTicks(totalD: number, intervalM: number): number[] {
+  if (totalD <= 0 || intervalM <= 0) return [];
+  const ticks = [0];
+  for (let v = intervalM; v < totalD - 1; v += intervalM) ticks.push(v);
+  const last = ticks[ticks.length - 1];
+  if (totalD - last >= intervalM * 0.7) ticks.push(totalD);
+  return ticks;
+}
+
+function climbXAxisLabel(distanceMeters: number): string {
+  const km = distanceMeters / 1000;
+  return Number.isInteger(km) ? `${km}` : `${km.toFixed(1)}`;
+}
+
+function climbYAxisLabel(elevationMeters: number, units: UnitSystem): string {
+  if (units === "imperial") return formatElevation(elevationMeters, units).replace(/\s/g, "");
+  return `${Math.round(elevationMeters)}m`;
+}
+
 function buildLinePath(
   samples: Sample[],
   xs: (d: number) => number,
@@ -218,6 +272,20 @@ interface POIMarkerPos {
   iconName: string;
 }
 
+interface XAxisTick {
+  value: number;
+  x: number;
+  label: string | null;
+}
+
+interface GradientAxisSegment {
+  id: string;
+  width: number;
+  labelX: number;
+  labelColor: string;
+  label: string;
+}
+
 export default function ElevationProfile({
   points,
   units,
@@ -227,31 +295,52 @@ export default function ElevationProfile({
   currentDistanceMeters,
   showLegend = true,
   distanceOffsetMeters = 0,
+  xAxisLabelOffsetMeters = distanceOffsetMeters,
+  xTickIntervalMeters,
+  axisStyle = "standard",
+  yAxisSide = axisStyle === "climb" ? "right" : "left",
+  minPixelsPerKm = MIN_PX_PER_KM,
   pois,
   onPOIPress,
   segmentBoundaries,
   climbs,
   fitToWidth = false,
+  showScrollOverview = true,
   gradientAreaFill = false,
   gradientAreaOpacity = 0.16,
+  gradientSegments,
+  lineStrokeColor,
+  lineStrokeWidth = 2.5,
 }: ElevationProfileProps) {
   const colors = useThemeColors();
 
   const totalMeters = points.length > 0 ? points[points.length - 1].distanceFromStartMeters : 0;
   const totalKm = totalMeters / 1000;
+  const climbRightYAxis = axisStyle === "climb" && yAxisSide === "right";
+  const yAxisWidth = climbRightYAxis ? CLIMB_Y_AXIS_WIDTH : PADDING.left;
 
-  const fitInnerWidth = Math.max(0, width - PADDING.left - PADDING.right);
-  const desiredScrollInnerWidth = totalKm * MIN_PX_PER_KM;
+  const fitInnerWidth = Math.max(
+    0,
+    climbRightYAxis ? width - yAxisWidth : width - PADDING.left - PADDING.right,
+  );
+  const desiredScrollInnerWidth = totalKm * minPixelsPerKm;
   const isScrollable =
     !fitToWidth && totalMeters > 0 && desiredScrollInnerWidth > fitInnerWidth + 0.5;
   const innerWidth = isScrollable ? Math.ceil(desiredScrollInnerWidth) : fitInnerWidth;
 
-  const overviewShown = isScrollable;
+  const overviewShown = isScrollable && showScrollOverview;
   const overviewHeight = overviewShown ? OVERVIEW_HEIGHT : 0;
   const legendHeight = showLegend ? 18 : 0;
   const mainChartHeight = Math.max(0, height - overviewHeight - legendHeight);
   const chartPlotHeight = Math.max(0, mainChartHeight - PADDING.top - PADDING.bottom);
-  const viewportWidth = Math.max(0, width - PADDING.left);
+  const viewportWidth = Math.max(
+    0,
+    climbRightYAxis
+      ? width - yAxisWidth
+      : yAxisSide === "right"
+        ? width - PADDING.left - PADDING.right
+        : width - PADDING.left,
+  );
   const axisY = PADDING.top + chartPlotHeight;
 
   const detailInterval = useMemo(() => {
@@ -295,17 +384,30 @@ export default function ElevationProfile({
     // Cap vertical exaggeration so long routes in tall charts don't look like cliffs.
     const minRangeForAspect = (chartPlotHeight * horizMPerPx) / MAX_EXAGGERATION;
     const elevRange = Math.max(rawRange, minRange, minRangeForAspect);
-    const mid = (minE + maxE) / 2;
     const paddedRange = elevRange * 1.2;
-    let yn = mid - paddedRange / 2;
-    let yx = mid + paddedRange / 2;
+    let yn: number;
+    let yx: number;
+    if (axisStyle === "climb") {
+      const bottomPad = Math.min(paddedRange * 0.08, Math.max(5, rawRange * 0.08));
+      yn = minE - bottomPad;
+      yx = yn + paddedRange;
+    } else {
+      const mid = (minE + maxE) / 2;
+      yn = mid - paddedRange / 2;
+      yx = mid + paddedRange / 2;
+    }
     // If padding would push below sea level but actual data isn't, anchor 0 to bottom.
     if (yn < 0 && minE >= 0) {
       yx = paddedRange;
       yn = 0;
     }
-    return { yMin: yn, yMax: yx, dataMin: minE, dataMax: maxE };
-  }, [samples, innerWidth, chartPlotHeight]);
+    return {
+      yMin: yn,
+      yMax: yx,
+      dataMin: axisStyle === "climb" ? yn : minE,
+      dataMax: axisStyle === "climb" ? yx : maxE,
+    };
+  }, [samples, innerWidth, chartPlotHeight, axisStyle]);
 
   const xScale = useCallback(
     (d: number) => (totalMeters > 0 ? (d / totalMeters) * innerWidth : 0),
@@ -419,6 +521,78 @@ export default function ElevationProfile({
     }
     return regions;
   }, [climbs, samples, totalMeters, distanceOffsetMeters, xScale, yScale, axisY]);
+
+  const gradientSegmentAreas = useMemo(() => {
+    if (totalMeters === 0 || samples.length === 0) return [];
+
+    const sourceSegments =
+      axisStyle === "climb"
+        ? (() => {
+            const boundaries = buildClimbTickBoundaries(totalMeters, xTickIntervalMeters);
+            return boundaries.slice(1).map((end, index) => {
+              const start = boundaries[index];
+              const startElevation = interpolateElevation(samples, start);
+              const endElevation = interpolateElevation(samples, end);
+              return {
+                startDistanceMeters: start,
+                endDistanceMeters: end,
+                averageGradientPercent: ((endElevation - startElevation) / (end - start)) * 100,
+              };
+            });
+          })()
+        : (gradientSegments ?? []);
+
+    if (sourceSegments.length === 0) return [];
+
+    return sourceSegments
+      .map((segment, index) => {
+        const start = Math.max(0, Math.min(totalMeters, segment.startDistanceMeters));
+        const end = Math.max(start, Math.min(totalMeters, segment.endDistanceMeters));
+        const startX = xScale(start);
+        const startElev = interpolateElevation(samples, start);
+        let segmentPath = `M${startX},${yScale(startElev)}`;
+
+        const startIdx = findFirstSampleAtOrAfter(samples, start);
+        const endIdx = findFirstSampleAtOrAfter(samples, end);
+        for (let i = startIdx; i < endIdx; i++) {
+          const s = samples[i];
+          if (s.distance <= start) continue;
+          segmentPath += ` L${xScale(s.distance)},${yScale(s.elevation)}`;
+        }
+
+        const endX = xScale(end);
+        const endElev = interpolateElevation(samples, end);
+        segmentPath += ` L${endX},${yScale(endElev)}`;
+        segmentPath += ` L${endX},${axisY} L${startX},${axisY} Z`;
+
+        const segmentWidth = Math.max(0, endX - startX);
+        const labelDistance = start + (end - start) / 2;
+        const labelTopY = yScale(interpolateElevation(samples, labelDistance));
+        const labelY = Math.min(axisY - 8, Math.max(PADDING.top + 12, (labelTopY + axisY) / 2 + 4));
+        return {
+          id: `${index}-${start}-${end}`,
+          fillPath: segmentPath,
+          labelX: startX + segmentWidth / 2,
+          labelY,
+          labelColor: segment.averageGradientPercent >= 4 ? "#FFFFFF" : colors.textPrimary,
+          height: axisY - labelTopY,
+          width: segmentWidth,
+          color: gradientColor(segment.averageGradientPercent),
+          label: `${Math.round(segment.averageGradientPercent)}%`,
+        };
+      })
+      .filter((segment) => segment.width > 0);
+  }, [
+    axisStyle,
+    gradientSegments,
+    xTickIntervalMeters,
+    totalMeters,
+    samples,
+    xScale,
+    yScale,
+    axisY,
+    colors.textPrimary,
+  ]);
 
   const currentPos = useMemo(() => {
     if (currentDistanceMeters != null) {
@@ -565,14 +739,57 @@ export default function ElevationProfile({
     return kept;
   }, [yMin, yMax, dataMin, dataMax, yScale]);
 
-  const xLabels = useMemo(() => {
+  const xLabels = useMemo<XAxisTick[]>(() => {
     if (totalMeters <= 0) return [];
-    if (!isScrollable) {
-      return [0, totalMeters / 2, totalMeters].map((d) => ({ value: d, x: xScale(d) }));
+    if (axisStyle === "climb") {
+      return buildClimbTickDistances(totalMeters, xTickIntervalMeters).map((d) => ({
+        value: d,
+        x: xScale(d),
+        label: climbXAxisLabel(d),
+      }));
     }
+
+    if (xTickIntervalMeters != null && xTickIntervalMeters > 0) {
+      return buildFixedXTicks(totalMeters, xTickIntervalMeters).map((d) => ({
+        value: d,
+        x: xScale(d),
+        label: formatDistance(d + xAxisLabelOffsetMeters, units),
+      }));
+    }
+    if (!isScrollable)
+      return [0, totalMeters / 2, totalMeters].map((d) => ({
+        value: d,
+        x: xScale(d),
+        label: formatDistance(d + xAxisLabelOffsetMeters, units),
+      }));
+
     const target = Math.max(3, Math.round(innerWidth / X_TICK_TARGET_PX));
-    return buildXTicks(totalMeters, target).map((d) => ({ value: d, x: xScale(d) }));
-  }, [totalMeters, isScrollable, innerWidth, xScale]);
+    return buildXTicks(totalMeters, target).map((d) => ({
+      value: d,
+      x: xScale(d),
+      label: formatDistance(d + xAxisLabelOffsetMeters, units),
+    }));
+  }, [
+    totalMeters,
+    axisStyle,
+    xTickIntervalMeters,
+    isScrollable,
+    innerWidth,
+    xScale,
+    units,
+    xAxisLabelOffsetMeters,
+  ]);
+
+  const gradientAxisSegments = useMemo<GradientAxisSegment[]>(() => {
+    if (axisStyle !== "climb") return [];
+    return gradientSegmentAreas.map((segment) => ({
+      id: segment.id,
+      width: segment.width,
+      labelX: segment.labelX,
+      labelColor: segment.labelColor,
+      label: segment.label.replace("%", ""),
+    }));
+  }, [axisStyle, gradientSegmentAreas]);
 
   // Memoized SVG tree — avoids re-rendering thousands of nodes on every scroll
   // frame. None of its deps change while the user pans the detail chart.
@@ -613,10 +830,89 @@ export default function ElevationProfile({
           <Path key={`climb-${region.id}`} d={region.fillPath} fill={region.color} opacity={0.2} />
         ))}
 
+        {gradientSegmentAreas.map((segment) => (
+          <G key={`grade-segment-${segment.id}`}>
+            <Path d={segment.fillPath} fill={segment.color} opacity={0.92} />
+            {axisStyle !== "climb" &&
+              segment.width >= GRADIENT_SEGMENT_LABEL_MIN_WIDTH &&
+              segment.height >= GRADIENT_SEGMENT_LABEL_MIN_HEIGHT && (
+                <SvgText
+                  x={segment.labelX}
+                  y={segment.labelY}
+                  fill={segment.labelColor}
+                  fontSize={11}
+                  fontFamily="BarlowSemiCondensed-SemiBold"
+                  textAnchor="middle"
+                >
+                  {segment.label}
+                </SvgText>
+              )}
+          </G>
+        ))}
+
+        {axisStyle === "climb" && (
+          <>
+            {gradientAxisSegments.map((segment) => (
+              <G key={`grade-axis-${segment.id}`}>
+                {segment.width >= CLIMB_GRADIENT_AXIS_LABEL_MIN_WIDTH && (
+                  <SvgText
+                    x={segment.labelX}
+                    y={axisY - 2}
+                    fill={segment.labelColor}
+                    fontSize={9.5}
+                    fontFamily="BarlowSemiCondensed-SemiBold"
+                    textAnchor="middle"
+                  >
+                    {segment.label.replace("%", "")}
+                  </SvgText>
+                )}
+              </G>
+            ))}
+            <Line
+              x1={0}
+              y1={axisY}
+              x2={innerWidth}
+              y2={axisY}
+              stroke={colors.textPrimary}
+              strokeWidth={1.5}
+            />
+            <Line
+              x1={innerWidth}
+              y1={PADDING.top}
+              x2={innerWidth}
+              y2={axisY}
+              stroke={colors.textPrimary}
+              strokeWidth={1.5}
+            />
+            {xLabels.map((l) => (
+              <Line
+                key={`x-tick-${l.value}`}
+                x1={l.x}
+                y1={axisY}
+                x2={l.x}
+                y2={Math.min(mainChartHeight, axisY + X_TICK_HEIGHT)}
+                stroke={colors.textPrimary}
+                strokeWidth={1.5}
+              />
+            ))}
+            {yLabels.map((l) => (
+              <Line
+                key={`y-tick-${l.value}`}
+                x1={Math.max(0, innerWidth - X_TICK_HEIGHT)}
+                y1={l.y}
+                x2={innerWidth}
+                y2={l.y}
+                stroke={colors.textPrimary}
+                strokeWidth={1.5}
+              />
+            ))}
+          </>
+        )}
+
         <Path
           d={linePath}
-          stroke="url(#lineGrad)"
-          strokeWidth={2.5}
+          stroke={lineStrokeColor ?? "url(#lineGrad)"}
+          strokeWidth={lineStrokeWidth}
           fill="none"
           strokeLinejoin="round"
         />
@@ -688,13 +984,19 @@ export default function ElevationProfile({
       colors,
       gradientStops,
       yLabels,
+      xLabels,
       fillPath,
       gradientAreaFill,
       gradientAreaOpacity,
       climbRegions,
+      gradientSegmentAreas,
+      gradientAxisSegments,
       linePath,
+      lineStrokeColor,
+      lineStrokeWidth,
       currentPos,
       axisY,
+      axisStyle,
       segmentBoundaries,
       distanceOffsetMeters,
       totalMeters,
@@ -715,21 +1017,76 @@ export default function ElevationProfile({
   const detailBody = (
     <View style={{ width: innerWidth, height: mainChartHeight }}>
       {detailSvg}
-      {xLabels.map((l) => (
+      {xLabels.map((l) => {
+        if (!l.label) return null;
+        const labelWidth = axisStyle === "climb" ? CLIMB_X_LABEL_WIDTH : X_LABEL_WIDTH;
+        const labelHalfWidth =
+          axisStyle === "climb" ? CLIMB_X_LABEL_HALF_WIDTH : X_LABEL_HALF_WIDTH;
+        const labelLeft =
+          axisStyle === "climb"
+            ? Math.max(0, Math.min(innerWidth - labelWidth, l.x - labelHalfWidth))
+            : l.x - labelHalfWidth;
+        return (
+          <Text
+            key={`xl-${l.value}`}
+            className={
+              axisStyle === "climb"
+                ? "font-barlow-sc-semibold text-[10px] text-foreground text-center"
+                : "font-barlow-sc-medium text-[10px] text-muted-foreground text-center"
+            }
+            style={{
+              position: "absolute",
+              left: labelLeft,
+              bottom: axisStyle === "climb" ? 7 : 4,
+              width: labelWidth,
+            }}
+          >
+            {l.label}
+          </Text>
+        );
+      })}
+    </View>
+  );
+
+  const yAxisLabels = (
+    <View style={{ width: yAxisWidth, height: mainChartHeight }}>
+      {yLabels.map((l) => (
         <Text
-          key={`xl-${l.value}`}
-          className="font-barlow-sc-medium text-[10px] text-muted-foreground text-center"
+          key={`yl-${l.value}`}
+          className={
+            axisStyle === "climb"
+              ? "font-barlow-sc-semibold text-[10px] text-foreground"
+              : "font-barlow-sc-medium text-[10px] text-muted-foreground"
+          }
           style={{
             position: "absolute",
-            left: l.x - X_LABEL_HALF_WIDTH,
-            bottom: 4,
-            width: X_LABEL_WIDTH,
+            left: yAxisSide === "right" ? 4 : 2,
+            top: l.y - Y_LABEL_OFFSET_Y,
           }}
         >
-          {formatDistance(l.value + distanceOffsetMeters, units)}
+          {axisStyle === "climb"
+            ? climbYAxisLabel(l.value, units)
+            : formatElevation(l.value, units)}
         </Text>
       ))}
     </View>
+  );
+
+  const chartPane = isScrollable ? (
+    <Animated.ScrollView
+      ref={scrollRef}
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      scrollEventThrottle={16}
+      onScroll={onScroll}
+      bounces={false}
+      overScrollMode="never"
+      style={{ width: viewportWidth }}
+    >
+      {detailBody}
+    </Animated.ScrollView>
+  ) : (
+    <View style={{ width: viewportWidth, height: mainChartHeight }}>{detailBody}</View>
   );
 
   return (
@@ -780,44 +1137,19 @@ export default function ElevationProfile({
             }}
           >
             <Text className="font-barlow-sc-medium text-[10px] text-muted-foreground">
-              {formatDistance(distanceOffsetMeters, units)}
+              {formatDistance(xAxisLabelOffsetMeters, units)}
             </Text>
             <Text className="font-barlow-sc-medium text-[10px] text-muted-foreground">
-              {formatDistance(distanceOffsetMeters + totalMeters, units)}
+              {formatDistance(xAxisLabelOffsetMeters + totalMeters, units)}
             </Text>
           </View>
         </View>
       )}
 
       <View style={{ flexDirection: "row", height: mainChartHeight }}>
-        <View style={{ width: PADDING.left, height: mainChartHeight }}>
-          {yLabels.map((l) => (
-            <Text
-              key={`yl-${l.value}`}
-              className="font-barlow-sc-medium text-[10px] text-muted-foreground"
-              style={{ position: "absolute", left: 2, top: l.y - Y_LABEL_OFFSET_Y }}
-            >
-              {formatElevation(l.value, units)}
-            </Text>
-          ))}
-        </View>
-
-        {isScrollable ? (
-          <Animated.ScrollView
-            ref={scrollRef}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            scrollEventThrottle={16}
-            onScroll={onScroll}
-            bounces={false}
-            overScrollMode="never"
-            style={{ width: viewportWidth }}
-          >
-            {detailBody}
-          </Animated.ScrollView>
-        ) : (
-          <View style={{ width: viewportWidth, height: mainChartHeight }}>{detailBody}</View>
-        )}
+        {yAxisSide === "left" && yAxisLabels}
+        {chartPane}
+        {yAxisSide === "right" && yAxisLabels}
       </View>
 
       {showLegend && (

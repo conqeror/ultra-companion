@@ -21,7 +21,8 @@ import MapLayerAnchors from "./MapLayerAnchors";
 import RouteLayer from "./RouteLayer";
 import RouteMarkerLayer from "./RouteMarkerLayer";
 import POILayer from "./POILayer";
-import ClimbHighlightLayer from "./ClimbHighlightLayer";
+import ClimbHighlightLayer, { CLIMB_HIGHLIGHT_LINE_LAYER_ID } from "./ClimbHighlightLayer";
+import ClimbDistanceMarkerLayer from "./ClimbDistanceMarkerLayer";
 import TemperatureRouteOverlay from "./TemperatureRouteOverlay";
 import VariantOverlayLayer, { type VariantOverlay } from "./VariantOverlayLayer";
 import type {
@@ -46,6 +47,12 @@ export interface MapCanvasRouteLayer {
   key: string;
   isActive: boolean;
   geoJSON: GeoJSON.Feature<GeoJSON.LineString>;
+}
+
+interface HighlightedClimbMapState {
+  id: string;
+  startDistanceMeters: number;
+  endDistanceMeters: number;
 }
 
 interface MapCanvasProps {
@@ -114,7 +121,7 @@ function MapCanvas({
   setFollowUser,
 }: MapCanvasProps) {
   const selectedPOI = usePoiStore((s) => s.selectedPOI);
-  const [highlightedClimbId, setHighlightedClimbId] = useState<string | null>(null);
+  const [highlightedClimb, setHighlightedClimb] = useState<HighlightedClimbMapState | null>(null);
 
   useEffect(() => {
     if (!selectedPOI) return;
@@ -126,14 +133,14 @@ function MapCanvas({
     });
   }, [cameraRef, selectedPOI, setFollowUser]);
 
-  const hasClimbHighlight = highlightedClimbId != null;
+  const hasClimbHighlight = highlightedClimb != null;
   const hasWeatherTemperatureOverlay =
     mapOverlayMode === "weather" &&
     activeRoutePoints != null &&
     weatherRouteId === activeDataId &&
     weatherTimeline.length > 1;
   const weatherStackKey = hasWeatherTemperatureOverlay ? "weather:on" : "weather:off";
-  const overlayStackKey = `${mapStyle.styleKey}-${highlightedClimbId ?? "none"}-${
+  const overlayStackKey = `${mapStyle.styleKey}-${highlightedClimb?.id ?? "none"}-${
     activeContextKey ?? "none"
   }-markers:${showDistanceMarkers ? "on" : "off"}-${weatherStackKey}-pois:${poiVisibility}`;
 
@@ -187,7 +194,7 @@ function MapCanvas({
         activeTotalDistanceMeters={activeTotalDistanceMeters}
         activeProgressDistanceMeters={activeProgressDistanceMeters}
         mapOverlayMode={mapOverlayMode}
-        onHighlightedClimbIdChange={setHighlightedClimbId}
+        onHighlightedClimbChange={setHighlightedClimb}
         setFollowUser={setFollowUser}
       />
       {hasWeatherTemperatureOverlay && activeRoutePoints && (
@@ -205,6 +212,7 @@ function MapCanvas({
         points={activeRoutePoints ?? []}
         showDistanceMarkers={showDistanceMarkers}
         aboveLayerID={MAP_LAYER_ANCHOR_IDS.routeMarkerSymbol}
+        hiddenDistanceRange={highlightedClimb}
       />
       {(poiVisibility !== "none" || selectedPOI) && activeRouteIds.length > 0 && (
         <POILayer
@@ -237,7 +245,7 @@ interface ClimbMapOverlayProps {
   activeTotalDistanceMeters: number | null;
   activeProgressDistanceMeters: number | null;
   mapOverlayMode: MapOverlayMode;
-  onHighlightedClimbIdChange: (id: string | null) => void;
+  onHighlightedClimbChange: (climb: HighlightedClimbMapState | null) => void;
   setFollowUser: (follow: boolean) => void;
 }
 
@@ -251,7 +259,7 @@ function ClimbMapOverlay({
   activeTotalDistanceMeters,
   activeProgressDistanceMeters,
   mapOverlayMode,
-  onHighlightedClimbIdChange,
+  onHighlightedClimbChange,
   setFollowUser,
 }: ClimbMapOverlayProps) {
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
@@ -301,8 +309,22 @@ function ClimbMapOverlay({
   ]);
 
   useEffect(() => {
-    onHighlightedClimbIdChange(highlightedClimb?.id ?? null);
-  }, [highlightedClimb?.id, onHighlightedClimbIdChange]);
+    if (!highlightedClimb) {
+      onHighlightedClimbChange(null);
+      return;
+    }
+    onHighlightedClimbChange({
+      id: highlightedClimb.id,
+      startDistanceMeters: highlightedClimb.effectiveStartDistanceMeters,
+      endDistanceMeters: highlightedClimb.effectiveEndDistanceMeters,
+    });
+  }, [
+    highlightedClimb,
+    highlightedClimb?.id,
+    highlightedClimb?.effectiveStartDistanceMeters,
+    highlightedClimb?.effectiveEndDistanceMeters,
+    onHighlightedClimbChange,
+  ]);
 
   useEffect(() => {
     if (!highlightedClimb || !activeRoutePoints?.length) return;
@@ -351,12 +373,20 @@ function ClimbMapOverlay({
   if (!highlightedClimb || !activeRoutePoints) return null;
 
   return (
-    <ClimbHighlightLayer
-      key={`climb-${highlightedClimb.id}-${styleKey}`}
-      climb={highlightedClimb}
-      points={activeRoutePoints}
-      aboveLayerID={MAP_LAYER_ANCHOR_IDS.climbLine}
-    />
+    <>
+      <ClimbHighlightLayer
+        key={`climb-${highlightedClimb.id}-${styleKey}`}
+        climb={highlightedClimb}
+        points={activeRoutePoints}
+        aboveLayerID={MAP_LAYER_ANCHOR_IDS.climbLine}
+      />
+      <ClimbDistanceMarkerLayer
+        key={`climb-markers-${highlightedClimb.id}-${styleKey}`}
+        climb={highlightedClimb}
+        points={activeRoutePoints}
+        aboveLayerID={CLIMB_HIGHLIGHT_LINE_LAYER_ID}
+      />
+    </>
   );
 }
 

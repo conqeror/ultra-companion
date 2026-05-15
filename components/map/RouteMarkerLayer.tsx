@@ -9,6 +9,10 @@ interface RouteMarkerLayerProps {
   points: RoutePoint[];
   showDistanceMarkers: boolean;
   aboveLayerID?: string;
+  hiddenDistanceRange?: {
+    startDistanceMeters: number;
+    endDistanceMeters: number;
+  } | null;
 }
 
 const KIND_FIELD = ["get", "kind"] as const;
@@ -21,24 +25,40 @@ const FINISH_FILTER = ["==", KIND_FIELD, "finish"] as const;
 const ENDPOINT_FILTER = ["any", START_FILTER, FINISH_FILTER] as const;
 const DISTANCE_FILTER = ["==", KIND_FIELD, "distance"] as const;
 
-function distanceBucketFilter(intervalKm: number) {
+function distanceBucketFilter(
+  intervalKm: number,
+  hiddenDistanceRange?: RouteMarkerLayerProps["hiddenDistanceRange"],
+) {
   const intervalFilter = ["==", ["%", DISTANCE_KM_FIELD, intervalKm], 0] as const;
 
+  const visibleRangeFilter =
+    hiddenDistanceRange == null
+      ? null
+      : ([
+          "any",
+          ["<", ["get", "distanceMeters"], hiddenDistanceRange.startDistanceMeters],
+          [">", ["get", "distanceMeters"], hiddenDistanceRange.endDistanceMeters],
+        ] as const);
+
+  const withHiddenRange = <T extends readonly unknown[]>(filter: T) =>
+    visibleRangeFilter == null ? filter : (["all", filter, visibleRangeFilter] as const);
+
   if (intervalKm === 100) {
-    return [
+    return withHiddenRange([
       "all",
       DISTANCE_FILTER,
       ["any", intervalFilter, ["==", IS_OVERVIEW_MARKER_FIELD, true]],
-    ] as const;
+    ] as const);
   }
 
-  return ["all", DISTANCE_FILTER, intervalFilter] as const;
+  return withHiddenRange(["all", DISTANCE_FILTER, intervalFilter] as const);
 }
 
 export default function RouteMarkerLayer({
   points,
   showDistanceMarkers,
   aboveLayerID,
+  hiddenDistanceRange,
 }: RouteMarkerLayerProps) {
   const colors = useThemeColors();
 
@@ -59,7 +79,7 @@ export default function RouteMarkerLayer({
           key={layerID}
           id={layerID}
           aboveLayerID={layerAboveID}
-          filter={distanceBucketFilter(bucket.intervalKm) as never}
+          filter={distanceBucketFilter(bucket.intervalKm, hiddenDistanceRange) as never}
           minZoomLevel={bucket.minZoom}
           maxZoomLevel={bucket.maxZoom}
           style={{
@@ -128,7 +148,14 @@ export default function RouteMarkerLayer({
         }}
       />,
     ];
-  }, [aboveLayerID, colors.positive, colors.surface, colors.textPrimary, showDistanceMarkers]);
+  }, [
+    aboveLayerID,
+    colors.positive,
+    colors.surface,
+    colors.textPrimary,
+    hiddenDistanceRange,
+    showDistanceMarkers,
+  ]);
 
   if (points.length < 2) return null;
 

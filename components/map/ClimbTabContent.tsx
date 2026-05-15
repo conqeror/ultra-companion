@@ -22,7 +22,6 @@ import {
   getClimbDifficulty,
   CLIMB_DIFFICULTY_LABELS,
 } from "@/constants/climbHelpers";
-import { extractRouteSlice, findNearestPointIndexAtDistance } from "@/utils/geo";
 import { resolveActiveRouteProgress } from "@/utils/routeProgress";
 import { formatDistance, formatElevation } from "@/utils/formatters";
 import { stitchPOIs } from "@/services/stitchingService";
@@ -37,6 +36,11 @@ import { bucketDistanceForDerivedWork } from "@/utils/distanceBuckets";
 import { pickRouteRecords } from "@/utils/routeScopedRecords";
 import { getClimbProgress } from "@/utils/climbProgress";
 import { computeClimbSegmentStats } from "@/utils/climbSegmentStats";
+import {
+  buildClimbProfileSegments,
+  buildClimbProfileSlice,
+  chooseClimbTickIntervalMeters,
+} from "@/utils/climbProfile";
 import ElevationProfile from "@/components/elevation/ElevationProfile";
 import ClimbListItem from "@/components/climb/ClimbListItem";
 import { resolveActiveClimb } from "@/utils/climbSelect";
@@ -158,33 +162,25 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
 
   const climbProfile = useMemo(() => {
     if (!climb || !activeRoutePoints?.length) return null;
-    const points = activeRoutePoints;
-    let startIdx = 0;
-    for (let i = 0; i < points.length; i++) {
-      if (points[i].distanceFromStartMeters >= climb.effectiveStartDistanceMeters) {
-        startIdx = Math.max(0, i - 1);
-        break;
-      }
-    }
-    const sliceLength = climb.effectiveEndDistanceMeters - points[startIdx].distanceFromStartMeters;
-    if (sliceLength <= 0) return null;
-    const sliced = extractRouteSlice(points, startIdx, sliceLength);
+    const sliced = buildClimbProfileSlice(
+      activeRoutePoints,
+      climb.effectiveStartDistanceMeters,
+      climb.effectiveEndDistanceMeters,
+    );
     if (sliced.length < 2) return null;
-    let currentIdxInSlice: number | undefined;
     let currentDistanceInSliceMeters: number | undefined;
     if (currentDist != null) {
-      const relativeDistance = currentDist - points[startIdx].distanceFromStartMeters;
+      const relativeDistance = currentDist - climb.effectiveStartDistanceMeters;
       const sliceEndDistance = sliced[sliced.length - 1].distanceFromStartMeters;
       if (relativeDistance >= 0 && relativeDistance <= sliceEndDistance) {
-        currentIdxInSlice = findNearestPointIndexAtDistance(sliced, relativeDistance);
         currentDistanceInSliceMeters = relativeDistance;
       }
     }
     return {
       points: sliced,
-      offsetMeters: points[startIdx].distanceFromStartMeters,
-      currentIdxInSlice,
+      offsetMeters: climb.effectiveStartDistanceMeters,
       currentDistanceInSliceMeters,
+      gradientSegments: buildClimbProfileSegments(sliced),
     };
   }, [climb, activeRoutePoints, currentDist]);
 
@@ -309,6 +305,15 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
         ? formatDistance(progress.distancePastTopMeters, units)
         : null;
   const isActiveClimb = progress.state === "active";
+  const summaryMaxGradient = roundOne(remainingMaxGradientPercent);
+  const climbProfileLengthMeters =
+    climbProfile?.points[climbProfile.points.length - 1]?.distanceFromStartMeters;
+  const compactTickIntervalMeters =
+    climbProfileLengthMeters != null
+      ? chooseClimbTickIntervalMeters(climbProfileLengthMeters)
+      : undefined;
+  const expandedUsesOneKmScroll =
+    isExpanded && compactTickIntervalMeters != null && compactTickIntervalMeters > 1000;
   const statsRow = (
     <View className="flex-row gap-2 px-3 mt-2 mb-2">
       <StatCard
@@ -329,7 +334,7 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
       <StatCard
         label="Max"
         value={`${climb.maxGradientPercent}%`}
-        detail={isActiveClimb ? `${roundOne(remainingMaxGradientPercent)}% left` : undefined}
+        detail={isActiveClimb ? `${summaryMaxGradient}% left` : undefined}
       />
       {expandedDistanceLabel && expandedDistanceValue && (
         <StatCard label={expandedDistanceLabel} value={expandedDistanceValue} />
@@ -400,8 +405,16 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
             <Text
               className={cn("ml-1 font-barlow-medium", isExpanded ? "text-[13px]" : "text-[13px]")}
               style={{ color: diffColor }}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.82}
             >
-              {CLIMB_DIFFICULTY_LABELS[difficulty]} · {Math.round(climb.difficultyScore)}
+              {isExpanded
+                ? `${CLIMB_DIFFICULTY_LABELS[difficulty]} · ${Math.round(climb.difficultyScore)}`
+                : `${CLIMB_DIFFICULTY_LABELS[difficulty]} · +${formatElevation(
+                    climb.totalAscentMeters,
+                    units,
+                  )} · ${roundOne(climb.averageGradientPercent)}% avg`}
             </Text>
           </View>
         </View>
@@ -417,8 +430,11 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
       {/* Elevation profile */}
       {climbProfile && (
         <View
-          className={cn("flex-1", isExpanded ? "mx-3" : "mx-2")}
-          style={!isExpanded ? { paddingBottom: Math.max(4, safeBottom - 8) } : undefined}
+          className={cn(isExpanded ? "mx-3" : "mx-2")}
+          style={[
+            { flex: isExpanded ? 1.35 : 1 },
+            !isExpanded ? { paddingBottom: Math.max(4, safeBottom - 8) } : undefined,
+          ]}
         >
           <View
             className="flex-1 rounded-lg overflow-hidden"
@@ -431,12 +447,19 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
                 width={screenWidth - (isExpanded ? 24 : 16)}
                 height={graphHeight}
                 showLegend={false}
+                showScrollOverview={expandedUsesOneKmScroll}
+                fitToWidth={!expandedUsesOneKmScroll}
                 distanceOffsetMeters={climbProfile.offsetMeters}
-                currentPointIndex={climbProfile.currentIdxInSlice}
+                xAxisLabelOffsetMeters={0}
+                xTickIntervalMeters={expandedUsesOneKmScroll ? 1000 : undefined}
+                axisStyle="climb"
+                minPixelsPerKm={expandedUsesOneKmScroll ? 28 : 2}
                 currentDistanceMeters={climbProfile.currentDistanceInSliceMeters}
                 pois={climbProfilePOIs}
                 onPOIPress={setSelectedPOI}
-                gradientAreaFill
+                gradientSegments={climbProfile.gradientSegments}
+                lineStrokeColor={colors.textPrimary}
+                lineStrokeWidth={3.5}
               />
             )}
           </View>
@@ -447,7 +470,7 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
 
       {/* Expanded: scrollable climb list */}
       {isExpanded && (
-        <View className="flex-1 border-t border-border mt-1">
+        <View className="border-t border-border mt-1" style={{ flex: 0.85 }}>
           <FlatList
             data={sortedClimbs}
             keyExtractor={(item) => item.id}
