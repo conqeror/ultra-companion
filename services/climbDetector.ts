@@ -13,9 +13,8 @@ interface DetectedClimb {
 }
 
 /** Bump this when the detection algorithm changes to trigger re-detection of stored climbs. */
-export const CLIMB_DETECTOR_VERSION = 7;
+export const CLIMB_DETECTOR_VERSION = 8;
 
-const SMOOTHING_WINDOW_M = 200;
 /** Minimum total ascent (m) for a segment to qualify as a climb. Also used as
  *  the threshold for self-heal re-detection in climbStore. */
 export const MIN_GAIN_M = 50;
@@ -36,46 +35,9 @@ export function detectClimbs(points: RoutePoint[]): DetectedClimb[] {
   const withElev = points.filter((p) => p.elevationMeters != null);
   if (withElev.length < 2) return [];
 
-  // Step 1: Smooth elevation with a moving average
-  const smoothed = smoothElevation(withElev);
-
-  // Step 2 + 3: Detect rising segments and qualify
+  // Elevation is normalized on import/reprocess; avoid smoothing it a second time.
+  const smoothed = withElev.map((point) => point.elevationMeters!);
   return detectAndQualify(withElev, smoothed);
-}
-
-function smoothElevation(points: RoutePoint[]): number[] {
-  const halfWindow = SMOOTHING_WINDOW_M / 2;
-  const result: number[] = Array.from({ length: points.length });
-
-  // Use two-pointer approach for the sliding window
-  let windowStart = 0;
-  let windowEnd = 0;
-  let windowSum = 0;
-  let windowCount = 0;
-
-  for (let i = 0; i < points.length; i++) {
-    const centerDist = points[i].distanceFromStartMeters;
-    const lo = centerDist - halfWindow;
-    const hi = centerDist + halfWindow;
-
-    // Advance window end
-    while (windowEnd < points.length && points[windowEnd].distanceFromStartMeters <= hi) {
-      windowSum += points[windowEnd].elevationMeters!;
-      windowCount++;
-      windowEnd++;
-    }
-
-    // Advance window start
-    while (windowStart < points.length && points[windowStart].distanceFromStartMeters < lo) {
-      windowSum -= points[windowStart].elevationMeters!;
-      windowCount--;
-      windowStart++;
-    }
-
-    result[i] = windowCount > 0 ? windowSum / windowCount : points[i].elevationMeters!;
-  }
-
-  return result;
 }
 
 function detectAndQualify(points: RoutePoint[], smoothed: number[]): DetectedClimb[] {

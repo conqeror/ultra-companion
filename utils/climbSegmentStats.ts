@@ -1,9 +1,5 @@
 import type { RoutePoint } from "@/types";
-import {
-  computeSliceElevationTotalsFromDistance,
-  findFirstPointAtOrAfterDistance,
-  interpolateRoutePointAtDistance,
-} from "@/utils/geo";
+import { findFirstPointAtOrAfterDistance, interpolateRoutePointAtDistance } from "@/utils/geo";
 
 const MAX_GRADIENT_WINDOW_M = 200;
 const MIN_GRADIENT_WINDOW_M = 50;
@@ -47,9 +43,10 @@ export function computeClimbSegmentStats(
     };
   }
 
-  const gainMeters = computeSliceElevationTotalsFromDistance(points, start, end).ascent;
+  const samples = buildElevationSamples(points, start, end);
+  const gainMeters = computePositiveGainMeters(samples);
   const averageGradientPercent = (gainMeters / lengthMeters) * 100;
-  const maxGradientPercent = computeMaxGradientPercent(points, start, end);
+  const maxGradientPercent = computeMaxGradientPercent(samples, end);
 
   return {
     gainMeters: roundOne(gainMeters),
@@ -59,12 +56,7 @@ export function computeClimbSegmentStats(
   };
 }
 
-function computeMaxGradientPercent(
-  points: RoutePoint[],
-  startDistanceMeters: number,
-  endDistanceMeters: number,
-): number {
-  const samples = buildElevationSamples(points, startDistanceMeters, endDistanceMeters);
+function computeMaxGradientPercent(samples: ElevationSample[], endDistanceMeters: number): number {
   if (samples.length < 2) return 0;
 
   let maxGradient = 0;
@@ -87,6 +79,15 @@ function computeMaxGradientPercent(
     if (gradient > maxGradient) maxGradient = gradient;
   }
   return maxGradient;
+}
+
+function computePositiveGainMeters(samples: ElevationSample[]): number {
+  let gain = 0;
+  for (let i = 1; i < samples.length; i++) {
+    const diff = samples[i].elevationMeters - samples[i - 1].elevationMeters;
+    if (diff > 0) gain += diff;
+  }
+  return gain;
 }
 
 function buildElevationSamples(

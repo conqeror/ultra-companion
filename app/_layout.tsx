@@ -84,11 +84,18 @@ export default function RootLayout() {
       .catch((e) => console.warn("Starred POI prefetch failed:", e));
   }, []);
 
-  // Re-detect climbs if algorithm version changed
+  // Re-normalize elevation before climb re-detection so stored climbs use the same terrain profile.
   useEffect(() => {
-    import("@/services/climbDetector").then(({ redetectClimbsIfNeeded }) => {
-      redetectClimbsIfNeeded().catch(console.warn);
-    });
+    void (async () => {
+      try {
+        const { reprocessElevationsIfNeeded } = await import("@/services/elevationProcessor");
+        await reprocessElevationsIfNeeded();
+        const { redetectClimbsIfNeeded } = await import("@/services/climbDetector");
+        await redetectClimbsIfNeeded();
+      } catch (error) {
+        console.warn(error);
+      }
+    })();
   }, []);
 
   // Handle incoming GPX/KML files.

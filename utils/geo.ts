@@ -1,4 +1,5 @@
 import type { RoutePoint } from "@/types";
+import { computeTrustedElevationTotals, processRouteElevations } from "@/utils/elevation";
 import { measureSync } from "@/utils/perfMarks";
 
 const EARTH_RADIUS_M = 6_371_000;
@@ -67,8 +68,6 @@ export function computeRouteStats(
   totalDescentMeters: number;
 } {
   let totalDistance = 0;
-  let totalAscent = 0;
-  let totalDescent = 0;
 
   const points: RoutePoint[] = coords.map((coord, i) => {
     if (i > 0) {
@@ -79,12 +78,6 @@ export function computeRouteStats(
         coord.latitude,
         coord.longitude,
       );
-
-      if (coord.elevation != null && prev.elevation != null) {
-        const elevDiff = coord.elevation - prev.elevation;
-        if (elevDiff > 0) totalAscent += elevDiff;
-        else totalDescent += Math.abs(elevDiff);
-      }
     }
 
     return {
@@ -95,12 +88,13 @@ export function computeRouteStats(
       idx: i,
     };
   });
+  const processed = processRouteElevations(points);
 
   return {
-    points,
+    points: processed.points,
     totalDistanceMeters: totalDistance,
-    totalAscentMeters: totalAscent,
-    totalDescentMeters: totalDescent,
+    totalAscentMeters: processed.totalAscentMeters,
+    totalDescentMeters: processed.totalDescentMeters,
   };
 }
 
@@ -381,36 +375,12 @@ export function computeElevationProgress(
   ascentRemaining: number;
   descentRemaining: number;
 } {
-  let ascentDone = 0;
-  let descentDone = 0;
-  let ascentRemaining = 0;
-  let descentRemaining = 0;
-
-  for (let i = 1; i < points.length; i++) {
-    const prev = points[i - 1].elevationMeters;
-    const curr = points[i].elevationMeters;
-    if (prev == null || curr == null) continue;
-    const diff = curr - prev;
-    if (i <= currentIndex) {
-      if (diff > 0) ascentDone += diff;
-      else descentDone += Math.abs(diff);
-    } else {
-      if (diff > 0) ascentRemaining += diff;
-      else descentRemaining += Math.abs(diff);
-    }
+  if (points.length === 0) {
+    return { ascentDone: 0, descentDone: 0, ascentRemaining: 0, descentRemaining: 0 };
   }
 
-  return { ascentDone, descentDone, ascentRemaining, descentRemaining };
-}
-
-function addElevationDelta(
-  fromElevation: number,
-  toElevation: number,
-  bucket: { ascent: number; descent: number },
-): void {
-  const diff = toElevation - fromElevation;
-  if (diff > 0) bucket.ascent += diff;
-  else bucket.descent += Math.abs(diff);
+  const clampedIndex = Math.max(0, Math.min(points.length - 1, currentIndex));
+  return computeElevationProgressAtDistance(points, points[clampedIndex].distanceFromStartMeters);
 }
 
 export function computeElevationProgressAtDistance(
@@ -422,29 +392,15 @@ export function computeElevationProgressAtDistance(
   ascentRemaining: number;
   descentRemaining: number;
 } {
-  const done = { ascent: 0, descent: 0 };
-  const remaining = { ascent: 0, descent: 0 };
-
-  for (let i = 1; i < points.length; i++) {
-    const prev = points[i - 1];
-    const curr = points[i];
-    if (prev.elevationMeters == null || curr.elevationMeters == null) continue;
-
-    const startDist = prev.distanceFromStartMeters;
-    const endDist = curr.distanceFromStartMeters;
-
-    if (currentDistanceMeters >= endDist) {
-      addElevationDelta(prev.elevationMeters, curr.elevationMeters, done);
-    } else if (currentDistanceMeters <= startDist) {
-      addElevationDelta(prev.elevationMeters, curr.elevationMeters, remaining);
-    } else {
-      const t = (currentDistanceMeters - startDist) / (endDist - startDist);
-      const currentElevation =
-        prev.elevationMeters + t * (curr.elevationMeters - prev.elevationMeters);
-      addElevationDelta(prev.elevationMeters, currentElevation, done);
-      addElevationDelta(currentElevation, curr.elevationMeters, remaining);
-    }
+  if (points.length < 2) {
+    return { ascentDone: 0, descentDone: 0, ascentRemaining: 0, descentRemaining: 0 };
   }
+
+  const routeStart = points[0].distanceFromStartMeters;
+  const routeEnd = points[points.length - 1].distanceFromStartMeters;
+  const currentDistance = Math.max(routeStart, Math.min(routeEnd, currentDistanceMeters));
+  const done = computeSliceElevationTotalsFromDistance(points, routeStart, currentDistance);
+  const remaining = computeSliceElevationTotalsFromDistance(points, currentDistance, routeEnd);
 
   return {
     ascentDone: done.ascent,
@@ -511,14 +467,12 @@ export function computeSliceAscent(
   startIndex: number,
   endDistanceMeters: number,
 ): number {
-  let ascent = 0;
-  const endIndex = findLastPointAtOrBeforeDistance(points, endDistanceMeters, startIndex + 1);
-  for (let i = startIndex + 1; i <= endIndex; i++) {
-    const prev = points[i - 1].elevationMeters;
-    const curr = points[i].elevationMeters;
-    if (prev != null && curr != null && curr > prev) ascent += curr - prev;
-  }
-  return ascent;
+  if (startIndex < 0 || startIndex >= points.length) return 0;
+  return computeSliceAscentFromDistance(
+    points,
+    points[startIndex].distanceFromStartMeters,
+    endDistanceMeters,
+  );
 }
 
 export function computeSliceElevationTotalsFromDistance(
@@ -526,42 +480,45 @@ export function computeSliceElevationTotalsFromDistance(
   startDistanceMeters: number,
   endDistanceMeters: number,
 ): { ascent: number; descent: number } {
-  const totals = { ascent: 0, descent: 0 };
-  if (points.length < 2 || endDistanceMeters <= startDistanceMeters) return totals;
-
-  const firstSegmentIndex = Math.max(
-    1,
-    findFirstPointAtOrAfterDistance(points, startDistanceMeters),
-  );
-  const lastSegmentIndex = Math.min(
-    points.length - 1,
-    findFirstPointAtOrAfterDistance(points, endDistanceMeters, firstSegmentIndex - 1),
-  );
-
-  for (let i = firstSegmentIndex; i <= lastSegmentIndex; i++) {
-    const prev = points[i - 1];
-    const curr = points[i];
-    if (prev.elevationMeters == null || curr.elevationMeters == null) continue;
-
-    const segStart = prev.distanceFromStartMeters;
-    const segEnd = curr.distanceFromStartMeters;
-    if (segEnd <= startDistanceMeters) continue;
-    if (segStart >= endDistanceMeters) break;
-    if (segEnd <= segStart) continue;
-
-    const fromDistance = Math.max(startDistanceMeters, segStart);
-    const toDistance = Math.min(endDistanceMeters, segEnd);
-    if (toDistance <= fromDistance) continue;
-
-    const fromT = (fromDistance - segStart) / (segEnd - segStart);
-    const toT = (toDistance - segStart) / (segEnd - segStart);
-    const fromElevation =
-      prev.elevationMeters + fromT * (curr.elevationMeters - prev.elevationMeters);
-    const toElevation = prev.elevationMeters + toT * (curr.elevationMeters - prev.elevationMeters);
-    addElevationDelta(fromElevation, toElevation, totals);
+  if (points.length < 2 || endDistanceMeters <= startDistanceMeters) {
+    return { ascent: 0, descent: 0 };
   }
 
-  return totals;
+  const routeStart = points[0].distanceFromStartMeters;
+  const routeEnd = points[points.length - 1].distanceFromStartMeters;
+  const start = Math.max(routeStart, Math.min(routeEnd, startDistanceMeters));
+  const end = Math.max(routeStart, Math.min(routeEnd, endDistanceMeters));
+  if (end <= start) return { ascent: 0, descent: 0 };
+
+  const startPoint = interpolateRoutePointAtDistance(points, start);
+  const endPoint = interpolateRoutePointAtDistance(points, end);
+  if (!startPoint || !endPoint) return { ascent: 0, descent: 0 };
+
+  const slice: RoutePoint[] = [
+    {
+      latitude: startPoint.latitude,
+      longitude: startPoint.longitude,
+      elevationMeters: startPoint.elevationMeters,
+      distanceFromStartMeters: startPoint.distanceFromStartMeters,
+      idx: 0,
+    },
+  ];
+
+  for (const point of points) {
+    if (point.distanceFromStartMeters > start && point.distanceFromStartMeters < end) {
+      slice.push({ ...point, idx: slice.length });
+    }
+  }
+
+  slice.push({
+    latitude: endPoint.latitude,
+    longitude: endPoint.longitude,
+    elevationMeters: endPoint.elevationMeters,
+    distanceFromStartMeters: endPoint.distanceFromStartMeters,
+    idx: slice.length,
+  });
+
+  return computeTrustedElevationTotals(slice);
 }
 
 export function computeSliceAscentFromDistance(
@@ -579,14 +536,12 @@ export function computeSliceDescent(
   startIndex: number,
   endDistanceMeters: number,
 ): number {
-  let descent = 0;
-  const endIndex = findLastPointAtOrBeforeDistance(points, endDistanceMeters, startIndex + 1);
-  for (let i = startIndex + 1; i <= endIndex; i++) {
-    const prev = points[i - 1].elevationMeters;
-    const curr = points[i].elevationMeters;
-    if (prev != null && curr != null && curr < prev) descent += prev - curr;
-  }
-  return descent;
+  if (startIndex < 0 || startIndex >= points.length) return 0;
+  return computeSliceDescentFromDistance(
+    points,
+    points[startIndex].distanceFromStartMeters,
+    endDistanceMeters,
+  );
 }
 
 export function computeSliceDescentFromDistance(
