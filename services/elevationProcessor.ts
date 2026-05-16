@@ -1,13 +1,14 @@
 import { processRouteElevations } from "@/utils/elevation";
+import type { KeyValueStorage } from "@/lib/keyValueStorage";
 
 export const ELEVATION_PROCESSOR_VERSION = 1;
 
-let _storage: import("react-native-mmkv").MMKV | null = null;
+let _storage: KeyValueStorage | null = null;
 
 async function getStorage() {
   if (!_storage) {
-    const { createMMKV } = await import("react-native-mmkv");
-    _storage = createMMKV({ id: "elevation-processor" });
+    const { createKeyValueStorage } = await import("@/lib/keyValueStorage");
+    _storage = createKeyValueStorage("elevation-processor");
   }
   return _storage;
 }

@@ -48,13 +48,20 @@ import type { ActiveRouteData, DisplayClimb, POI } from "@/types";
 
 interface ClimbTabContentProps {
   activeData: ActiveRouteData | null;
+  width?: number;
+  presentation?: "default" | "web";
 }
 
-export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
+export default function ClimbTabContent({
+  activeData,
+  width,
+  presentation = "default",
+}: ClimbTabContentProps) {
   const colors = useThemeColors();
   const { bottom: safeBottom } = useSafeAreaInsets();
   const units = useSettingsStore((s) => s.units);
   const { width: screenWidth } = useWindowDimensions();
+  const contentWidth = width ?? screenWidth;
   const snappedPosition = useRouteStore((s) => s.snappedPosition);
   const getClimbsForDisplay = useClimbStore((s) => s.getClimbsForDisplay);
   const selectedClimb = useClimbStore((s) => s.selectedClimb);
@@ -341,6 +348,148 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
       )}
     </View>
   );
+  const statsColumn = (
+    <View className="justify-center gap-2 py-2 pr-3" style={{ width: 176 }}>
+      <CompactStatCard
+        label="Gain"
+        value={`+${formatElevation(climb.totalAscentMeters, units)}`}
+        detail={isActiveClimb ? `+${formatElevation(remainingGainMeters, units)} left` : undefined}
+      />
+      <CompactStatCard
+        label="Length"
+        value={formatDistance(climb.lengthMeters, units)}
+        detail={isActiveClimb ? `${formatDistance(remainingLengthMeters, units)} left` : undefined}
+      />
+      <CompactStatCard
+        label="Avg"
+        value={`${climb.averageGradientPercent}%`}
+        detail={isActiveClimb ? `${roundOne(remainingAverageGradientPercent)}% left` : undefined}
+      />
+      <CompactStatCard
+        label="Max"
+        value={`${climb.maxGradientPercent}%`}
+        detail={isActiveClimb ? `${summaryMaxGradient}% left` : undefined}
+      />
+      {expandedDistanceLabel && expandedDistanceValue && (
+        <CompactStatCard label={expandedDistanceLabel} value={expandedDistanceValue} />
+      )}
+    </View>
+  );
+
+  if (presentation === "web") {
+    const graphWidth = Math.max(280, contentWidth - 212);
+    return (
+      <View className="flex-1 flex-row">
+        <View className="flex-1 min-w-0">
+          <View className="flex-row items-center px-3 pt-2">
+            <ClimbArrowButton
+              direction="previous"
+              disabled={climbIndex <= 0}
+              onPress={() => handleNavigateClimb(-1)}
+              compact
+            />
+
+            <View className="flex-1 mx-2">
+              {isEditing ? (
+                <View className="flex-row items-center">
+                  <Text className="text-[15px] font-barlow-semibold text-foreground mr-1.5">
+                    {climbPositionLabel}:
+                  </Text>
+                  <RNTextInput
+                    className="flex-1 text-[15px] font-barlow-semibold text-foreground border-b border-accent"
+                    value={editName}
+                    onChangeText={setEditName}
+                    placeholder="Climb"
+                    placeholderTextColor={colors.textTertiary}
+                    // eslint-disable-next-line jsx-a11y/no-autofocus -- intentional: focus input when user taps edit
+                    autoFocus
+                    autoCorrect={false}
+                    returnKeyType="done"
+                    onSubmitEditing={handleSaveName}
+                  />
+                  <TouchableOpacity
+                    className="w-[32px] h-[32px] items-center justify-center"
+                    hitSlop={8}
+                    onPress={handleSaveName}
+                    accessibilityLabel="Save name"
+                  >
+                    <Check size={16} color={colors.accent} />
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <TouchableOpacity
+                  className="flex-row items-center"
+                  hitSlop={8}
+                  onPress={handleStartEdit}
+                  accessibilityLabel="Edit climb name"
+                >
+                  <Text
+                    className="text-[15px] font-barlow-semibold text-foreground flex-shrink"
+                    numberOfLines={1}
+                  >
+                    {climbTitle}
+                  </Text>
+                  <Pencil size={10} color={colors.textTertiary} style={{ marginLeft: 4 }} />
+                </TouchableOpacity>
+              )}
+              <View className="flex-row items-center">
+                <Mountain size={13} color={diffColor} />
+                <Text
+                  className="ml-1 font-barlow-medium text-[13px]"
+                  style={{ color: diffColor }}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.82}
+                >
+                  {`${CLIMB_DIFFICULTY_LABELS[difficulty]} · ${Math.round(climb.difficultyScore)}`}
+                </Text>
+              </View>
+            </View>
+
+            <ClimbArrowButton
+              direction="next"
+              disabled={climbIndex < 0 || climbIndex >= sortedClimbs.length - 1}
+              onPress={() => handleNavigateClimb(1)}
+              compact
+            />
+          </View>
+
+          {climbProfile && (
+            <View className="flex-1 mx-3 mb-2">
+              <View
+                className="flex-1 rounded-lg overflow-hidden"
+                onLayout={(e) => setGraphHeight(Math.round(e.nativeEvent.layout.height))}
+              >
+                {graphHeight > 0 && (
+                  <ElevationProfile
+                    points={climbProfile.points}
+                    units={units}
+                    width={graphWidth}
+                    height={graphHeight}
+                    showLegend={false}
+                    showScrollOverview={expandedUsesOneKmScroll}
+                    fitToWidth={!expandedUsesOneKmScroll}
+                    distanceOffsetMeters={climbProfile.offsetMeters}
+                    xAxisLabelOffsetMeters={0}
+                    xTickIntervalMeters={expandedUsesOneKmScroll ? 1000 : undefined}
+                    axisStyle="climb"
+                    minPixelsPerKm={expandedUsesOneKmScroll ? 28 : 2}
+                    currentDistanceMeters={climbProfile.currentDistanceInSliceMeters}
+                    pois={climbProfilePOIs}
+                    onPOIPress={setSelectedPOI}
+                    gradientSegments={climbProfile.gradientSegments}
+                    lineStrokeColor={colors.textPrimary}
+                    lineStrokeWidth={3.5}
+                  />
+                )}
+              </View>
+            </View>
+          )}
+        </View>
+        {statsColumn}
+      </View>
+    );
+  }
 
   return (
     <View className="flex-1">
@@ -444,7 +593,7 @@ export default function ClimbTabContent({ activeData }: ClimbTabContentProps) {
               <ElevationProfile
                 points={climbProfile.points}
                 units={units}
-                width={screenWidth - (isExpanded ? 24 : 16)}
+                width={contentWidth - (isExpanded ? 24 : 16)}
                 height={graphHeight}
                 showLegend={false}
                 showScrollOverview={expandedUsesOneKmScroll}
@@ -543,6 +692,47 @@ function StatCard({ label, value, detail }: { label: string; value: string; deta
           numberOfLines={1}
           adjustsFontSizeToFit
           minimumFontScale={0.78}
+        >
+          {detail}
+        </Text>
+      )}
+    </View>
+  );
+}
+
+function CompactStatCard({
+  label,
+  value,
+  detail,
+}: {
+  label: string;
+  value: string;
+  detail?: string;
+}) {
+  return (
+    <View className="h-[44px] justify-center rounded-lg bg-muted px-3">
+      <Text
+        className="text-[10px] text-muted-foreground font-barlow-medium leading-3"
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.82}
+      >
+        {label}
+      </Text>
+      <Text
+        className="text-[17px] font-barlow-sc-semibold text-foreground leading-5"
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.7}
+      >
+        {value}
+      </Text>
+      {detail && (
+        <Text
+          className="text-[9px] text-muted-foreground font-barlow-medium leading-3"
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.72}
         >
           {detail}
         </Text>

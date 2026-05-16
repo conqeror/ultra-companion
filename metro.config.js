@@ -5,6 +5,8 @@ const { withNativeWind } = require("nativewind/metro");
 const projectRoot = __dirname;
 const config = getDefaultConfig(projectRoot);
 
+config.resolver.assetExts = Array.from(new Set([...config.resolver.assetExts, "wasm"]));
+
 function normalizeNativeWindChangeEvent(event) {
   if (!event || !Array.isArray(event.eventsQueue)) {
     return event;
@@ -77,9 +79,19 @@ function withNativeWindMetro83ChangeEventFix(metroConfig) {
           haste.__nativewindMetro83ChangeEventFix = true;
         });
 
-        return originalEnhanceMiddleware
+        const enhancedMiddleware = originalEnhanceMiddleware
           ? originalEnhanceMiddleware(middleware, metroServer)
           : middleware;
+
+        return (req, res, next) => {
+          // Expo SQLite web runs wa-sqlite through a worker/WASM runtime, and
+          // browsers expose the required shared-memory primitives only for
+          // cross-origin isolated pages.
+          res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
+          res.setHeader("Cross-Origin-Embedder-Policy", "credentialless");
+          res.setHeader("Origin-Agent-Cluster", "?1");
+          return enhancedMiddleware(req, res, next);
+        };
       },
     },
   };

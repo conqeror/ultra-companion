@@ -10,6 +10,7 @@ import {
   collections,
   collectionSegments,
   climbs,
+  planningMetadata,
 } from "./schema";
 import migrations from "../drizzle/migrations";
 import type {
@@ -29,16 +30,48 @@ import type {
 
 // --- Database init ---
 
-const expoDb = openDatabaseSync("ultra.db");
-expoDb.execSync("PRAGMA journal_mode = WAL;");
-expoDb.execSync("PRAGMA foreign_keys = ON;");
+export const appSQLiteDb = openDatabaseSync("ultra.db");
+appSQLiteDb.execSync("PRAGMA journal_mode = WAL;");
+appSQLiteDb.execSync("PRAGMA foreign_keys = ON;");
 
-export const db = drizzle(expoDb, {
-  schema: { routes, routePoints, pois, starredItems, collections, collectionSegments, climbs },
+export const db = drizzle(appSQLiteDb, {
+  schema: {
+    routes,
+    routePoints,
+    pois,
+    starredItems,
+    collections,
+    collectionSegments,
+    climbs,
+    planningMetadata,
+  },
 });
 
 // Apply schema from drizzle/migrations.ts (generated from db/schema.ts via `npm run db:migrate`)
 migrate(db, migrations);
+
+// --- Planning metadata ---
+
+export function setPlanningMetadata(key: string, value: string): void {
+  const updatedAt = new Date().toISOString();
+  db.insert(planningMetadata)
+    .values({ key, value, updatedAt })
+    .onConflictDoUpdate({
+      target: planningMetadata.key,
+      set: { value, updatedAt },
+    })
+    .run();
+}
+
+export function getPlanningMetadata(key: string): string | null {
+  return (
+    db
+      .select({ value: planningMetadata.value })
+      .from(planningMetadata)
+      .where(eq(planningMetadata.key, key))
+      .get()?.value ?? null
+  );
+}
 
 function normalizeCollectionSegment(
   row: typeof collectionSegments.$inferSelect,

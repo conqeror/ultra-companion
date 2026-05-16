@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { createMMKV, type MMKV } from "react-native-mmkv";
+import { createKeyValueStorage, type KeyValueStorage } from "@/lib/keyValueStorage";
 import type {
   PowerModelConfig,
   ETAResult,
@@ -22,11 +22,11 @@ import { useRouteStore } from "./routeStore";
 import { useCollectionStore } from "./collectionStore";
 import { usePoiStore } from "./poiStore";
 
-let storage: MMKV | null = null;
+let storage: KeyValueStorage | null = null;
 
-function getStorage(): MMKV {
+function getStorage(): KeyValueStorage {
   if (!storage) {
-    storage = createMMKV({ id: "eta" });
+    storage = createKeyValueStorage("eta");
   }
   return storage;
 }

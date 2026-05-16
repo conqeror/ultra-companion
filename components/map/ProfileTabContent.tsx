@@ -35,9 +35,15 @@ interface ProfileTabContentProps {
   activeData: ActiveRouteData | null;
   width: number;
   height: number;
+  showClimbsAheadStrip?: boolean;
 }
 
-export default function ProfileTabContent({ activeData, width, height }: ProfileTabContentProps) {
+export default function ProfileTabContent({
+  activeData,
+  width,
+  height,
+  showClimbsAheadStrip = true,
+}: ProfileTabContentProps) {
   const colors = useThemeColors();
   const { bottom: safeBottom } = useSafeAreaInsets();
   const activeRoutePoints = activeData?.points ?? null;
@@ -136,7 +142,7 @@ export default function ProfileTabContent({ activeData, width, height }: Profile
   const lookAhead = ridingHorizonMetersForMode(panelMode) ?? activeTotalDistance;
 
   const showStats = !!horizonSummaryText;
-  const showClimbsAhead = isExpanded && climbsAhead.length > 0;
+  const showClimbsAhead = showClimbsAheadStrip && isExpanded && climbsAhead.length > 0;
   const isFullRouteHorizon = panelMode === "full-route";
 
   const climbsAheadHeight = showClimbsAhead

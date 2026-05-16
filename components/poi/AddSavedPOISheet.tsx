@@ -80,6 +80,7 @@ export default function AddSavedPOISheet({
   const [isSaving, setIsSaving] = useState(false);
 
   const apiKey = Constants.expoConfig?.extra?.googlePlacesApiKey as string | undefined;
+  const bundleId = Constants.expoConfig?.ios?.bundleIdentifier;
   const canSave = useMemo(() => {
     const lat = parseCoordinate(latitude);
     const lon = parseCoordinate(longitude);
@@ -120,7 +121,7 @@ export default function AddSavedPOISheet({
     setError(null);
 
     try {
-      const resolved = await resolveGoogleMapsLink(rawUrl, apiKey);
+      const resolved = await resolveGoogleMapsLink(rawUrl, apiKey, { bundleId });
       setGoogleMapsInput(resolved.resolvedUrl);
       setGoogleMapsUrl(resolved.resolvedUrl);
       setHasResolvedGoogleMapsPlace(true);
@@ -137,7 +138,7 @@ export default function AddSavedPOISheet({
     } finally {
       setIsResolvingGoogleMapsUrl(false);
     }
-  }, [apiKey, googleMapsInput]);
+  }, [apiKey, bundleId, googleMapsInput]);
 
   const handleSave = useCallback(async () => {
     if (isResolvingGoogleMapsUrl) {

@@ -1,50 +1,13 @@
 import Constants from "expo-constants";
-import type { POI, POICategory, POISource, RoutePoint } from "@/types";
+import type { POICategory, RoutePoint } from "@/types";
 import { fetchAllPOIs } from "./overpassClient";
-import { mapOverpassToPOIs, type ClassifiedPOI } from "./poiClassifier";
+import { mapOverpassToPOIs } from "./poiClassifier";
 import { fetchGooglePlacesPOIs } from "./googlePlacesClient";
-import { buildRouteSegmentSpatialIndex, computePOIRouteAssociation } from "@/utils/geo";
 import { insertPOIs, deletePOIsBySource } from "@/db/database";
-import {
-  getMaxPoiCorridorWidthM,
-  getPoiCategoryCorridorWidthM,
-  poiDiscoveryCategoriesForSource,
-} from "@/constants";
+import { poiDiscoveryCategoriesForSource } from "@/constants";
+import { associateAndFilterPOIs } from "@/services/poiAssociation";
 
-/** Associate classified POIs with route and filter by corridor */
-export function associateAndFilter(
-  classified: ClassifiedPOI[],
-  routeId: string,
-  routePoints: RoutePoint[],
-  corridorWidthM: number,
-  source: POISource,
-): POI[] {
-  const pois: POI[] = [];
-  const routeIndex = buildRouteSegmentSpatialIndex(
-    routePoints,
-    getMaxPoiCorridorWidthM(corridorWidthM),
-  );
-  for (const c of classified) {
-    const assoc = computePOIRouteAssociation(c.latitude, c.longitude, routePoints, routeIndex);
-    if (assoc.distanceFromRouteMeters > getPoiCategoryCorridorWidthM(c.category, corridorWidthM)) {
-      continue;
-    }
-    pois.push({
-      id: `${routeId}_${c.sourceId}`,
-      sourceId: c.sourceId,
-      source,
-      name: c.name,
-      category: c.category,
-      latitude: c.latitude,
-      longitude: c.longitude,
-      tags: c.tags,
-      distanceFromRouteMeters: assoc.distanceFromRouteMeters,
-      distanceAlongRouteMeters: assoc.distanceAlongRouteMeters,
-      routeId,
-    });
-  }
-  return pois;
-}
+export { associateAndFilterPOIs as associateAndFilter } from "@/services/poiAssociation";
 
 /** Fetch OSM POIs only */
 export async function fetchOsmPOIs(
@@ -65,7 +28,7 @@ export async function fetchOsmPOIs(
     (poi) => !enabled || enabled.has(poi.category),
   );
   onProgress?.("Processing", 0, 1);
-  const pois = associateAndFilter(classified, routeId, routePoints, corridorWidthM, "osm");
+  const pois = associateAndFilterPOIs(classified, routeId, routePoints, corridorWidthM, "osm");
   await deletePOIsBySource(routeId, "osm");
   await insertPOIs(pois);
   onProgress?.("Done", 1, 1);
@@ -82,15 +45,22 @@ export async function fetchGooglePOIs(
 ): Promise<number> {
   const apiKey = Constants.expoConfig?.extra?.googlePlacesApiKey as string | undefined;
   if (!apiKey) throw new Error("Google Places API key not configured");
+  const bundleId = Constants.expoConfig?.ios?.bundleIdentifier;
 
   const categories = discoveryCategories
     ? poiDiscoveryCategoriesForSource(discoveryCategories, "google")
     : undefined;
-  const classified = await fetchGooglePlacesPOIs(routePoints, apiKey, categories, (done, total) => {
-    onProgress?.("Fetching", done, total);
-  });
+  const classified = await fetchGooglePlacesPOIs(
+    routePoints,
+    apiKey,
+    categories,
+    (done, total) => {
+      onProgress?.("Fetching", done, total);
+    },
+    { bundleId },
+  );
   onProgress?.("Processing", 0, 1);
-  const pois = associateAndFilter(classified, routeId, routePoints, corridorWidthM, "google");
+  const pois = associateAndFilterPOIs(classified, routeId, routePoints, corridorWidthM, "google");
   await deletePOIsBySource(routeId, "google");
   await insertPOIs(pois);
   onProgress?.("Done", 1, 1);

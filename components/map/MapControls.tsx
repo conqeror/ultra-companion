@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { View, TouchableOpacity } from "react-native";
+import { Platform, View, TouchableOpacity } from "react-native";
 import { useRouter } from "expo-router";
 import { Text } from "@/components/ui/text";
 import { Layers, Locate, LocateFixed, MapPin, Menu, Ruler } from "lucide-react-native";
@@ -42,6 +42,7 @@ function usePositionAge() {
 export default function MapControls({ onLocate }: MapControlsProps) {
   const colors = useThemeColors();
   const router = useRouter();
+  const isWeb = Platform.OS === "web";
   const positionAge = usePositionAge();
   const [isDisplayMenuOpen, setIsDisplayMenuOpen] = useState(false);
 
@@ -100,7 +101,10 @@ export default function MapControls({ onLocate }: MapControlsProps) {
       </View>
 
       {/* Locate — top-right */}
-      <View className="absolute right-4 top-[64px] items-center">
+      <View
+        className="absolute items-center"
+        style={isWeb ? { left: 16, top: 128 } : { right: 16, top: 64 }}
+      >
         <TouchableOpacity
           className={cn(
             "w-[52px] min-h-[52px] rounded-xl items-center justify-center shadow-md",
@@ -129,7 +133,14 @@ export default function MapControls({ onLocate }: MapControlsProps) {
       </View>
 
       {/* Display toggles — top-right, below locate */}
-      <View className="absolute right-4 top-[128px] items-end">
+      <View
+        className="absolute"
+        style={
+          isWeb
+            ? { left: 16, top: 192, alignItems: "flex-start" }
+            : { right: 16, top: 128, alignItems: "flex-end" }
+        }
+      >
         <TouchableOpacity
           className={cn(
             "w-[52px] h-[52px] rounded-xl items-center justify-center shadow-md",

@@ -4,6 +4,7 @@ import {
   stitchCollection,
   stitchPOIs,
 } from "@/services/stitchingService";
+import { stitchCollectionFromData as stitchCollectionFromCore } from "@/services/stitchingCore";
 import { toDisplayDistanceMeters } from "@/services/displayDistance";
 import { databaseMocks } from "@/tests/mocks/database";
 import type {
@@ -141,6 +142,23 @@ const segmentInfo = (
 });
 
 describe("stitchingService", () => {
+  it("stitches collections from in-memory route data", () => {
+    const stitched = stitchCollectionFromCore(
+      "c1",
+      [collectionSegment("r2", 1), collectionSegment("r1", 0), collectionSegment("r3", 2, false)],
+      {
+        r1: route("r1"),
+        r2: route("r2"),
+      },
+    );
+
+    expect(stitched.segments.map((segment) => segment.routeId)).toEqual(["r1", "r2"]);
+    expect(stitched.totalDistanceMeters).toBe(2_000);
+    expect(stitched.points.map((point) => point.distanceFromStartMeters)).toEqual([
+      0, 1_000, 1_000, 2_000,
+    ]);
+  });
+
   it("stitches selected segments in position order", async () => {
     databaseMocks.getCollectionSegments.mockResolvedValue([
       collectionSegment("r2", 1),

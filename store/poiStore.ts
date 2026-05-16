@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { createMMKV, type MMKV } from "react-native-mmkv";
+import { createKeyValueStorage, type KeyValueStorage } from "@/lib/keyValueStorage";
 import type {
   DisplayPOI,
   POI,
@@ -32,11 +32,11 @@ import { usePanelStore } from "./panelStore";
 
 const LEGACY_STARRED_POI_IDS_KEY = "starredPOIIds";
 
-let storage: MMKV | null = null;
+let storage: KeyValueStorage | null = null;
 
-function getStorage(): MMKV {
+function getStorage(): KeyValueStorage {
   if (!storage) {
-    storage = createMMKV({ id: "poi" });
+    storage = createKeyValueStorage("poi");
   }
   return storage;
 }

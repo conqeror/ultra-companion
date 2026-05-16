@@ -1,13 +1,18 @@
 import React, { useState, useMemo, useCallback } from "react";
-import { View, TouchableOpacity, ScrollView, TextInput } from "react-native";
+import { Alert, View, TouchableOpacity, ScrollView, TextInput } from "react-native";
 import { Text } from "@/components/ui/text";
+import { Button } from "@/components/ui/button";
 import { Check, ChevronDown, ChevronUp } from "lucide-react-native";
 import { cn } from "@/lib/cn";
 import { useThemeColors } from "@/theme";
 import { useSettingsStore } from "@/store/settingsStore";
 import { useEtaStore } from "@/store/etaStore";
 import { usePoiStore } from "@/store/poiStore";
+import { useRouteStore } from "@/store/routeStore";
+import { useCollectionStore } from "@/store/collectionStore";
+import { useClimbStore } from "@/store/climbStore";
 import { solveVelocity } from "@/services/powerModel";
+import { pickAndImportPlanningDatabase, sharePlanningDatabase } from "@/services/planningTransport";
 import { POI_DISCOVERY_GROUPS } from "@/constants";
 import type { UnitSystem } from "@/types";
 import StorageSection from "@/components/offline/StorageSection";
@@ -151,6 +156,8 @@ export default function SettingsScreen() {
   const setDiscoveryGroupEnabled = usePoiStore((s) => s.setDiscoveryGroupEnabled);
   const resetDiscoveryCategories = usePoiStore((s) => s.resetDiscoveryCategories);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [isPlanningTransferBusy, setIsPlanningTransferBusy] = useState(false);
+  const [planningTransferMessage, setPlanningTransferMessage] = useState<string | null>(null);
 
   const discoverySet = useMemo(() => new Set(discoveryCategories), [discoveryCategories]);
   const enabledDiscoveryGroupCount = useMemo(
@@ -165,6 +172,69 @@ export default function SettingsScreen() {
     const v = solveVelocity(0, powerConfig);
     return (v * 3.6).toFixed(0);
   }, [powerConfig]);
+
+  const refreshPlanningData = useCallback(async () => {
+    useRouteStore.setState({ visibleRoutePoints: {}, snappedPosition: null, snapHistory: [] });
+    usePoiStore.setState({ pois: {}, selectedPOI: null });
+    useClimbStore.getState().clearClimbCache();
+    await Promise.all([
+      useRouteStore.getState().loadRoutesAndPoints(),
+      useCollectionStore.getState().loadCollections(),
+      usePoiStore.getState().loadStarredItems(),
+    ]);
+  }, []);
+
+  const handleExportPlanningDatabase = useCallback(async () => {
+    setIsPlanningTransferBusy(true);
+    setPlanningTransferMessage("Exporting planner database...");
+    try {
+      const summary = await sharePlanningDatabase();
+      setPlanningTransferMessage(
+        `Exported ${summary.routeCount} routes and ${summary.collectionCount} collections.`,
+      );
+      Alert.alert(
+        "Planner Export Ready",
+        `Exported ${summary.routeCount} routes and ${summary.collectionCount} collections.`,
+      );
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Could not export the planning database.";
+      console.error("[planning-transport] Export failed", error);
+      setPlanningTransferMessage(`Export failed: ${message}`);
+      Alert.alert("Planner Export Failed", message);
+    } finally {
+      setIsPlanningTransferBusy(false);
+    }
+  }, []);
+
+  const handleImportPlanningDatabase = useCallback(async () => {
+    setIsPlanningTransferBusy(true);
+    setPlanningTransferMessage("Choose a .ultra-plan.db file...");
+    try {
+      const summary = await pickAndImportPlanningDatabase();
+      if (!summary) {
+        setPlanningTransferMessage("Import canceled.");
+        return;
+      }
+      setPlanningTransferMessage("Import complete. Refreshing map data...");
+      await refreshPlanningData();
+      setPlanningTransferMessage(
+        `Imported ${summary.routes} routes, ${summary.collections} collections, ${summary.pois} POIs, and ${summary.climbs} climbs.`,
+      );
+      Alert.alert(
+        "Planner Import Complete",
+        `Merged ${summary.routes} routes, ${summary.collections} collections, ${summary.pois} POIs, and ${summary.climbs} climbs.`,
+      );
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Could not import the planning database.";
+      console.error("[planning-transport] Import failed", error);
+      setPlanningTransferMessage(`Import failed: ${message}`);
+      Alert.alert("Planner Import Failed", message);
+    } finally {
+      setIsPlanningTransferBusy(false);
+    }
+  }, [refreshPlanningData]);
 
   return (
     <ScrollView className="flex-1 bg-background px-4">
@@ -279,6 +349,30 @@ export default function SettingsScreen() {
           />
         </View>
       )}
+
+      <Text className="text-[22px] font-barlow-semibold text-foreground mt-8 mb-3">
+        Planner Transfer
+      </Text>
+      <View className="bg-card rounded-xl p-4 gap-3">
+        <Button
+          onPress={handleExportPlanningDatabase}
+          disabled={isPlanningTransferBusy}
+          accessibilityLabel="Export planner database"
+          label="Export Planner DB"
+        />
+        <Button
+          variant="secondary"
+          onPress={handleImportPlanningDatabase}
+          disabled={isPlanningTransferBusy}
+          accessibilityLabel="Import planner database"
+          label="Import Planner DB"
+        />
+        {planningTransferMessage ? (
+          <Text className="text-[13px] font-barlow text-muted-foreground">
+            {planningTransferMessage}
+          </Text>
+        ) : null}
+      </View>
 
       <StorageSection />
 

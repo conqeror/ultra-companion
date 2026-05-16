@@ -13,6 +13,7 @@ import { useOfflineStore } from "@/store/offlineStore";
 import { useRouteStore } from "@/store/routeStore";
 import { useCollectionStore } from "@/store/collectionStore";
 import { usePoiStore } from "@/store/poiStore";
+import { useClimbStore } from "@/store/climbStore";
 import { COLORS } from "@/theme";
 
 export { ErrorBoundary } from "expo-router";
@@ -98,7 +99,7 @@ export default function RootLayout() {
     })();
   }, []);
 
-  // Handle incoming GPX/KML files.
+  // Handle incoming GPX/KML and planner database files.
   const handledUrls = useRef(new Set<string>());
 
   const handleIncomingUrl = useCallback(async (url: string) => {
@@ -107,9 +108,29 @@ export default function RootLayout() {
 
     const fileName = decodeURIComponent(url.split("/").pop() || "route");
     const ext = fileName.toLowerCase().split(".").pop();
-    if (!["gpx", "kml"].includes(ext || "")) return;
+    const isPlanningDb = fileName.toLowerCase().endsWith(".ultra-plan.db");
+    if (!["gpx", "kml"].includes(ext || "") && !isPlanningDb) return;
 
     try {
+      if (isPlanningDb) {
+        const { importPlanningDatabaseFromUri } = await import("@/services/planningTransport");
+        const summary = await importPlanningDatabaseFromUri(url);
+        useRouteStore.setState({ visibleRoutePoints: {}, snappedPosition: null, snapHistory: [] });
+        usePoiStore.setState({ pois: {}, selectedPOI: null });
+        useClimbStore.getState().clearClimbCache();
+        await Promise.all([
+          useRouteStore.getState().loadRoutesAndPoints(),
+          useCollectionStore.getState().loadCollections(),
+          usePoiStore.getState().loadStarredItems(),
+        ]);
+        Alert.alert(
+          "Planner Import Complete",
+          `Merged ${summary.routes} routes, ${summary.collections} collections, and ${summary.pois} POIs.`,
+        );
+        router.replace("/settings");
+        return;
+      }
+
       const route = await useRouteStore.getState().importFromUri(url, fileName);
       // Replace (not push) so the +not-found screen Expo Router briefly lands on
       // for the incoming file:// URL doesn't stay in the back stack.

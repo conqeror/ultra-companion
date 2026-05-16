@@ -32,6 +32,9 @@ yarn-error.*
 # AXe screenshots (generated)
 .axe-screenshots/
 
+# local scratch files
+/tmp/
+
 # macOS
 .DS_Store
 *.pem

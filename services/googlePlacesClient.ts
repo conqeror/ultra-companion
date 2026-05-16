@@ -1,10 +1,7 @@
-import Constants from "expo-constants";
 import type { RoutePoint, POICategory } from "@/types";
 import { GOOGLE_POI_DISCOVERY_CATEGORIES } from "@/constants";
 import { downsampleRoutePointsByDistance, splitRoutePointsByDistance } from "@/utils/geo";
 import type { ClassifiedPOI } from "./poiClassifier";
-
-const BUNDLE_ID = Constants.expoConfig?.ios?.bundleIdentifier ?? "";
 
 // --- Google Places API response types ---
 
@@ -151,12 +148,23 @@ const SEARCHES: { textQuery: string; includedType?: string; category: POICategor
   { textQuery: "bicycle shop", category: "bike_shop" },
 ];
 
-function googlePlacesHeaders(apiKey: string, fieldMask: string): Record<string, string> {
+export interface GooglePlacesRequestOptions {
+  bundleId?: string;
+  endpoint?: string;
+  headers?: Record<string, string>;
+}
+
+function googlePlacesHeaders(
+  apiKey: string,
+  fieldMask: string,
+  options?: GooglePlacesRequestOptions,
+): Record<string, string> {
   return {
     "Content-Type": "application/json",
     "X-Goog-Api-Key": apiKey,
     "X-Goog-FieldMask": fieldMask,
-    ...(BUNDLE_ID ? { "X-Ios-Bundle-Identifier": BUNDLE_ID } : {}),
+    ...(options?.bundleId ? { "X-Ios-Bundle-Identifier": options.bundleId } : {}),
+    ...options?.headers,
   };
 }
 
@@ -166,6 +174,7 @@ async function searchAlongRoute(
   includedType: string | undefined,
   encodedPolyline: string,
   apiKey: string,
+  options?: GooglePlacesRequestOptions,
 ): Promise<GooglePlace[]> {
   const allPlaces: GooglePlace[] = [];
   let pageToken: string | undefined;
@@ -181,11 +190,14 @@ async function searchAlongRoute(
     };
     if (pageToken) body.pageToken = pageToken;
 
-    const response = await fetch("https://places.googleapis.com/v1/places:searchText", {
-      method: "POST",
-      headers: googlePlacesHeaders(apiKey, FIELD_MASK),
-      body: JSON.stringify(body),
-    });
+    const response = await fetch(
+      options?.endpoint ?? "https://places.googleapis.com/v1/places:searchText",
+      {
+        method: "POST",
+        headers: googlePlacesHeaders(apiKey, FIELD_MASK, options),
+        body: JSON.stringify(body),
+      },
+    );
 
     if (!response.ok) {
       const text = await response.text().catch(() => "");
@@ -210,10 +222,11 @@ async function searchAlongRoute(
 export async function fetchGooglePlaceDetails(
   placeId: string,
   apiKey: string,
+  options?: GooglePlacesRequestOptions,
 ): Promise<GooglePlace> {
   const response = await fetch(`https://places.googleapis.com/v1/places/${placeId}`, {
     method: "GET",
-    headers: googlePlacesHeaders(apiKey, DETAILS_FIELD_MASK),
+    headers: googlePlacesHeaders(apiKey, DETAILS_FIELD_MASK, options),
   });
 
   if (!response.ok) {
@@ -227,12 +240,16 @@ export async function fetchGooglePlaceDetails(
 export async function fetchGooglePlaceTextSearch(
   textQuery: string,
   apiKey: string,
+  options?: GooglePlacesRequestOptions,
 ): Promise<GooglePlace | null> {
-  const response = await fetch("https://places.googleapis.com/v1/places:searchText", {
-    method: "POST",
-    headers: googlePlacesHeaders(apiKey, FIELD_MASK),
-    body: JSON.stringify({ textQuery, pageSize: 1 }),
-  });
+  const response = await fetch(
+    options?.endpoint ?? "https://places.googleapis.com/v1/places:searchText",
+    {
+      method: "POST",
+      headers: googlePlacesHeaders(apiKey, FIELD_MASK, options),
+      body: JSON.stringify({ textQuery, pageSize: 1 }),
+    },
+  );
 
   if (!response.ok) {
     const text = await response.text().catch(() => "");
@@ -262,6 +279,7 @@ export async function fetchGooglePlacesPOIs(
   apiKey: string,
   discoveryCategories: POICategory[] = GOOGLE_POI_DISCOVERY_CATEGORIES,
   onProgress?: (done: number, total: number) => void,
+  options?: GooglePlacesRequestOptions,
 ): Promise<ClassifiedPOI[]> {
   const enabled = new Set(discoveryCategories);
   const searches = SEARCHES.filter((search) => enabled.has(search.category));
@@ -294,9 +312,13 @@ export async function fetchGooglePlacesPOIs(
     // Run all search types in parallel within each segment
     const searchResults = await Promise.all(
       searches.map((search) =>
-        searchAlongRoute(search.textQuery, search.includedType, encodedPolyline, apiKey).then(
-          (places) => ({ places, category: search.category }),
-        ),
+        searchAlongRoute(
+          search.textQuery,
+          search.includedType,
+          encodedPolyline,
+          apiKey,
+          options,
+        ).then((places) => ({ places, category: search.category })),
       ),
     );
 

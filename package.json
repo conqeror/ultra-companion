@@ -8,6 +8,8 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
+    "web:export": "expo export --platform web && node scripts/prepare-web-export.mjs",
+    "web:serve": "node scripts/serve-web.mjs",
     "db:generate": "drizzle-kit generate",
     "db:bundle": "node scripts/bundle-migrations.mjs",
     "db:migrate": "npm run db:generate && npm run db:bundle",
@@ -41,7 +43,9 @@
     "expo-symbols": "~55.0.7",
     "expo-web-browser": "~55.0.14",
     "fast-xml-parser": "^5.5.9",
+    "lucide-react": "^1.16.0",
     "lucide-react-native": "^1.7.0",
+    "mapbox-gl": "^2.15.0",
     "nativewind": "^4.2.3",
     "react": "19.2.0",
     "react-dom": "19.2.0",
@@ -60,6 +64,7 @@
     "zustand": "^5.0.12"
   },
   "devDependencies": {
+    "@types/mapbox-gl": "^3.4.1",
     "@types/react": "~19.2.2",
     "drizzle-kit": "^0.31.10",
     "oxfmt": "^0.46.0",

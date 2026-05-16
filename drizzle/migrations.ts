@@ -9,6 +9,7 @@ export default {
       { idx: 2, when: 1777986756000, tag: "0002_add_starred_items", breakpoints: true },
       { idx: 3, when: 1777986757000, tag: "0003_add_collection_planned_start", breakpoints: true },
       { idx: 4, when: 1777986758000, tag: "0004_add_patch_route_variants", breakpoints: true },
+      { idx: 5, when: 1777986759000, tag: "0005_add_planning_metadata", breakpoints: true },
     ],
   },
   migrations: {
@@ -106,6 +107,12 @@ ALTER TABLE \`collection_segments\` ADD \`baseRouteId\` text REFERENCES routes(i
 ALTER TABLE \`collection_segments\` ADD \`replaceStartDistanceMeters\` real;--> statement-breakpoint
 ALTER TABLE \`collection_segments\` ADD \`replaceEndDistanceMeters\` real;--> statement-breakpoint
 CREATE INDEX \`idx_collection_segments_base_route\` ON \`collection_segments\` (\`collectionId\`,\`baseRouteId\`);
+`,
+    m0005: `CREATE TABLE \`planning_metadata\` (
+	\`key\` text PRIMARY KEY NOT NULL,
+	\`value\` text NOT NULL,
+	\`updatedAt\` text NOT NULL
+);
 `,
   },
 };

@@ -36,6 +36,13 @@
       "when": 1777986758000,
       "tag": "0004_add_patch_route_variants",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1777986759000,
+      "tag": "0005_add_planning_metadata",
+      "breakpoints": true
     }
   ]
 }

@@ -5,6 +5,7 @@ import {
   fetchGooglePlaceTextSearch,
   inferPOICategoryFromGoogleTypes,
   type GooglePlace,
+  type GooglePlacesRequestOptions,
 } from "@/services/googlePlacesClient";
 import { computePOIRouteAssociation, haversineDistance } from "@/utils/geo";
 import { generateId } from "@/utils/generateId";
@@ -360,6 +361,7 @@ function resolvedFromCoordinates(
 export async function resolveGoogleMapsLink(
   rawText: string,
   apiKey?: string,
+  requestOptions?: GooglePlacesRequestOptions,
 ): Promise<ResolvedGoogleMapsLink> {
   const rawParsed = parseGoogleMapsLink(rawText);
   const shouldExpand =
@@ -378,7 +380,7 @@ export async function resolveGoogleMapsLink(
   if (parsed.placeId && apiKey) {
     try {
       const place = await withGoogleMapsReadTimeout(
-        fetchGooglePlaceDetails(parsed.placeId, apiKey),
+        fetchGooglePlaceDetails(parsed.placeId, apiKey, requestOptions),
       );
       return resolvedFromPlace(place, parsed.url);
     } catch (error) {
@@ -393,7 +395,9 @@ export async function resolveGoogleMapsLink(
   if (latitude == null || longitude == null) {
     const placeQuery = parsed.placeQuery ?? extractPlaceQueryFromText(rawText);
     if (placeQuery && apiKey) {
-      const place = await withGoogleMapsReadTimeout(fetchGooglePlaceTextSearch(placeQuery, apiKey));
+      const place = await withGoogleMapsReadTimeout(
+        fetchGooglePlaceTextSearch(placeQuery, apiKey, requestOptions),
+      );
       if (place) {
         return resolvedFromPlace(place, parsed.url || buildGoogleMapsSearchUrl(placeQuery));
       }

@@ -1,5 +1,5 @@
 import React, { useRef, useCallback, useEffect, useState, useMemo } from "react";
-import { View, AppState, useWindowDimensions } from "react-native";
+import { View, AppState, Platform, useWindowDimensions } from "react-native";
 import Mapbox, { Camera, MapView as MapboxMapView } from "@rnmapbox/maps";
 import Constants from "expo-constants";
 import { useShallow } from "zustand/react/shallow";
@@ -22,6 +22,7 @@ import MapControls from "./MapControls";
 import MapCanvas, { type MapCanvasRouteLayer, type MapOverlayMode } from "./MapCanvas";
 import type { VariantOverlay } from "./VariantOverlayLayer";
 import TabbedBottomPanel from "./TabbedBottomPanel";
+import { getWebMapCameraPadding } from "./webPanelLayout";
 import { displayPOIsForActiveRoute } from "@/services/activePOIs";
 import { computeCachedRouteTotalETA } from "@/services/etaCalculator";
 import { resolveActiveRouteProgress } from "@/utils/routeProgress";
@@ -211,7 +212,8 @@ export default function MapScreen() {
   const cameraRef = useRef<Camera>(null);
   const mapRef = useRef<MapboxMapView>(null);
   const [hasGpsFix, setHasGpsFix] = useState(false);
-  const { height: screenHeight } = useWindowDimensions();
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+  const isWeb = Platform.OS === "web";
 
   const followUser = useMapStore((s) => s.followUser);
   const setFollowUser = useMapStore((s) => s.setFollowUser);
@@ -230,8 +232,8 @@ export default function MapScreen() {
   );
   const panelTab = usePanelStore((s) => s.panelTab);
   const mapOverlayMode: MapOverlayMode =
-    panelTab === "climbs" ? "climbs" : panelTab === "weather" ? "weather" : "normal";
-  const effectivePOIVisibility = panelTab === "pois" ? "all" : poiVisibility;
+    panelTab === "climbs" ? "climbs" : !isWeb && panelTab === "weather" ? "weather" : "normal";
+  const effectivePOIVisibility = isWeb ? "all" : panelTab === "pois" ? "all" : poiVisibility;
   const { bottom: safeBottom } = useSafeAreaInsets();
   const compactPanelHeight = Math.round(screenHeight * SHEET_COMPACT_RATIO) + safeBottom;
 
@@ -402,6 +404,7 @@ export default function MapScreen() {
   // Fetch weather when active context + snapped position + ETA are available (and online)
   useEffect(() => {
     if (
+      !isWeb &&
       activeData &&
       activeRoutePoints?.length &&
       activeRouteProgress &&
@@ -423,6 +426,7 @@ export default function MapScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     activeData?.id,
+    isWeb,
     weatherProgressBucketKey,
     isConnected,
     cumulativeTime,
@@ -595,13 +599,16 @@ export default function MapScreen() {
   }, [followUser, setFollowUser]);
 
   const cameraPadding = useMemo(
-    () => ({
-      paddingTop: 0,
-      paddingLeft: 0,
-      paddingRight: 0,
-      paddingBottom: compactPanelHeight,
-    }),
-    [compactPanelHeight],
+    () =>
+      isWeb
+        ? getWebMapCameraPadding(screenWidth, screenHeight, safeBottom)
+        : {
+            paddingTop: 0,
+            paddingLeft: 0,
+            paddingRight: 0,
+            paddingBottom: compactPanelHeight,
+          },
+    [compactPanelHeight, isWeb, safeBottom, screenHeight, screenWidth],
   );
 
   const pulsingConfig = useMemo(

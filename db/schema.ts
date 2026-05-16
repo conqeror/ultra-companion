@@ -9,6 +9,14 @@ import {
 } from "drizzle-orm/sqlite-core";
 import type { POICategory, POISource, StarredEntityType } from "@/types";
 
+// --- Planning Transport Metadata ---
+
+export const planningMetadata = sqliteTable("planning_metadata", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: text("updatedAt").notNull(),
+});
+
 // --- Climbs ---
 
 export const climbs = sqliteTable(

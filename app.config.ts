@@ -40,6 +40,12 @@ export default (_: ConfigContext): ExpoConfig => ({
           LSHandlerRank: "Alternate",
           LSItemContentTypes: ["com.google.earth.kml"],
         },
+        {
+          CFBundleTypeName: "Ultra Planner Database",
+          CFBundleTypeRole: "Viewer",
+          LSHandlerRank: "Alternate",
+          LSItemContentTypes: ["com.conqeror.ultracompanion.plan-db"],
+        },
       ],
       UTImportedTypeDeclarations: [
         {
@@ -60,6 +66,15 @@ export default (_: ConfigContext): ExpoConfig => ({
             "public.mime-type": ["application/vnd.google-earth.kml+xml"],
           },
         },
+        {
+          UTTypeIdentifier: "com.conqeror.ultracompanion.plan-db",
+          UTTypeDescription: "Ultra Planner Database",
+          UTTypeConformsTo: ["public.data"],
+          UTTypeTagSpecification: {
+            "public.filename-extension": ["ultra-plan.db", "db"],
+            "public.mime-type": ["application/x-sqlite3"],
+          },
+        },
       ],
     },
   },
@@ -69,7 +84,15 @@ export default (_: ConfigContext): ExpoConfig => ({
     favicon: "./assets/images/favicon.png",
   },
   plugins: [
-    "expo-router",
+    [
+      "expo-router",
+      {
+        headers: {
+          "Cross-Origin-Embedder-Policy": "credentialless",
+          "Cross-Origin-Opener-Policy": "same-origin",
+        },
+      },
+    ],
     "@rnmapbox/maps",
     [
       "expo-location",

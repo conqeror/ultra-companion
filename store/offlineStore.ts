@@ -1,6 +1,6 @@
 import { create } from "zustand";
-import { createMMKV, type MMKV } from "react-native-mmkv";
 import { addNetworkStateListener, getNetworkStateAsync } from "expo-network";
+import { createKeyValueStorage, type KeyValueStorage } from "@/lib/keyValueStorage";
 import type { OfflineRouteInfo, RoutePoint } from "@/types";
 import { poiDiscoveryCategoriesForSource } from "@/constants";
 import { getPOICountsBySource } from "@/db/database";
@@ -11,11 +11,11 @@ import {
   estimateDownloadSize,
 } from "@/services/offlineTiles";
 
-let storage: MMKV | null = null;
+let storage: KeyValueStorage | null = null;
 
-function getStorage(): MMKV {
+function getStorage(): KeyValueStorage {
   if (!storage) {
-    storage = createMMKV({ id: "offline" });
+    storage = createKeyValueStorage("offline");
   }
   return storage;
 }

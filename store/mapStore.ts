@@ -1,12 +1,12 @@
 import { create } from "zustand";
-import { createMMKV, type MMKV } from "react-native-mmkv";
+import { createKeyValueStorage, type KeyValueStorage } from "@/lib/keyValueStorage";
 import { DEFAULT_MAP_CENTER, DEFAULT_ZOOM } from "@/constants";
 import { requestLocationPermission, getCurrentPosition } from "@/services/gps";
 import type { POIMapVisibility, UserPosition } from "@/types";
 
-let storage: MMKV | null = null;
-function getStorage(): MMKV {
-  if (!storage) storage = createMMKV({ id: "map-camera" });
+let storage: KeyValueStorage | null = null;
+function getStorage(): KeyValueStorage {
+  if (!storage) storage = createKeyValueStorage("map-camera");
   return storage;
 }
 

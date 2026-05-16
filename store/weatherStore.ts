@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { createMMKV, type MMKV } from "react-native-mmkv";
+import { createKeyValueStorage, type KeyValueStorage } from "@/lib/keyValueStorage";
 import type { RoutePoint, WeatherFetchStatus, WeatherPoint } from "@/types";
 import { WEATHER_MANUAL_REFRESH_THROTTLE_MS, WEATHER_STALE_MS } from "@/constants";
 import {
@@ -10,12 +10,12 @@ import type { HourlyForecast } from "@/services/weatherClient";
 import type { PlannedStop } from "@/services/plannedStops";
 import { useOfflineStore } from "./offlineStore";
 
-let storage: MMKV | null = null;
+let storage: KeyValueStorage | null = null;
 const WEATHER_CACHE_VERSION = 3;
 
-function getStorage(): MMKV {
+function getStorage(): KeyValueStorage {
   if (!storage) {
-    storage = createMMKV({ id: "weather" });
+    storage = createKeyValueStorage("weather");
   }
   return storage;
 }

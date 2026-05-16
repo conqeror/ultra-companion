@@ -1,12 +1,12 @@
 import { create } from "zustand";
-import { createMMKV, type MMKV } from "react-native-mmkv";
+import { createKeyValueStorage, type KeyValueStorage } from "@/lib/keyValueStorage";
 import type { UnitSystem, WeatherTemperatureDisplayMode, WeatherTimelineMetricKey } from "@/types";
 
-let storage: MMKV | null = null;
+let storage: KeyValueStorage | null = null;
 
-function getStorage(): MMKV {
+function getStorage(): KeyValueStorage {
   if (!storage) {
-    storage = createMMKV({ id: "settings" });
+    storage = createKeyValueStorage("settings");
   }
   return storage;
 }

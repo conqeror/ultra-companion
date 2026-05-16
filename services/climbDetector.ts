@@ -253,11 +253,11 @@ function computeDifficultyScore(
  * Re-detect climbs for all routes if the algorithm version has changed.
  * Preserves user-assigned climb names where possible.
  */
-let _storage: import("react-native-mmkv").MMKV | null = null;
+let _storage: import("@/lib/keyValueStorage").KeyValueStorage | null = null;
 async function getStorage() {
   if (!_storage) {
-    const { createMMKV } = await import("react-native-mmkv");
-    _storage = createMMKV({ id: "climb-detector" });
+    const { createKeyValueStorage } = await import("@/lib/keyValueStorage");
+    _storage = createKeyValueStorage("climb-detector");
   }
   return _storage;
 }

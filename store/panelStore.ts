@@ -1,13 +1,13 @@
 import { create } from "zustand";
-import { createMMKV, type MMKV } from "react-native-mmkv";
+import { createKeyValueStorage, type KeyValueStorage } from "@/lib/keyValueStorage";
 import type { PanelMode, PanelTab } from "@/types";
 import { PANEL_MODES } from "@/constants";
 
-let storage: MMKV | null = null;
+let storage: KeyValueStorage | null = null;
 
-function getStorage(): MMKV {
+function getStorage(): KeyValueStorage {
   if (!storage) {
-    storage = createMMKV({ id: "panel" });
+    storage = createKeyValueStorage("panel");
   }
   return storage;
 }
