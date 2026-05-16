@@ -41,8 +41,19 @@ import {
   routeEndDistance,
   sliceRoutePointsByDistance,
 } from "@/services/stitchingService";
-import { computeSliceAscentFromDistance } from "@/utils/geo";
-import { formatDistance, formatDuration, formatElevation } from "@/utils/formatters";
+import {
+  computeSliceAscentFromDistance,
+  estimateMapVisibleSpanMeters,
+  findFirstPointAtOrAfterDistance,
+  haversineDistance,
+} from "@/utils/geo";
+import {
+  buildDistanceMarkerDistances,
+  getDistanceMarkerIntervalForZoom,
+  type DistanceMarkerDistanceRange,
+  type DistanceMarkerInterval,
+} from "@/utils/routeMarkers";
+import { formatDistance, formatDuration, formatElevation, formatETA } from "@/utils/formatters";
 import { measureSync } from "@/utils/perfMarks";
 import { pickRouteRecords } from "@/utils/routeScopedRecords";
 import type {
@@ -57,6 +68,204 @@ interface VariantMetric {
   distanceMeters: number;
   ascentMeters: number;
   ridingTime: number | null;
+}
+
+const ETA_MARKER_REFRESH_MS = 5 * 60_000;
+const MARKER_VIEWPORT_BUFFER_MULTIPLIER = 1.5;
+const MARKER_VIEWPORT_MIN_INTERVALS = 3;
+
+interface MarkerCameraState {
+  center: [number, number];
+  zoom: number;
+  intervalKm: DistanceMarkerInterval;
+  visibleSpanMeters: number | null;
+}
+
+function markerCameraState(
+  center: [number, number],
+  zoom: number,
+  viewportWidthPx: number,
+  viewportHeightPx: number,
+): MarkerCameraState {
+  return {
+    center,
+    zoom,
+    intervalKm: getDistanceMarkerIntervalForZoom(zoom),
+    visibleSpanMeters: estimateMapVisibleSpanMeters(zoom, {
+      latitude: center[1],
+      viewportWidthPx,
+      viewportHeightPx,
+    }),
+  };
+}
+
+function shouldRefreshMarkerCamera(previous: MarkerCameraState, next: MarkerCameraState): boolean {
+  if (previous.intervalKm !== next.intervalKm) return true;
+  const visibleSpanMeters = next.visibleSpanMeters ?? 0;
+  const minMoveMeters = Math.max(visibleSpanMeters * 0.25, next.intervalKm * 1000 * 2);
+  const movedMeters = haversineDistance(
+    previous.center[1],
+    previous.center[0],
+    next.center[1],
+    next.center[0],
+  );
+  return movedMeters >= minMoveMeters;
+}
+
+function routeDistanceRangeForMarkerCamera(
+  points: RoutePoint[] | null,
+  markerCamera: MarkerCameraState,
+): DistanceMarkerDistanceRange | null {
+  if (!points?.length || markerCamera.visibleSpanMeters == null) return null;
+
+  const [longitude, latitude] = markerCamera.center;
+  const markerIntervalMeters = markerCamera.intervalKm * 1000;
+  const bufferMeters = Math.max(
+    markerCamera.visibleSpanMeters * MARKER_VIEWPORT_BUFFER_MULTIPLIER,
+    markerIntervalMeters * MARKER_VIEWPORT_MIN_INTERVALS,
+  );
+  const halfSpanMeters = markerCamera.visibleSpanMeters / 2 + bufferMeters;
+  const latDelta = halfSpanMeters / 111_320;
+  const lonMetersPerDegree = Math.max(1, 111_320 * Math.cos((Math.PI / 180) * latitude));
+  const lonDelta = halfSpanMeters / lonMetersPerDegree;
+
+  let startDistanceMeters = Infinity;
+  let endDistanceMeters = -Infinity;
+
+  for (const point of points) {
+    if (
+      point.latitude < latitude - latDelta ||
+      point.latitude > latitude + latDelta ||
+      point.longitude < longitude - lonDelta ||
+      point.longitude > longitude + lonDelta
+    ) {
+      continue;
+    }
+    startDistanceMeters = Math.min(startDistanceMeters, point.distanceFromStartMeters);
+    endDistanceMeters = Math.max(endDistanceMeters, point.distanceFromStartMeters);
+  }
+
+  if (!Number.isFinite(startDistanceMeters) || !Number.isFinite(endDistanceMeters)) {
+    const nearest = points.reduce(
+      (best, point) => {
+        const distanceMeters = haversineDistance(
+          latitude,
+          longitude,
+          point.latitude,
+          point.longitude,
+        );
+        return distanceMeters < best.distanceMeters ? { point, distanceMeters } : best;
+      },
+      { point: points[0], distanceMeters: Infinity },
+    ).point;
+    startDistanceMeters = nearest.distanceFromStartMeters;
+    endDistanceMeters = nearest.distanceFromStartMeters;
+  }
+
+  const totalDistanceMeters = points[points.length - 1].distanceFromStartMeters;
+  return {
+    startDistanceMeters: Math.max(0, startDistanceMeters - bufferMeters),
+    endDistanceMeters: Math.min(totalDistanceMeters, endDistanceMeters + bufferMeters),
+  };
+}
+
+function mergeMarkerDistanceRange(
+  viewportRange: DistanceMarkerDistanceRange | null,
+  etaStartDistanceMeters: number | null,
+  totalDistanceMeters: number | null,
+): DistanceMarkerDistanceRange | null {
+  if (totalDistanceMeters == null) return viewportRange;
+  if (etaStartDistanceMeters == null) return viewportRange;
+
+  const startDistanceMeters = Math.min(totalDistanceMeters, etaStartDistanceMeters + 1);
+  if (!viewportRange) {
+    return { startDistanceMeters, endDistanceMeters: totalDistanceMeters };
+  }
+
+  return {
+    startDistanceMeters: Math.max(viewportRange.startDistanceMeters, startDistanceMeters),
+    endDistanceMeters: viewportRange.endDistanceMeters,
+  };
+}
+
+function cumulativeTimeAtDistance(
+  cumulativeTime: number[],
+  points: RoutePoint[],
+  distanceMeters: number,
+  startIndex = 0,
+): { timeSeconds: number; index: number } | null {
+  if (points.length === 0 || cumulativeTime.length !== points.length) return null;
+
+  const hi = Math.min(
+    findFirstPointAtOrAfterDistance(points, distanceMeters, startIndex),
+    points.length - 1,
+  );
+  const lo = Math.max(0, hi - 1);
+
+  const loTime = cumulativeTime[lo];
+  const hiTime = cumulativeTime[hi];
+  const loDistance = points[lo].distanceFromStartMeters;
+  const hiDistance = points[hi].distanceFromStartMeters;
+  if (hiDistance - loDistance <= 0) return { timeSeconds: loTime, index: hi };
+
+  const t = (distanceMeters - loDistance) / (hiDistance - loDistance);
+  return { timeSeconds: loTime + t * (hiTime - loTime), index: hi };
+}
+
+function buildEtaMarkerLabelMap(input: {
+  cumulativeTime: number[] | null;
+  points: RoutePoint[] | null;
+  fromDistanceMeters: number | null;
+  markerIntervalKm: DistanceMarkerInterval;
+  markerDistanceRange: DistanceMarkerDistanceRange | null;
+  plannedStops: readonly { distanceMeters: number; durationSeconds: number }[];
+  etaBaseTimeMs: number;
+}): Map<number, string> {
+  const labels = new Map<number, string>();
+  const { cumulativeTime, points, fromDistanceMeters } = input;
+  if (!cumulativeTime || !points?.length || fromDistanceMeters == null) return labels;
+
+  const from = cumulativeTimeAtDistance(cumulativeTime, points, fromDistanceMeters);
+  if (!from) return labels;
+
+  const targetDistances = buildDistanceMarkerDistances(
+    points[points.length - 1].distanceFromStartMeters,
+    input.markerIntervalKm,
+    input.markerDistanceRange,
+  );
+
+  let pointIndex = from.index;
+  let stopIndex = 0;
+  let stopOffsetSeconds = 0;
+  const plannedStops = input.plannedStops;
+  while (
+    stopIndex < plannedStops.length &&
+    plannedStops[stopIndex].distanceMeters <= fromDistanceMeters
+  ) {
+    stopIndex++;
+  }
+
+  for (const distanceMeters of targetDistances) {
+    if (distanceMeters <= fromDistanceMeters) continue;
+
+    const target = cumulativeTimeAtDistance(cumulativeTime, points, distanceMeters, pointIndex);
+    if (!target) continue;
+    pointIndex = target.index;
+
+    while (
+      stopIndex < plannedStops.length &&
+      plannedStops[stopIndex].distanceMeters < distanceMeters
+    ) {
+      stopOffsetSeconds += plannedStops[stopIndex].durationSeconds;
+      stopIndex++;
+    }
+
+    const ridingTimeSeconds = target.timeSeconds - from.timeSeconds + stopOffsetSeconds;
+    if (ridingTimeSeconds <= 0) continue;
+    labels.set(distanceMeters, formatETA(new Date(input.etaBaseTimeMs + ridingTimeSeconds * 1000)));
+  }
+
+  return labels;
 }
 
 function groupCollectionSegments(
@@ -217,7 +426,7 @@ export default function MapScreen() {
 
   const followUser = useMapStore((s) => s.followUser);
   const setFollowUser = useMapStore((s) => s.setFollowUser);
-  const showDistanceMarkers = useMapStore((s) => s.showDistanceMarkers);
+  const distanceMarkerMode = useMapStore((s) => s.distanceMarkerMode);
   const poiVisibility = useMapStore((s) => s.poiVisibility);
   const refreshPosition = useMapStore((s) => s.refreshPosition);
   const persistCamera = useMapStore((s) => s.persistCamera);
@@ -226,6 +435,15 @@ export default function MapScreen() {
     zoom: useMapStore.getState().zoom,
   });
   const lastCamera = useRef(initialCamera.current);
+  const [markerCamera, setMarkerCamera] = useState(() =>
+    markerCameraState(
+      initialCamera.current.center,
+      initialCamera.current.zoom,
+      screenWidth,
+      screenHeight,
+    ),
+  );
+  const markerCameraRef = useRef(markerCamera);
   const { routeGeometryToleranceMeters, updateRouteGeometryZoom } = useRouteGeometryZoom(
     initialCamera.current.zoom,
     initialCamera.current.center[1],
@@ -298,9 +516,87 @@ export default function MapScreen() {
     [activeData, snappedPosition, timing.plannedStartMs],
   );
   const activeProgressDistanceMeters = activeRouteProgress?.distanceAlongRouteMeters ?? null;
+  const activeProgressDistanceRef = useRef(activeProgressDistanceMeters);
+  activeProgressDistanceRef.current = activeProgressDistanceMeters;
+  const [etaMarkerRefreshMs, setEtaMarkerRefreshMs] = useState(() => Date.now());
+  const [etaAnchorDistanceMeters, setEtaAnchorDistanceMeters] = useState<number | null>(null);
   const weatherProgressBucketKey = distanceBucketKey(
     activeProgressDistanceMeters,
     WEATHER_PROGRESS_BUCKET_METERS,
+  );
+
+  useEffect(() => {
+    if (distanceMarkerMode !== "eta") return;
+    setEtaMarkerRefreshMs(Date.now());
+    const interval = setInterval(() => setEtaMarkerRefreshMs(Date.now()), ETA_MARKER_REFRESH_MS);
+    return () => clearInterval(interval);
+  }, [distanceMarkerMode]);
+
+  useEffect(() => {
+    if (distanceMarkerMode !== "eta") {
+      setEtaAnchorDistanceMeters(null);
+      return;
+    }
+    setEtaAnchorDistanceMeters(activeProgressDistanceRef.current);
+  }, [activeData?.id, distanceMarkerMode, etaMarkerRefreshMs]);
+
+  useEffect(() => {
+    if (
+      distanceMarkerMode === "eta" &&
+      etaAnchorDistanceMeters == null &&
+      activeProgressDistanceMeters != null
+    ) {
+      setEtaAnchorDistanceMeters(activeProgressDistanceMeters);
+    }
+  }, [activeProgressDistanceMeters, distanceMarkerMode, etaAnchorDistanceMeters]);
+
+  const viewportMarkerDistanceRange = useMemo(
+    () => routeDistanceRangeForMarkerCamera(activeRoutePoints, markerCamera),
+    [activeRoutePoints, markerCamera],
+  );
+  const markerDistanceRange = useMemo(
+    () =>
+      mergeMarkerDistanceRange(
+        viewportMarkerDistanceRange,
+        distanceMarkerMode === "eta" ? etaAnchorDistanceMeters : null,
+        activeRoutePoints ? routeEndDistance(activeRoutePoints) : null,
+      ),
+    [activeRoutePoints, distanceMarkerMode, etaAnchorDistanceMeters, viewportMarkerDistanceRange],
+  );
+  const etaMarkerLabels = useMemo(
+    () =>
+      distanceMarkerMode === "eta"
+        ? buildEtaMarkerLabelMap({
+            cumulativeTime,
+            points: activeRoutePoints,
+            fromDistanceMeters: etaAnchorDistanceMeters,
+            markerIntervalKm: markerCamera.intervalKm,
+            markerDistanceRange,
+            plannedStops,
+            etaBaseTimeMs: timing.futureStartMs ?? etaMarkerRefreshMs,
+          })
+        : new Map<number, string>(),
+    [
+      activeRoutePoints,
+      cumulativeTime,
+      distanceMarkerMode,
+      etaAnchorDistanceMeters,
+      etaMarkerRefreshMs,
+      markerCamera.intervalKm,
+      markerDistanceRange,
+      plannedStops,
+      timing.futureStartMs,
+    ],
+  );
+  const etaLabelVersion = `${markerCamera.intervalKm}:${markerDistanceRange?.startDistanceMeters ?? 0}:${
+    markerDistanceRange?.endDistanceMeters ?? "all"
+  }:${etaAnchorDistanceMeters ?? "none"}:${etaMarkerRefreshMs}:${plannedStopsKey}:${
+    timing.futureStartMs ?? "now"
+  }`;
+
+  const routeMarkerEtaLabelForDistanceMeters = useCallback(
+    (distanceMeters: number) => etaMarkerLabels.get(distanceMeters) ?? null,
+    [etaMarkerLabels],
   );
 
   useEffect(() => {
@@ -576,10 +872,16 @@ export default function MapScreen() {
     (state: { properties: { center: number[]; zoom: number } }) => {
       const c = state.properties.center;
       const zoom = state.properties.zoom;
-      lastCamera.current = { center: [c[0], c[1]], zoom };
+      const center: [number, number] = [c[0], c[1]];
+      lastCamera.current = { center, zoom };
       updateRouteGeometryZoom(zoom, c[1]);
+      const nextMarkerCamera = markerCameraState(center, zoom, screenWidth, screenHeight);
+      if (shouldRefreshMarkerCamera(markerCameraRef.current, nextMarkerCamera)) {
+        markerCameraRef.current = nextMarkerCamera;
+        setMarkerCamera(nextMarkerCamera);
+      }
     },
-    [updateRouteGeometryZoom],
+    [screenHeight, screenWidth, updateRouteGeometryZoom],
   );
 
   // Persist camera to MMKV when app goes to background
@@ -767,7 +1069,11 @@ export default function MapScreen() {
         weatherRouteId={weatherRouteId}
         weatherTimeline={weatherTimeline}
         weatherTemperatureMode={weatherTemperatureMode}
-        showDistanceMarkers={showDistanceMarkers}
+        distanceMarkerMode={distanceMarkerMode}
+        markerIntervalKm={markerCamera.intervalKm}
+        markerDistanceRange={markerDistanceRange}
+        etaLabelForDistanceMeters={routeMarkerEtaLabelForDistanceMeters}
+        etaLabelVersion={etaLabelVersion}
         poiVisibility={effectivePOIVisibility}
         onTouchStart={handleTouchStart}
         onCameraChanged={handleCameraChanged}

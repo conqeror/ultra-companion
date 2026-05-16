@@ -17,6 +17,7 @@ import { getClimbMapBounds, getZoomLevelToFitBounds } from "@/utils/climbGeometr
 import { resolveActiveClimb } from "@/utils/climbSelect";
 import { MAP_LAYER_ANCHOR_IDS } from "@/constants/mapLayers";
 import { pickRouteRecords } from "@/utils/routeScopedRecords";
+import type { DistanceMarkerDistanceRange, DistanceMarkerInterval } from "@/utils/routeMarkers";
 import MapLayerAnchors from "./MapLayerAnchors";
 import RouteLayer from "./RouteLayer";
 import RouteMarkerLayer from "./RouteMarkerLayer";
@@ -27,6 +28,7 @@ import TemperatureRouteOverlay from "./TemperatureRouteOverlay";
 import VariantOverlayLayer, { type VariantOverlay } from "./VariantOverlayLayer";
 import type {
   POIMapVisibility,
+  DistanceMarkerMode,
   RoutePoint,
   StitchedSegmentInfo,
   WeatherPoint,
@@ -84,7 +86,11 @@ interface MapCanvasProps {
   weatherRouteId: string | null;
   weatherTimeline: WeatherPoint[];
   weatherTemperatureMode: WeatherTemperatureDisplayMode;
-  showDistanceMarkers: boolean;
+  distanceMarkerMode: DistanceMarkerMode;
+  markerIntervalKm?: DistanceMarkerInterval;
+  markerDistanceRange?: DistanceMarkerDistanceRange | null;
+  etaLabelForDistanceMeters?: (distanceMeters: number) => string | null;
+  etaLabelVersion?: string | number | null;
   poiVisibility: POIMapVisibility;
   onTouchStart: () => void;
   onCameraChanged: (state: { properties: { center: number[]; zoom: number } }) => void;
@@ -113,7 +119,11 @@ function MapCanvas({
   weatherRouteId,
   weatherTimeline,
   weatherTemperatureMode,
-  showDistanceMarkers,
+  distanceMarkerMode,
+  markerIntervalKm,
+  markerDistanceRange,
+  etaLabelForDistanceMeters,
+  etaLabelVersion,
   poiVisibility,
   onTouchStart,
   onCameraChanged,
@@ -142,7 +152,7 @@ function MapCanvas({
   const weatherStackKey = hasWeatherTemperatureOverlay ? "weather:on" : "weather:off";
   const overlayStackKey = `${mapStyle.styleKey}-${highlightedClimb?.id ?? "none"}-${
     activeContextKey ?? "none"
-  }-markers:${showDistanceMarkers ? "on" : "off"}-${weatherStackKey}-pois:${poiVisibility}`;
+  }-markers:${distanceMarkerMode}-${weatherStackKey}-pois:${poiVisibility}`;
 
   return (
     <MapboxMapView
@@ -210,7 +220,11 @@ function MapCanvas({
       <RouteMarkerLayer
         key={`route-markers-${overlayStackKey}`}
         points={activeRoutePoints ?? []}
-        showDistanceMarkers={showDistanceMarkers}
+        distanceMarkerMode={distanceMarkerMode}
+        markerIntervalKm={markerIntervalKm}
+        markerDistanceRange={markerDistanceRange}
+        etaLabelForDistanceMeters={etaLabelForDistanceMeters}
+        etaLabelVersion={etaLabelVersion}
         aboveLayerID={MAP_LAYER_ANCHOR_IDS.routeMarkerSymbol}
         hiddenDistanceRange={highlightedClimb}
       />

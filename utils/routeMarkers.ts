@@ -1,5 +1,5 @@
 import { haversineDistance, interpolateRoutePointAtDistance } from "./geo";
-import type { RoutePoint } from "@/types";
+import type { DistanceMarkerMode, RoutePoint } from "@/types";
 
 export type RouteMarkerKind = "start" | "finish" | "distance";
 
@@ -46,6 +46,12 @@ export type RouteMarkerFeatureCollection = GeoJSON.FeatureCollection<
   GeoJSON.Point,
   RouteMarkerProperties
 >;
+export type DistanceMarkerLabelFormatter = (distanceMeters: number) => string | null;
+
+export interface DistanceMarkerDistanceRange {
+  startDistanceMeters: number;
+  endDistanceMeters: number;
+}
 
 const NEAR_OVERLAP_THRESHOLD_M = 100;
 
@@ -101,12 +107,18 @@ export function buildStartFinishMarkerFeatures(points: RoutePoint[]): RouteMarke
 export function buildDistanceMarkerDistances(
   totalDistanceMeters: number,
   intervalKm: DistanceMarkerInterval = 1,
+  range?: DistanceMarkerDistanceRange | null,
 ): number[] {
   const totalKm = totalDistanceMeters / 1000;
   if (totalKm < intervalKm) return [];
 
   const distances: number[] = [];
-  for (let km = intervalKm; km < totalKm; km += intervalKm) {
+  const startMeters = Math.max(intervalKm * 1000, range?.startDistanceMeters ?? intervalKm * 1000);
+  const endMeters = Math.min(totalDistanceMeters, range?.endDistanceMeters ?? totalDistanceMeters);
+  const firstKm = Math.max(intervalKm, Math.ceil(startMeters / 1000 / intervalKm) * intervalKm);
+  const lastKm = Math.min(totalKm, endMeters / 1000);
+
+  for (let km = firstKm; km < lastKm; km += intervalKm) {
     distances.push(km * 1000);
   }
   return distances;
@@ -119,22 +131,42 @@ function strongestIntervalForDistance(km: number): DistanceMarkerInterval {
   return 1;
 }
 
-export function buildDistanceMarkerFeatures(points: RoutePoint[]): RouteMarkerFeature[] {
+function distanceMarkerLabel(distanceMeters: number): string {
+  return String(distanceMeters / 1000);
+}
+
+export function buildDistanceMarkerFeatures(
+  points: RoutePoint[],
+  options: {
+    intervalKm?: DistanceMarkerInterval;
+    range?: DistanceMarkerDistanceRange | null;
+    labelFormatter?: DistanceMarkerLabelFormatter;
+    labelKind?: "distance" | "custom";
+  } = {},
+): RouteMarkerFeature[] {
   if (points.length < 2) return [];
 
   const totalDistanceMeters = points[points.length - 1].distanceFromStartMeters;
   const features: RouteMarkerFeature[] = [];
+  const labelFormatter = options.labelFormatter ?? distanceMarkerLabel;
+  const labelKind = options.labelKind ?? "distance";
 
-  for (const distanceMeters of buildDistanceMarkerDistances(totalDistanceMeters)) {
+  for (const distanceMeters of buildDistanceMarkerDistances(
+    totalDistanceMeters,
+    options.intervalKm,
+    options.range,
+  )) {
     const point = interpolateRoutePointAtDistance(points, distanceMeters);
     if (!point) continue;
 
     const km = distanceMeters / 1000;
-    const markerLabel = String(km);
+    const markerLabel = labelFormatter(distanceMeters);
+    if (!markerLabel) continue;
+
     features.push(
       markerFeature(`route-distance-${km}`, point, {
         kind: "distance",
-        label: `${markerLabel} km`,
+        label: labelKind === "distance" ? `${markerLabel} km` : markerLabel,
         markerLabel,
         distanceKm: km,
         sortKey: 10 + km,
@@ -172,13 +204,26 @@ export function buildDistanceMarkerFeatures(points: RoutePoint[]): RouteMarkerFe
 
 export function buildRouteMarkerFeatureCollection(input: {
   points: RoutePoint[];
-  showDistanceMarkers: boolean;
+  distanceMarkerMode: DistanceMarkerMode;
+  markerIntervalKm?: DistanceMarkerInterval;
+  markerDistanceRange?: DistanceMarkerDistanceRange | null;
+  etaLabelForDistanceMeters?: DistanceMarkerLabelFormatter;
 }): RouteMarkerFeatureCollection {
+  const distanceMarkerFeatures =
+    input.distanceMarkerMode === "off"
+      ? []
+      : buildDistanceMarkerFeatures(input.points, {
+          intervalKm: input.markerIntervalKm,
+          range: input.markerDistanceRange,
+          labelFormatter:
+            input.distanceMarkerMode === "eta"
+              ? (input.etaLabelForDistanceMeters ?? (() => null))
+              : undefined,
+          labelKind: input.distanceMarkerMode === "eta" ? "custom" : "distance",
+        });
+
   return {
     type: "FeatureCollection",
-    features: [
-      ...buildStartFinishMarkerFeatures(input.points),
-      ...(input.showDistanceMarkers ? buildDistanceMarkerFeatures(input.points) : []),
-    ],
+    features: [...buildStartFinishMarkerFeatures(input.points), ...distanceMarkerFeatures],
   };
 }

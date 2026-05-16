@@ -15,6 +15,7 @@ import { useThemeColors } from "@/theme";
 import { useMapStore } from "@/store/mapStore";
 import { formatTimeDelta } from "@/utils/formatters";
 import { POSITION_AGE_VISIBLE_THRESHOLD_MS, GPS_STALE_THRESHOLD_MS } from "@/constants";
+import type { DistanceMarkerMode } from "@/types";
 
 interface MapControlsProps {
   onLocate: () => void;
@@ -48,14 +49,14 @@ export default function MapControls({ onLocate }: MapControlsProps) {
 
   const followUser = useMapStore((s) => s.followUser);
   const isRefreshing = useMapStore((s) => s.isRefreshing);
-  const showDistanceMarkers = useMapStore((s) => s.showDistanceMarkers);
+  const distanceMarkerMode = useMapStore((s) => s.distanceMarkerMode);
   const poiVisibility = useMapStore((s) => s.poiVisibility);
-  const toggleDistanceMarkers = useMapStore((s) => s.toggleDistanceMarkers);
+  const cycleDistanceMarkerMode = useMapStore((s) => s.cycleDistanceMarkerMode);
   const cyclePOIVisibility = useMapStore((s) => s.cyclePOIVisibility);
 
   const locateColor = followUser ? colors.accentForeground : colors.textPrimary;
   const iconSize = positionAge ? 20 : 24;
-  const hasDisplayOverride = showDistanceMarkers || poiVisibility !== "starred";
+  const hasDisplayOverride = distanceMarkerMode !== "off" || poiVisibility !== "starred";
 
   const pulse = useSharedValue(0);
 
@@ -168,8 +169,8 @@ export default function MapControls({ onLocate }: MapControlsProps) {
             <MapDisplayToggle
               icon="markers"
               label="Markers"
-              value={showDistanceMarkers}
-              onPress={toggleDistanceMarkers}
+              value={distanceMarkerMode}
+              onPress={cycleDistanceMarkerMode}
             />
           </View>
         )}
@@ -213,35 +214,27 @@ function MapDisplayToggle({
 }: {
   icon: "pois" | "markers";
   label: string;
-  value: boolean;
+  value: DistanceMarkerMode;
   onPress: () => void;
 }) {
   const colors = useThemeColors();
   const Icon = icon === "pois" ? MapPin : Ruler;
+  const isEnabled = value !== "off";
+  const valueLabel = value === "off" ? "Off" : value === "distance" ? "Distance" : "ETA";
 
   return (
     <TouchableOpacity
       className="min-h-[48px] flex-row items-center px-3"
       onPress={onPress}
-      accessibilityLabel={`${value ? "Hide" : "Show"} ${label}`}
-      accessibilityRole="switch"
-      accessibilityState={{ checked: value }}
+      accessibilityLabel={`${label}: ${valueLabel}`}
+      accessibilityRole="button"
       activeOpacity={0.75}
     >
       <View className="w-[28px] items-start">
-        <Icon size={19} color={value ? colors.accent : colors.textTertiary} />
+        <Icon size={19} color={isEnabled ? colors.accent : colors.textTertiary} />
       </View>
       <Text className="flex-1 text-[13px] font-barlow-semibold text-foreground">{label}</Text>
-      <View
-        className={cn("h-[24px] w-[42px] rounded-full p-0.5", value ? "bg-primary" : "bg-muted")}
-      >
-        <View
-          className={cn(
-            "h-[20px] w-[20px] rounded-full bg-background shadow-sm",
-            value ? "self-end" : "self-start",
-          )}
-        />
-      </View>
+      <Text className="text-[12px] font-barlow-semibold text-muted-foreground">{valueLabel}</Text>
     </TouchableOpacity>
   );
 }

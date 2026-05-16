@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { createKeyValueStorage, type KeyValueStorage } from "@/lib/keyValueStorage";
 import { DEFAULT_MAP_CENTER, DEFAULT_ZOOM } from "@/constants";
 import { requestLocationPermission, getCurrentPosition } from "@/services/gps";
-import type { POIMapVisibility, UserPosition } from "@/types";
+import type { DistanceMarkerMode, POIMapVisibility, UserPosition } from "@/types";
 
 let storage: KeyValueStorage | null = null;
 function getStorage(): KeyValueStorage {
@@ -21,18 +21,20 @@ function readPersistedCamera(): { center: [number, number]; zoom: number } {
   };
 }
 
-function readPersistedBoolean(key: string, defaultValue: boolean): boolean {
+function readPersistedDistanceMarkerMode(): DistanceMarkerMode {
   try {
-    const raw = getStorage().getString(key);
-    if (raw === "true") return true;
-    if (raw === "false") return false;
+    const raw = getStorage().getString("distanceMarkerMode");
+    if (raw === "off" || raw === "distance" || raw === "eta") return raw;
+
+    const legacy = getStorage().getString("showDistanceMarkers");
+    if (legacy === "true") return "distance";
   } catch {}
-  return defaultValue;
+  return "off";
 }
 
-function persistBoolean(key: string, value: boolean): void {
+function persistDistanceMarkerMode(value: DistanceMarkerMode): void {
   try {
-    getStorage().set(key, String(value));
+    getStorage().set("distanceMarkerMode", value);
   } catch {}
 }
 
@@ -56,14 +58,14 @@ interface MapState {
   center: [number, number]; // [longitude, latitude] — Mapbox convention
   zoom: number;
   followUser: boolean;
-  showDistanceMarkers: boolean;
+  distanceMarkerMode: DistanceMarkerMode;
   poiVisibility: POIMapVisibility;
   userPosition: UserPosition | null;
   isRefreshing: boolean;
 
   setCenter: (center: [number, number]) => void;
   setFollowUser: (follow: boolean) => void;
-  toggleDistanceMarkers: () => void;
+  cycleDistanceMarkerMode: () => void;
   cyclePOIVisibility: () => void;
   setUserPosition: (position: UserPosition | null) => void;
   refreshPosition: () => Promise<UserPosition | null>;
@@ -76,17 +78,19 @@ export const useMapStore = create<MapState>((set, get) => ({
   center: persisted.center,
   zoom: persisted.zoom,
   followUser: true,
-  showDistanceMarkers: readPersistedBoolean("showDistanceMarkers", false),
+  distanceMarkerMode: readPersistedDistanceMarkerMode(),
   poiVisibility: readPersistedPOIVisibility(),
   userPosition: null,
   isRefreshing: false,
 
   setCenter: (center) => set({ center }),
   setFollowUser: (followUser) => set({ followUser }),
-  toggleDistanceMarkers: () => {
-    const showDistanceMarkers = !get().showDistanceMarkers;
-    persistBoolean("showDistanceMarkers", showDistanceMarkers);
-    set({ showDistanceMarkers });
+  cycleDistanceMarkerMode: () => {
+    const current = get().distanceMarkerMode;
+    const distanceMarkerMode: DistanceMarkerMode =
+      current === "off" ? "distance" : current === "distance" ? "eta" : "off";
+    persistDistanceMarkerMode(distanceMarkerMode);
+    set({ distanceMarkerMode });
   },
   cyclePOIVisibility: () => {
     const current = get().poiVisibility;

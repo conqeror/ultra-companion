@@ -1,13 +1,22 @@
 import React, { useMemo } from "react";
 import { CircleLayer, ShapeSource, SymbolLayer } from "@rnmapbox/maps";
-import { buildRouteMarkerFeatureCollection, DISTANCE_MARKER_BUCKETS } from "@/utils/routeMarkers";
+import {
+  buildRouteMarkerFeatureCollection,
+  DISTANCE_MARKER_BUCKETS,
+  type DistanceMarkerDistanceRange,
+  type DistanceMarkerInterval,
+} from "@/utils/routeMarkers";
 import { useThemeColors } from "@/theme";
 import { routeDistanceMarkerLayerId } from "@/constants/mapLayers";
-import type { RoutePoint } from "@/types";
+import type { DistanceMarkerMode, RoutePoint } from "@/types";
 
 interface RouteMarkerLayerProps {
   points: RoutePoint[];
-  showDistanceMarkers: boolean;
+  distanceMarkerMode: DistanceMarkerMode;
+  markerIntervalKm?: DistanceMarkerInterval;
+  markerDistanceRange?: DistanceMarkerDistanceRange | null;
+  etaLabelForDistanceMeters?: (distanceMeters: number) => string | null;
+  etaLabelVersion?: string | number | null;
   aboveLayerID?: string;
   hiddenDistanceRange?: {
     startDistanceMeters: number;
@@ -56,16 +65,34 @@ function distanceBucketFilter(
 
 export default function RouteMarkerLayer({
   points,
-  showDistanceMarkers,
+  distanceMarkerMode,
+  markerIntervalKm,
+  markerDistanceRange,
+  etaLabelForDistanceMeters,
+  etaLabelVersion,
   aboveLayerID,
   hiddenDistanceRange,
 }: RouteMarkerLayerProps) {
   const colors = useThemeColors();
+  const showDistanceMarkers = distanceMarkerMode !== "off";
 
-  const shape = useMemo(
-    () => buildRouteMarkerFeatureCollection({ points, showDistanceMarkers }),
-    [points, showDistanceMarkers],
-  );
+  const shape = useMemo(() => {
+    void etaLabelVersion;
+    return buildRouteMarkerFeatureCollection({
+      points,
+      distanceMarkerMode,
+      markerIntervalKm,
+      markerDistanceRange,
+      etaLabelForDistanceMeters,
+    });
+  }, [
+    points,
+    distanceMarkerMode,
+    markerIntervalKm,
+    markerDistanceRange,
+    etaLabelForDistanceMeters,
+    etaLabelVersion,
+  ]);
 
   const layers = useMemo(() => {
     let previousLayerID = aboveLayerID;

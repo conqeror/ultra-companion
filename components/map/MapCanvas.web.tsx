@@ -26,7 +26,12 @@ import {
 } from "@/constants";
 import { useThemeColors } from "@/theme";
 import { gradientColor } from "@/theme/elevation";
-import { buildRouteMarkerFeatureCollection, DISTANCE_MARKER_BUCKETS } from "@/utils/routeMarkers";
+import {
+  buildRouteMarkerFeatureCollection,
+  DISTANCE_MARKER_BUCKETS,
+  type DistanceMarkerDistanceRange,
+  type DistanceMarkerInterval,
+} from "@/utils/routeMarkers";
 import { routeDistanceMarkerLayerId } from "@/constants/mapLayers";
 import { buildPOIClusterProperties, buildPOIMapFeatureCollections } from "@/utils/poiMapFeatures";
 import { toDisplayPOIs } from "@/services/displayDistance";
@@ -53,6 +58,7 @@ import { displayTemperatureC, temperatureGradientColor } from "@/utils/temperatu
 import type {
   DisplayClimb,
   DisplayPOI,
+  DistanceMarkerMode,
   POI,
   POIMapVisibility,
   RoutePoint,
@@ -108,7 +114,11 @@ interface MapCanvasProps {
   weatherRouteId: string | null;
   weatherTimeline: WeatherPoint[];
   weatherTemperatureMode: WeatherTemperatureDisplayMode;
-  showDistanceMarkers: boolean;
+  distanceMarkerMode: DistanceMarkerMode;
+  markerIntervalKm?: DistanceMarkerInterval;
+  markerDistanceRange?: DistanceMarkerDistanceRange | null;
+  etaLabelForDistanceMeters?: (distanceMeters: number) => string | null;
+  etaLabelVersion?: string | number | null;
   poiVisibility: POIMapVisibility;
   onTouchStart: () => void;
   onCameraChanged: (state: { properties: { center: number[]; zoom: number } }) => void;
@@ -521,11 +531,21 @@ function buildWeatherOverlay(
 function addRouteMarkerLayers(
   map: mapboxgl.Map,
   points: RoutePoint[],
-  showDistanceMarkers: boolean,
+  distanceMarkerMode: DistanceMarkerMode,
+  markerIntervalKm: DistanceMarkerInterval | undefined,
+  markerDistanceRange: DistanceMarkerDistanceRange | null | undefined,
+  etaLabelForDistanceMeters: ((distanceMeters: number) => string | null) | undefined,
   hiddenDistanceRange: HighlightedClimbMapState | null,
   colors: ReturnType<typeof useThemeColors>,
 ): void {
-  const shape = buildRouteMarkerFeatureCollection({ points, showDistanceMarkers });
+  const showDistanceMarkers = distanceMarkerMode !== "off";
+  const shape = buildRouteMarkerFeatureCollection({
+    points,
+    distanceMarkerMode,
+    markerIntervalKm,
+    markerDistanceRange,
+    etaLabelForDistanceMeters,
+  });
   upsertSource(map, "route-marker-source", shape);
 
   for (const bucket of DISTANCE_MARKER_BUCKETS) {
@@ -634,7 +654,11 @@ function MapCanvas({
   weatherRouteId,
   weatherTimeline,
   weatherTemperatureMode,
-  showDistanceMarkers,
+  distanceMarkerMode,
+  markerIntervalKm,
+  markerDistanceRange,
+  etaLabelForDistanceMeters,
+  etaLabelVersion,
   poiVisibility,
   onTouchStart,
   onCameraChanged,
@@ -892,6 +916,7 @@ function MapCanvas({
   useEffect(() => {
     const map = mapboxRef.current;
     if (!map || !mapReady) return;
+    void etaLabelVersion;
 
     const removableLayers = [
       ...routeLayers.flatMap((route) => [`route-outline-${route.id}`, `route-line-${route.id}`]),
@@ -1135,7 +1160,10 @@ function MapCanvas({
       addRouteMarkerLayers(
         map,
         activeRoutePoints,
-        showDistanceMarkers,
+        distanceMarkerMode,
+        markerIntervalKm,
+        markerDistanceRange,
+        etaLabelForDistanceMeters,
         climbHighlight.hiddenRange,
         colors,
       );
@@ -1311,7 +1339,11 @@ function MapCanvas({
     poiFeatureCollections,
     pulsingConfig,
     routeLayers,
-    showDistanceMarkers,
+    distanceMarkerMode,
+    markerIntervalKm,
+    markerDistanceRange,
+    etaLabelForDistanceMeters,
+    etaLabelVersion,
     userPosition,
     weatherOverlay,
   ]);

@@ -42,6 +42,15 @@ describe("routeMarkers", () => {
     expect(buildDistanceMarkerDistances(5_000, 5)).toEqual([]);
   });
 
+  it("limits distance marker generation to the active interval and range", () => {
+    expect(
+      buildDistanceMarkerDistances(100_000, 10, {
+        startDistanceMeters: 25_000,
+        endDistanceMeters: 66_000,
+      }),
+    ).toEqual([30_000, 40_000, 50_000, 60_000]);
+  });
+
   it("interpolates distance marker coordinates at kilometer marks", () => {
     const markers = buildDistanceMarkerFeatures([point(0, 0), point(1, 2_000)]);
 
@@ -53,10 +62,29 @@ describe("routeMarkers", () => {
   it("keeps start and finish markers when distance markers are disabled", () => {
     const shape = buildRouteMarkerFeatureCollection({
       points: [point(0, 0), point(1, 3_000)],
-      showDistanceMarkers: false,
+      distanceMarkerMode: "off",
     });
 
     expect(shape.features.map((feature) => feature.properties.kind)).toEqual(["start", "finish"]);
+  });
+
+  it("can label distance markers with ETA values using the selected spacing", () => {
+    const shape = buildRouteMarkerFeatureCollection({
+      points: [point(0, 0), point(1, 30_000)],
+      distanceMarkerMode: "eta",
+      markerIntervalKm: 10,
+      etaLabelForDistanceMeters: (distanceMeters) =>
+        distanceMeters === 10_000 ? "08:30" : distanceMeters === 20_000 ? "09:00" : null,
+    });
+
+    const distanceMarkers = shape.features.filter(
+      (feature) => feature.properties.kind === "distance",
+    );
+    expect(distanceMarkers.map((feature) => feature.properties.distanceKm)).toEqual([10, 20]);
+    expect(distanceMarkers.map((feature) => feature.properties.markerLabel)).toEqual([
+      "08:30",
+      "09:00",
+    ]);
   });
 
   it("maps zoom levels to increasingly dense marker intervals", () => {

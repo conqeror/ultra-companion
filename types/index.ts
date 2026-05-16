@@ -17,6 +17,8 @@ export type WeatherTimelineMetricKey = "precipitation" | "humidity" | "gusts";
 
 export type POIMapVisibility = "none" | "starred" | "all";
 
+export type DistanceMarkerMode = "off" | "distance" | "eta";
+
 export const MAP_STYLE_URL = "mapbox://styles/mapbox/outdoors-v12";
 
 // --- Phase 2: Route types ---
