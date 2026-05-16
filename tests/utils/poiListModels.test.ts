@@ -6,6 +6,7 @@ import { stitchedSegmentsFixture } from "@/tests/fixtures/collection";
 import { bucketDistanceForDerivedWork } from "@/utils/distanceBuckets";
 import { createRidingHorizonWindow } from "@/utils/ridingHorizon";
 import {
+  buildCompactPOIRowModels,
   buildPOIListRowModels,
   buildStarredPOIsForActiveRoute,
   buildVisiblePOIsForActiveRoute,
@@ -121,6 +122,34 @@ describe("poiListModels", () => {
 
     expect(first[0].distanceText).toBe(second[0].distanceText);
     expect(crossed[0].distanceText).not.toBe(first[0].distanceText);
+  });
+
+  it("falls back to route-start distances when there is no snapped progress", () => {
+    const poi = toDisplayPOI(buildPoi("water", "r1", 1_500));
+    const input = {
+      pois: [poi],
+      currentDistanceMeters: null,
+      routePoints: [buildRoutePoint(0, 0), buildRoutePoint(2_000, 1)],
+      cumulativeTime: [0, 200],
+      starredPOIIds: new Set<string>(),
+      units: "metric" as const,
+    };
+
+    const expanded = buildPOIListRowModels(input);
+    const compact = buildCompactPOIRowModels(input);
+
+    expect(expanded[0]).toMatchObject({
+      distanceText: "1.5 km",
+      distanceDirectionLabel: "ahead",
+      ridingTimeText: null,
+      etaOpeningText: null,
+    });
+    expect(compact[0]).toMatchObject({
+      distanceText: "1.5 km",
+      signedDistanceText: "1.5 km",
+      distanceDirectionLabel: "ahead",
+      ridingTimeText: null,
+    });
   });
 
   it("builds compact starred models from route-scoped POIs", () => {

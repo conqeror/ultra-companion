@@ -304,11 +304,10 @@ function buildCommonPOIRowModel({
   units,
 }: CommonPOIRowModelInput) {
   const meta = getCategoryMeta(poi.category) ?? FALLBACK_CATEGORY_META;
-  const distAhead =
-    currentDistanceMeters != null ? poi.effectiveDistanceMeters - currentDistanceMeters : null;
-  const distanceText = distAhead == null ? null : formatDistance(Math.abs(distAhead), units);
-  const distanceDirectionLabel =
-    distAhead == null ? null : distAhead >= 0 ? ("ahead" as const) : ("behind" as const);
+  const distanceReferenceMeters = currentDistanceMeters ?? 0;
+  const distAhead = poi.effectiveDistanceMeters - distanceReferenceMeters;
+  const distanceText = formatDistance(Math.abs(distAhead), units);
+  const distanceDirectionLabel = distAhead >= 0 ? ("ahead" as const) : ("behind" as const);
   const etaResult = resolvePOIETA({
     poi,
     currentDistanceMeters,

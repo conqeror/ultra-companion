@@ -116,8 +116,11 @@ export default function POITabContent({ activeData }: POITabContentProps) {
   const routePois = usePoiStore(useShallow((s) => pickRouteRecords(s.pois, routeIds)));
   const timing = useActiveRouteTiming(activeData);
   const activeRouteProgress = useMemo(
-    () => resolveActiveRouteProgress(activeData, snappedPosition),
-    [activeData, snappedPosition],
+    () =>
+      resolveActiveRouteProgress(activeData, snappedPosition, {
+        plannedStartMs: timing.plannedStartMs,
+      }),
+    [activeData, snappedPosition, timing.plannedStartMs],
   );
   const currentDist = activeRouteProgress?.distanceAlongRouteMeters ?? null;
   const derivedCurrentDist = bucketDistanceForDerivedWork(currentDist);
@@ -615,8 +618,8 @@ function InlinePOIDetail({
   const displayPOI = useMemo(() => toDisplayPOIForSegments(poi, segments), [poi, segments]);
 
   const distAhead = useMemo(() => {
-    if (currentDist == null || !displayPOI) return null;
-    return displayPOI.effectiveDistanceMeters - currentDist;
+    if (!displayPOI) return null;
+    return displayPOI.effectiveDistanceMeters - (currentDist ?? 0);
   }, [displayPOI, currentDist]);
 
   const etaResult = useMemo(
@@ -646,7 +649,14 @@ function InlinePOIDetail({
       : distAhead >= 0
         ? formatDistance(distAhead, units)
         : `-${formatDistance(Math.abs(distAhead), units)}`;
-  const distAheadLabel = distAhead == null ? "distance" : distAhead >= 0 ? "ahead" : "behind";
+  const distAheadLabel =
+    distAhead == null
+      ? "distance"
+      : currentDist == null
+        ? "from start"
+        : distAhead >= 0
+          ? "ahead"
+          : "behind";
   const offRouteText =
     poi.distanceFromRouteMeters > 50 ? `${Math.round(poi.distanceFromRouteMeters)} m` : "on route";
   const plannedStopText = plannedStopMinutes > 0 ? `${plannedStopMinutes}m` : "none";
