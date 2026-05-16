@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useWindowDimensions } from "react-native";
-import { Camera, MapView as MapboxMapView, LocationPuck } from "@rnmapbox/maps";
+import Mapbox, { Camera, MapView as MapboxMapView, LocationPuck } from "@rnmapbox/maps";
+import Constants from "expo-constants";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useShallow } from "zustand/react/shallow";
 import { SHEET_COMPACT_RATIO, SHEET_EXPANDED_RATIO } from "@/constants";
@@ -42,7 +43,33 @@ const CLIMB_PAN_PADDING = {
   left: 32,
 };
 
+// Native-only: the web canvas uses mapbox-gl and reads its token there. Keeping
+// this setup out of MapView prevents @rnmapbox/maps from entering the web bundle.
+try {
+  const mapboxToken = Constants.expoConfig?.extra?.mapboxAccessToken;
+  if (mapboxToken) {
+    Mapbox.setAccessToken(mapboxToken);
+  }
+} catch (e) {
+  console.warn("Failed to set Mapbox access token:", e);
+}
+
 export type MapOverlayMode = "normal" | "climbs" | "weather";
+
+export interface MapCameraHandle {
+  setCamera(options: {
+    centerCoordinate?: [number, number];
+    zoomLevel?: number;
+    animationMode?: string;
+    animationDuration?: number;
+    padding?: {
+      paddingTop: number;
+      paddingLeft: number;
+      paddingRight: number;
+      paddingBottom: number;
+    };
+  }): void;
+}
 
 export interface MapCanvasRouteLayer {
   id: string;
@@ -58,8 +85,8 @@ interface HighlightedClimbMapState {
 }
 
 interface MapCanvasProps {
-  mapRef: React.RefObject<MapboxMapView | null>;
-  cameraRef: React.RefObject<Camera | null>;
+  mapRef: React.RefObject<unknown | null>;
+  cameraRef: React.RefObject<MapCameraHandle | null>;
   lastCamera: React.MutableRefObject<{ center: [number, number]; zoom: number }>;
   initialCamera: { center: [number, number]; zoom: number };
   mapStyle: {
@@ -156,7 +183,7 @@ function MapCanvas({
 
   return (
     <MapboxMapView
-      ref={mapRef}
+      ref={mapRef as React.RefObject<MapboxMapView | null>}
       style={{ flex: 1 }}
       {...mapStyle.props}
       compassEnabled={false}
@@ -167,7 +194,7 @@ function MapCanvas({
       onCameraChanged={onCameraChanged}
     >
       <Camera
-        ref={cameraRef}
+        ref={cameraRef as React.RefObject<Camera | null>}
         defaultSettings={{
           centerCoordinate: initialCamera.center,
           zoomLevel: initialCamera.zoom,
@@ -250,7 +277,7 @@ function MapCanvas({
 }
 
 interface ClimbMapOverlayProps {
-  cameraRef: React.RefObject<Camera | null>;
+  cameraRef: React.RefObject<MapCameraHandle | null>;
   lastCamera: React.MutableRefObject<{ center: [number, number]; zoom: number }>;
   styleKey: string;
   activeRoutePoints: RoutePoint[] | null;

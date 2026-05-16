@@ -280,8 +280,13 @@ function getSourceIfAvailable(
 function addLayer(map: mapboxgl.Map, layer: AnyLayer): void {
   if (!isMapStyleAvailable(map) || getLayerIfAvailable(map, layer.id)) return;
   try {
-    map.addLayer(layer as mapboxgl.AnyLayer);
+    map.addLayer(omitUndefinedProperties(layer) as mapboxgl.AnyLayer);
   } catch {}
+}
+
+function omitUndefinedProperties<T extends Record<string, unknown>>(value: T): T {
+  const entries = Object.entries(value).filter(([, entryValue]) => entryValue !== undefined);
+  return Object.fromEntries(entries) as T;
 }
 
 function removeLayer(map: mapboxgl.Map, id: string): void {

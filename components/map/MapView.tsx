@@ -1,7 +1,5 @@
 import React, { useRef, useCallback, useEffect, useState, useMemo } from "react";
 import { View, AppState, Platform, useWindowDimensions } from "react-native";
-import Mapbox, { Camera, MapView as MapboxMapView } from "@rnmapbox/maps";
-import Constants from "expo-constants";
 import { useShallow } from "zustand/react/shallow";
 import { useMapStore } from "@/store/mapStore";
 import { useRouteStore } from "@/store/routeStore";
@@ -68,6 +66,21 @@ interface VariantMetric {
   distanceMeters: number;
   ascentMeters: number;
   ridingTime: number | null;
+}
+
+interface MapCameraHandle {
+  setCamera(options: {
+    centerCoordinate?: [number, number];
+    zoomLevel?: number;
+    animationMode?: string;
+    animationDuration?: number;
+    padding?: {
+      paddingTop: number;
+      paddingLeft: number;
+      paddingRight: number;
+      paddingBottom: number;
+    };
+  }): void;
 }
 
 const ETA_MARKER_REFRESH_MS = 5 * 60_000;
@@ -405,21 +418,11 @@ function stitchedSegmentsSignature(segments: readonly StitchedSegmentInfo[] | nu
     .join("|");
 }
 
-// Initialize Mapbox with access token from app config
-try {
-  const mapboxToken = Constants.expoConfig?.extra?.mapboxAccessToken;
-  if (mapboxToken) {
-    Mapbox.setAccessToken(mapboxToken);
-  }
-} catch (e) {
-  console.warn("Failed to set Mapbox access token:", e);
-}
-
 export default function MapScreen() {
   const themeColors = useThemeColors();
   const mapStyle = useMapStyle();
-  const cameraRef = useRef<Camera>(null);
-  const mapRef = useRef<MapboxMapView>(null);
+  const cameraRef = useRef<MapCameraHandle | null>(null);
+  const mapRef = useRef<unknown | null>(null);
   const [hasGpsFix, setHasGpsFix] = useState(false);
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const isWeb = Platform.OS === "web";
