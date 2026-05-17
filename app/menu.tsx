@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { View, TouchableOpacity } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Text } from "@/components/ui/text";
 import { X } from "lucide-react-native";
@@ -13,10 +13,20 @@ type MenuTab = "routes" | "settings";
 export default function MenuScreen() {
   const router = useRouter();
   const colors = useThemeColors();
+  const insets = useSafeAreaInsets();
   const [tab, setTab] = useState<MenuTab>("routes");
 
+  const closeMenu = () => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+
+    router.replace("/");
+  };
+
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
+    <View style={{ flex: 1, paddingTop: insets.top, backgroundColor: colors.background }}>
       {/* Header */}
       <View className="flex-row items-center justify-between px-4 pt-2 pb-3">
         <View className="flex-row gap-4">
@@ -46,7 +56,7 @@ export default function MenuScreen() {
 
         <TouchableOpacity
           className="w-[48px] h-[48px] items-center justify-center"
-          onPress={() => router.back()}
+          onPress={closeMenu}
           accessibilityLabel="Close menu"
         >
           <X size={22} color={colors.textSecondary} />
@@ -55,6 +65,6 @@ export default function MenuScreen() {
 
       {/* Content */}
       <View style={{ flex: 1 }}>{tab === "routes" ? <RoutesScreen /> : <SettingsScreen />}</View>
-    </SafeAreaView>
+    </View>
   );
 }

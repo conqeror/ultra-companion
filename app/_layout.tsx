@@ -7,6 +7,7 @@ import { useEffect, useRef, useCallback } from "react";
 import { Alert } from "react-native";
 import { useColorScheme } from "nativewind";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { SafeAreaProvider, initialWindowMetrics } from "react-native-safe-area-context";
 import "react-native-reanimated";
 import "../global.css";
 import { useOfflineStore } from "@/store/offlineStore";
@@ -158,28 +159,30 @@ export default function RootLayout() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <ThemeProvider value={navTheme}>
-        <Stack
-          screenOptions={{
-            autoHideHomeIndicator: true,
-            headerBackTitle: "Routes",
-            headerTitleStyle: { fontFamily: "Barlow-SemiBold" },
-          }}
-        >
-          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-          <Stack.Screen name="+not-found" options={{ headerShown: false, animation: "none" }} />
-          <Stack.Screen
-            name="menu"
-            options={{
-              presentation: "fullScreenModal",
-              headerShown: false,
-              gestureEnabled: false,
+      <SafeAreaProvider initialMetrics={initialWindowMetrics}>
+        <ThemeProvider value={navTheme}>
+          <Stack
+            screenOptions={{
+              autoHideHomeIndicator: true,
+              headerBackTitle: "Routes",
+              headerTitleStyle: { fontFamily: "Barlow-SemiBold" },
             }}
-          />
-          <Stack.Screen name="route/[id]" options={{ title: "Route" }} />
-          <Stack.Screen name="collection/[id]" options={{ title: "Collection" }} />
-        </Stack>
-      </ThemeProvider>
+          >
+            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+            <Stack.Screen name="+not-found" options={{ headerShown: false, animation: "none" }} />
+            <Stack.Screen
+              name="menu"
+              options={{
+                presentation: "fullScreenModal",
+                headerShown: false,
+                gestureEnabled: false,
+              }}
+            />
+            <Stack.Screen name="route/[id]" options={{ title: "Route" }} />
+            <Stack.Screen name="collection/[id]" options={{ title: "Collection" }} />
+          </Stack>
+        </ThemeProvider>
+      </SafeAreaProvider>
     </GestureHandlerRootView>
   );
 }
