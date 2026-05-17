@@ -166,6 +166,12 @@ const CLIMB_PAN_PADDING = {
   bottom: 40,
   left: 32,
 };
+const POI_INTERACTIVE_LAYERS = [
+  "poi-icons",
+  "poi-circles",
+  "poi-starred-icons",
+  "poi-starred-fill",
+] as const;
 
 const iconNames = Array.from(
   new Set([...POI_CATEGORIES.map((category) => category.iconName), FALLBACK_ICON_NAME]),
@@ -311,6 +317,10 @@ function removeSource(map: mapboxgl.Map, id: string): void {
   try {
     map.removeSource(id);
   } catch {}
+}
+
+function existingLayerIds(map: mapboxgl.Map, layerIds: readonly string[]): string[] {
+  return layerIds.filter((layerId) => getLayerIfAvailable(map, layerId));
 }
 
 function clusterCategoryCountExpression(category: (typeof POI_CLUSTER_SUMMARY_CATEGORIES)[number]) {
@@ -1393,8 +1403,10 @@ function MapCanvas({
       });
     };
     const handlePOIClick = (event: mapboxgl.MapLayerMouseEvent) => {
+      const layers = existingLayerIds(map, POI_INTERACTIVE_LAYERS);
+      if (!layers?.length) return;
       const features = map.queryRenderedFeatures(event.point, {
-        layers: ["poi-icons", "poi-circles", "poi-starred-icons", "poi-starred-fill"],
+        layers,
       });
       const poi = findPressedPOI(features, visiblePOIs);
       if (poi) setSelectedPOI(poi);
@@ -1403,7 +1415,7 @@ function MapCanvas({
     for (const layer of ["poi-clusters-fill", "poi-cluster-summary-icon"]) {
       if (getLayerIfAvailable(map, layer)) map.on("click", layer, handleClusterClick);
     }
-    for (const layer of ["poi-icons", "poi-circles", "poi-starred-icons", "poi-starred-fill"]) {
+    for (const layer of POI_INTERACTIVE_LAYERS) {
       if (getLayerIfAvailable(map, layer)) map.on("click", layer, handlePOIClick);
     }
 
@@ -1411,7 +1423,7 @@ function MapCanvas({
       for (const layer of ["poi-clusters-fill", "poi-cluster-summary-icon"]) {
         if (getLayerIfAvailable(map, layer)) map.off("click", layer, handleClusterClick);
       }
-      for (const layer of ["poi-icons", "poi-circles", "poi-starred-icons", "poi-starred-fill"]) {
+      for (const layer of POI_INTERACTIVE_LAYERS) {
         if (getLayerIfAvailable(map, layer)) map.off("click", layer, handlePOIClick);
       }
     };
