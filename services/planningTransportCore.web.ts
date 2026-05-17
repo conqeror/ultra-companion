@@ -26,6 +26,9 @@ export const PLANNING_SQLITE_MIME_TYPE = "application/x-sqlite3";
 
 const METADATA_TABLE = "planning_metadata";
 const INSERT_BATCH_SIZE = 100;
+const SQLITE_VFS_RETRY_DELAY_MS = 75;
+const SQLITE_VFS_READY_ATTEMPTS = 2;
+const SQLITE_INVALID_VFS_STATE_MESSAGE = "Invalid VFS state";
 const SQLITE_HEADER_BYTES = [
   0x53, 0x51, 0x4c, 0x69, 0x74, 0x65, 0x20, 0x66, 0x6f, 0x72, 0x6d, 0x61, 0x74, 0x20, 0x33, 0x00,
 ];
@@ -155,6 +158,21 @@ function safeJsonParse<T>(value: string | null, fallback: T): T {
   }
 }
 
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+function isInvalidVfsStateError(error: unknown): boolean {
+  let current: unknown = error;
+  while (current instanceof Error) {
+    if (current.message.includes(SQLITE_INVALID_VFS_STATE_MESSAGE)) return true;
+    current = current.cause;
+  }
+  return false;
+}
+
 function isFetchedSource(value: string): value is POIFetchedSource {
   return value === "osm" || value === "google";
 }
@@ -250,6 +268,36 @@ async function readPlannerFetchedSources(
   return raw.filter((pair) => pair.routeId && isFetchedSource(pair.source));
 }
 
+async function ensureWebSQLiteDatabaseReady(): Promise<void> {
+  for (let attempt = 1; attempt <= SQLITE_VFS_READY_ATTEMPTS; attempt += 1) {
+    try {
+      await getWebSQLiteDatabase();
+      return;
+    } catch (error) {
+      if (!isInvalidVfsStateError(error) || attempt === SQLITE_VFS_READY_ATTEMPTS) {
+        throw error;
+      }
+      await delay(SQLITE_VFS_RETRY_DELAY_MS);
+    }
+  }
+}
+
+async function openSerializedPlanningDatabase(sourceBytes: Uint8Array): Promise<SQLiteDatabase> {
+  await ensureWebSQLiteDatabaseReady();
+  try {
+    return await deserializeDatabaseAsync(sourceBytes);
+  } catch (error) {
+    if (!isInvalidVfsStateError(error)) throw error;
+
+    // Expo SQLite web initializes its persistent and memory VFS instances in a
+    // shared worker without a lock. A direct deserialize can briefly race normal
+    // app DB startup, so wait for the app DB path to finish initializing before retrying.
+    await delay(SQLITE_VFS_RETRY_DELAY_MS);
+    await ensureWebSQLiteDatabaseReady();
+    return deserializeDatabaseAsync(sourceBytes);
+  }
+}
+
 async function insertRows<T>(
   database: SQLiteDatabase,
   tableName: string,
@@ -313,7 +361,7 @@ export async function importPlanningDatabaseFromBytes(
 ): Promise<PlanningImportSummary> {
   const sourceBytes = normalizeSQLiteTransportBytes(bytes);
   const source = await withImportStage("open source planning database", () =>
-    deserializeDatabaseAsync(sourceBytes),
+    openSerializedPlanningDatabase(sourceBytes),
   );
   try {
     return await importPlanningDatabase(source);

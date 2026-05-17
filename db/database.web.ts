@@ -185,16 +185,21 @@ async function runMigrations(database: SQLiteDatabase): Promise<void> {
 }
 
 export async function getWebSQLiteDatabase(): Promise<SQLiteDatabase> {
-  databasePromise ??= (async () => {
-    const database = await openDatabaseAsync(WEB_DATABASE_NAME);
-    // Expo SQLite web stores persistent files in a small OPFS access-handle
-    // pool. Avoid WAL sidecar files here; the web DB is a disposable planner
-    // workspace, not the native source of truth.
-    await database.execAsync("PRAGMA journal_mode = MEMORY;");
-    await database.execAsync("PRAGMA foreign_keys = ON;");
-    await runMigrations(database);
-    return database;
-  })();
+  if (!databasePromise) {
+    databasePromise = (async () => {
+      const database = await openDatabaseAsync(WEB_DATABASE_NAME);
+      // Expo SQLite web stores persistent files in a small OPFS access-handle
+      // pool. Avoid WAL sidecar files here; the web DB is a disposable planner
+      // workspace, not the native source of truth.
+      await database.execAsync("PRAGMA journal_mode = MEMORY;");
+      await database.execAsync("PRAGMA foreign_keys = ON;");
+      await runMigrations(database);
+      return database;
+    })().catch((error) => {
+      databasePromise = null;
+      throw error;
+    });
+  }
 
   return databasePromise;
 }
