@@ -26,7 +26,6 @@ export default function CollectionDetailWebScreen() {
   const router = useRouter();
   const colors = useThemeColors();
   const units = useSettingsStore((s) => s.units);
-  const collections = useCollectionStore((s) => s.collections);
   const loadCollectionMetadata = useCollectionStore((s) => s.loadCollectionMetadata);
   const getCollectionSegmentsWithRoutes = useCollectionStore(
     (s) => s.getCollectionSegmentsWithRoutes,
@@ -42,25 +41,35 @@ export default function CollectionDetailWebScreen() {
     async function loadData() {
       if (!id) return;
       setLoading(true);
-      await loadCollectionMetadata();
-      const current = useCollectionStore.getState().collections.find((item) => item.id === id);
-      const segmentRows = await getCollectionSegmentsWithRoutes(id);
-      let stitchedData: StitchedCollection | null = null;
       try {
-        stitchedData = segmentRows.length > 0 ? await stitchCollection(id) : null;
-      } catch {}
-      if (!cancelled) {
-        setCollection(current ?? null);
-        setSegments(segmentRows);
-        setStitched(stitchedData);
-        setLoading(false);
+        await loadCollectionMetadata();
+        const current = useCollectionStore.getState().collections.find((item) => item.id === id);
+        const segmentRows = await getCollectionSegmentsWithRoutes(id);
+        let stitchedData: StitchedCollection | null = null;
+        try {
+          stitchedData = segmentRows.length > 0 ? await stitchCollection(id) : null;
+        } catch {}
+        if (!cancelled) {
+          setCollection(current ?? null);
+          setSegments(segmentRows);
+          setStitched(stitchedData);
+        }
+      } catch (error) {
+        console.warn("Failed to load collection detail:", error);
+        if (!cancelled) {
+          setCollection(null);
+          setSegments([]);
+          setStitched(null);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     }
     loadData();
     return () => {
       cancelled = true;
     };
-  }, [id, collections, loadCollectionMetadata, getCollectionSegmentsWithRoutes]);
+  }, [id, loadCollectionMetadata, getCollectionSegmentsWithRoutes]);
 
   const screenOptions = useMemo(
     () => ({ title: collection?.name ?? "Collection" }),

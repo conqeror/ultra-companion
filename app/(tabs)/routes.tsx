@@ -8,7 +8,7 @@ import {
   StyleSheet,
   type AlertButton,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { usePathname, useRouter } from "expo-router";
 import { Text } from "@/components/ui/text";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -63,6 +63,7 @@ function buildImportSummaryMessage(summary: RouteImportSummary): string {
 
 export default function RoutesScreen() {
   const router = useRouter();
+  const pathname = usePathname();
   const colors = useThemeColors();
   const routes = useRouteStore((s) => s.routes);
   const isLoading = useRouteStore((s) => s.isLoading);
@@ -86,6 +87,31 @@ export default function RoutesScreen() {
 
   const units = useSettingsStore((s) => s.units);
   const isRouteOfflineReady = useOfflineStore((s) => s.isRouteOfflineReady);
+  const isMenuRoute = pathname === "/menu";
+
+  const openCollectionDetail = useCallback(
+    (id: string) => {
+      const href = { pathname: "/collection/[id]", params: { id } } as const;
+      if (isMenuRoute) {
+        router.replace(href);
+        return;
+      }
+      router.push(href);
+    },
+    [isMenuRoute, router],
+  );
+
+  const openRouteDetail = useCallback(
+    (id: string) => {
+      const href = { pathname: "/route/[id]", params: { id } } as const;
+      if (isMenuRoute) {
+        router.replace(href);
+        return;
+      }
+      router.push(href);
+    },
+    [isMenuRoute, router],
+  );
 
   // Metadata-only refresh; _layout.tsx prefetches on app startup so this is a
   // cheap no-op re-query in the common case. No point-fetch here — the routes
@@ -140,13 +166,13 @@ export default function RoutesScreen() {
           onPress: async (name?: string) => {
             if (!name?.trim()) return;
             const id = await createCollection(name.trim());
-            router.push(`/collection/${id}` as any);
+            openCollectionDetail(id);
           },
         },
       ],
       "plain-text",
     );
-  }, [createCollection, router]);
+  }, [createCollection, openCollectionDetail]);
 
   const promptCreateCollectionFromRoutes = useCallback(
     (importedRoutes: Route[]) => {
@@ -167,7 +193,7 @@ export default function RoutesScreen() {
                   await addSegment(id, route.id);
                 }
                 await loadCollections();
-                router.push(`/collection/${id}` as any);
+                openCollectionDetail(id);
               } catch (e: unknown) {
                 Alert.alert(
                   "Collection Failed",
@@ -180,7 +206,7 @@ export default function RoutesScreen() {
         "plain-text",
       );
     },
-    [addSegment, createCollection, loadCollections, router],
+    [addSegment, createCollection, loadCollections, openCollectionDetail],
   );
 
   const handleImportRoute = useCallback(async () => {
@@ -240,11 +266,13 @@ export default function RoutesScreen() {
         const stitched = collection.isActive ? activeStitchedCollection : null;
         const segmentCount = stitched?.segments.length;
         return (
-          <TouchableOpacity
-            activeOpacity={0.7}
-            onPress={() => router.push(`/collection/${collection.id}` as any)}
-          >
-            <Card className="mb-3">
+          <Card className="mb-3">
+            <TouchableOpacity
+              activeOpacity={0.7}
+              onPress={() => openCollectionDetail(collection.id)}
+              accessibilityRole="button"
+              accessibilityLabel={`Open collection ${collection.name}`}
+            >
               <View className="flex-row items-center mb-2">
                 <View
                   className="w-3 h-3 rounded-full mr-3"
@@ -282,43 +310,48 @@ export default function RoutesScreen() {
                   )}
                 </View>
               )}
+            </TouchableOpacity>
 
-              <View
-                className="flex-row pt-3 gap-4"
-                style={{ borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: borderColor }}
+            <View
+              className="flex-row pt-3 gap-4"
+              style={{ borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: borderColor }}
+            >
+              <TouchableOpacity
+                className={cn("min-h-[48px] justify-center", collection.isActive && "opacity-50")}
+                onPress={() => !collection.isActive && setActiveCollection(collection.id)}
+                hitSlop={8}
               >
-                <TouchableOpacity
-                  className={cn("min-h-[48px] justify-center", collection.isActive && "opacity-50")}
-                  onPress={() => !collection.isActive && setActiveCollection(collection.id)}
-                  hitSlop={8}
+                <Text
+                  className={cn(
+                    "text-[15px] font-barlow-medium",
+                    collection.isActive ? "text-muted-foreground" : "text-primary",
+                  )}
                 >
-                  <Text
-                    className={cn(
-                      "text-[15px] font-barlow-medium",
-                      collection.isActive ? "text-muted-foreground" : "text-primary",
-                    )}
-                  >
-                    {collection.isActive ? "Active" : "Set Active"}
-                  </Text>
-                </TouchableOpacity>
+                  {collection.isActive ? "Active" : "Set Active"}
+                </Text>
+              </TouchableOpacity>
 
-                <TouchableOpacity
-                  className="min-h-[48px] justify-center"
-                  onPress={() => handleDeleteCollection(collection)}
-                  hitSlop={8}
-                >
-                  <Text className="text-[15px] font-barlow-medium text-destructive">Delete</Text>
-                </TouchableOpacity>
-              </View>
-            </Card>
-          </TouchableOpacity>
+              <TouchableOpacity
+                className="min-h-[48px] justify-center"
+                onPress={() => handleDeleteCollection(collection)}
+                hitSlop={8}
+              >
+                <Text className="text-[15px] font-barlow-medium text-destructive">Delete</Text>
+              </TouchableOpacity>
+            </View>
+          </Card>
         );
       }
 
       const route = item.data;
       return (
-        <TouchableOpacity activeOpacity={0.7} onPress={() => router.push(`/route/${route.id}`)}>
-          <Card className="mb-3">
+        <Card className="mb-3">
+          <TouchableOpacity
+            activeOpacity={0.7}
+            onPress={() => openRouteDetail(route.id)}
+            accessibilityRole="button"
+            accessibilityLabel={`Open route ${route.name}`}
+          >
             <View className="flex-row items-center mb-2">
               <View
                 className="w-3 h-3 rounded-full mr-3"
@@ -351,51 +384,50 @@ export default function RoutesScreen() {
                 ↓ {formatElevation(route.totalDescentMeters, units)}
               </Text>
             </View>
+          </TouchableOpacity>
 
-            <View
-              className="flex-row pt-3 gap-4"
-              style={{ borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: borderColor }}
+          <View
+            className="flex-row pt-3 gap-4"
+            style={{ borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: borderColor }}
+          >
+            <TouchableOpacity
+              className={cn("min-h-[48px] justify-center", route.isActive && "opacity-50")}
+              onPress={() => !route.isActive && setActiveRoute(route.id)}
+              hitSlop={8}
             >
-              <TouchableOpacity
-                className={cn("min-h-[48px] justify-center", route.isActive && "opacity-50")}
-                onPress={() => !route.isActive && setActiveRoute(route.id)}
-                hitSlop={8}
+              <Text
+                className={cn(
+                  "text-[15px] font-barlow-medium",
+                  route.isActive ? "text-muted-foreground" : "text-primary",
+                )}
               >
-                <Text
-                  className={cn(
-                    "text-[15px] font-barlow-medium",
-                    route.isActive ? "text-muted-foreground" : "text-primary",
-                  )}
-                >
-                  {route.isActive ? "Active" : "Set Active"}
-                </Text>
-              </TouchableOpacity>
+                {route.isActive ? "Active" : "Set Active"}
+              </Text>
+            </TouchableOpacity>
 
-              <TouchableOpacity
-                className="min-h-[48px] justify-center"
-                onPress={() => toggleVisibility(route.id)}
-                hitSlop={8}
-              >
-                <Text className="text-[15px] font-barlow-medium text-primary">
-                  {route.isVisible ? "Hide" : "Show"}
-                </Text>
-              </TouchableOpacity>
+            <TouchableOpacity
+              className="min-h-[48px] justify-center"
+              onPress={() => toggleVisibility(route.id)}
+              hitSlop={8}
+            >
+              <Text className="text-[15px] font-barlow-medium text-primary">
+                {route.isVisible ? "Hide" : "Show"}
+              </Text>
+            </TouchableOpacity>
 
-              <TouchableOpacity
-                className="min-h-[48px] justify-center"
-                onPress={() => handleDeleteRoute(route)}
-                hitSlop={8}
-              >
-                <Text className="text-[15px] font-barlow-medium text-destructive">Delete</Text>
-              </TouchableOpacity>
-            </View>
-          </Card>
-        </TouchableOpacity>
+            <TouchableOpacity
+              className="min-h-[48px] justify-center"
+              onPress={() => handleDeleteRoute(route)}
+              hitSlop={8}
+            >
+              <Text className="text-[15px] font-barlow-medium text-destructive">Delete</Text>
+            </TouchableOpacity>
+          </View>
+        </Card>
       );
     },
     [
       units,
-      router,
       setActiveRoute,
       setActiveCollection,
       toggleVisibility,
@@ -404,6 +436,8 @@ export default function RoutesScreen() {
       borderColor,
       isRouteOfflineReady,
       activeStitchedCollection,
+      openCollectionDetail,
+      openRouteDetail,
     ],
   );
 
