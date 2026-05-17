@@ -1,6 +1,5 @@
 import React, { useMemo } from "react";
 import { View, TouchableOpacity, StyleSheet, ScrollView } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useShallow } from "zustand/react/shallow";
 import { Text } from "@/components/ui/text";
 import { useThemeColors } from "@/theme";
@@ -45,7 +44,6 @@ export default function ProfileTabContent({
   showClimbsAheadStrip = true,
 }: ProfileTabContentProps) {
   const colors = useThemeColors();
-  const { bottom: safeBottom } = useSafeAreaInsets();
   const activeRoutePoints = activeData?.points ?? null;
   const activeId = activeData?.id ?? null;
   const activeRouteIds = useMemo(() => activeData?.routeIds ?? [], [activeData?.routeIds]);
@@ -151,7 +149,7 @@ export default function ProfileTabContent({
 
   const headerBlockHeight = (showStats ? STATS_HEIGHT : 0) + climbsAheadHeight;
 
-  const chartHeight = height - headerBlockHeight - safeBottom;
+  const chartHeight = height - headerBlockHeight;
   const chartWidth = width - HORIZONTAL_PADDING * 2;
   const fullProfileCurrentPointIndex =
     currentDistanceMeters != null

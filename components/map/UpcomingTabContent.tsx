@@ -6,7 +6,6 @@ import {
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Clock3, Flag, GitBranch, MapPin, Mountain } from "lucide-react-native";
 import { useShallow } from "zustand/react/shallow";
 import { Text } from "@/components/ui/text";
@@ -58,7 +57,6 @@ export default function UpcomingTabContent({ activeData }: UpcomingTabContentPro
   const listRef = useRef<FlashListRef<UpcomingRowModel>>(null);
   const restoredScrollKeyRef = useRef<string | null>(null);
   const colors = useThemeColors();
-  const { bottom: safeBottom } = useSafeAreaInsets();
   const units = useSettingsStore((s) => s.units);
   const snappedPosition = useRouteStore((s) => s.snappedPosition);
   const starredPOIIds = usePoiStore((s) => s.starredPOIIds);
@@ -232,7 +230,7 @@ export default function UpcomingTabContent({ activeData }: UpcomingTabContentPro
         showsVerticalScrollIndicator={false}
         onScroll={handleScroll}
         scrollEventThrottle={250}
-        contentContainerStyle={{ paddingBottom: safeBottom }}
+        contentContainerStyle={{ paddingBottom: 8 }}
         ListEmptyComponent={
           <View className="items-center justify-center px-5 py-12">
             <Clock3 size={24} color={colors.textTertiary} />

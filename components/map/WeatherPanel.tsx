@@ -1,6 +1,5 @@
 import React, { useCallback, useMemo } from "react";
 import { View, FlatList, RefreshControl, StyleSheet, type ListRenderItem } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Text } from "@/components/ui/text";
 import {
   Sun,
@@ -482,7 +481,6 @@ function TimelineList({
   fetchStatus: ReturnType<typeof useWeatherStore.getState>["fetchStatus"];
 }) {
   const colors = useThemeColors();
-  const { bottom: safeBottom } = useSafeAreaInsets();
   const listData = useMemo<TimelineListItem[]>(() => {
     const items: TimelineListItem[] = [];
     let currentDayKey: string | null = null;
@@ -516,7 +514,7 @@ function TimelineList({
       scrollEnabled
       showsVerticalScrollIndicator={false}
       contentContainerStyle={{
-        paddingBottom: isExpanded ? safeBottom + 12 : 0,
+        paddingBottom: isExpanded ? 12 : 0,
         flexGrow: listData.length === 0 ? 1 : 0,
       }}
       refreshControl={

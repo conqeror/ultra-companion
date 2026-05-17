@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useCallback } from "react";
+import React, { useMemo, useState, useCallback, useEffect, useRef } from "react";
 import {
   View,
   TouchableOpacity,
@@ -6,7 +6,6 @@ import {
   useWindowDimensions,
   FlatList,
 } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useShallow } from "zustand/react/shallow";
 import { Text } from "@/components/ui/text";
 import { Mountain, Pencil, Check, ChevronLeft, ChevronRight } from "lucide-react-native";
@@ -46,6 +45,8 @@ import ClimbListItem from "@/components/climb/ClimbListItem";
 import { resolveActiveClimb } from "@/utils/climbSelect";
 import type { ActiveRouteData, DisplayClimb, POI } from "@/types";
 
+const CLIMB_LIST_ROW_HEIGHT = 70;
+
 interface ClimbTabContentProps {
   activeData: ActiveRouteData | null;
   width?: number;
@@ -58,7 +59,6 @@ export default function ClimbTabContent({
   presentation = "default",
 }: ClimbTabContentProps) {
   const colors = useThemeColors();
-  const { bottom: safeBottom } = useSafeAreaInsets();
   const units = useSettingsStore((s) => s.units);
   const { width: screenWidth } = useWindowDimensions();
   const contentWidth = width ?? screenWidth;
@@ -77,6 +77,7 @@ export default function ClimbTabContent({
   const [editName, setEditName] = useState("");
   const [editingClimb, setEditingClimb] = useState<DisplayClimb | null>(null);
   const [graphHeight, setGraphHeight] = useState(0);
+  const climbListRef = useRef<FlatList<DisplayClimb>>(null);
 
   const activeId = activeData?.id ?? null;
   const activeRoutePoints = activeData?.points ?? null;
@@ -239,10 +240,30 @@ export default function ClimbTabContent({
 
   const renderClimbItem = useCallback(
     ({ item }: { item: DisplayClimb }) => (
-      <ClimbListItem climb={item} currentDistAlongRoute={currentDist} onPress={handleClimbPress} />
+      <ClimbListItem
+        climb={item}
+        currentDistAlongRoute={currentDist}
+        onPress={handleClimbPress}
+        isSelected={climb?.id === item.id}
+        height={CLIMB_LIST_ROW_HEIGHT}
+      />
     ),
-    [currentDist, handleClimbPress],
+    [climb?.id, currentDist, handleClimbPress],
   );
+
+  useEffect(() => {
+    if (!isExpanded || climbIndex < 0) return;
+
+    const frame = requestAnimationFrame(() => {
+      climbListRef.current?.scrollToIndex({
+        index: climbIndex,
+        animated: true,
+        viewPosition: 0.16,
+      });
+    });
+
+    return () => cancelAnimationFrame(frame);
+  }, [climbIndex, isExpanded]);
 
   // Empty state
   if (displayedClimbs.length === 0) {
@@ -322,29 +343,35 @@ export default function ClimbTabContent({
   const expandedUsesOneKmScroll =
     isExpanded && compactTickIntervalMeters != null && compactTickIntervalMeters > 1000;
   const statsRow = (
-    <View className="flex-row gap-2 px-3 mt-2 mb-2">
-      <StatCard
+    <View
+      className="flex-row items-center px-3 py-1.5"
+      style={{
+        borderTopWidth: 1,
+        borderTopColor: colors.borderSubtle,
+      }}
+    >
+      <MetricCell
         label="Gain"
         value={`+${formatElevation(climb.totalAscentMeters, units)}`}
         detail={isActiveClimb ? `+${formatElevation(remainingGainMeters, units)} left` : undefined}
       />
-      <StatCard
+      <MetricCell
         label="Length"
         value={formatDistance(climb.lengthMeters, units)}
         detail={isActiveClimb ? `${formatDistance(remainingLengthMeters, units)} left` : undefined}
       />
-      <StatCard
+      <MetricCell
         label="Avg"
         value={`${climb.averageGradientPercent}%`}
         detail={isActiveClimb ? `${roundOne(remainingAverageGradientPercent)}% left` : undefined}
       />
-      <StatCard
+      <MetricCell
         label="Max"
         value={`${climb.maxGradientPercent}%`}
         detail={isActiveClimb ? `${summaryMaxGradient}% left` : undefined}
       />
       {expandedDistanceLabel && expandedDistanceValue && (
-        <StatCard label={expandedDistanceLabel} value={expandedDistanceValue} />
+        <MetricCell label={expandedDistanceLabel} value={expandedDistanceValue} />
       )}
     </View>
   );
@@ -382,14 +409,7 @@ export default function ClimbTabContent({
       <View className="flex-1 flex-row">
         <View className="flex-1 min-w-0">
           <View className="flex-row items-center px-3 pt-2">
-            <ClimbArrowButton
-              direction="previous"
-              disabled={climbIndex <= 0}
-              onPress={() => handleNavigateClimb(-1)}
-              compact
-            />
-
-            <View className="flex-1 mx-2">
+            <View className="flex-1 mr-2">
               {isEditing ? (
                 <View className="flex-row items-center">
                   <Text className="text-[15px] font-barlow-semibold text-foreground mr-1.5">
@@ -446,10 +466,11 @@ export default function ClimbTabContent({
               </View>
             </View>
 
-            <ClimbArrowButton
-              direction="next"
-              disabled={climbIndex < 0 || climbIndex >= sortedClimbs.length - 1}
-              onPress={() => handleNavigateClimb(1)}
+            <ClimbStepControl
+              previousDisabled={climbIndex <= 0}
+              nextDisabled={climbIndex < 0 || climbIndex >= sortedClimbs.length - 1}
+              onPrevious={() => handleNavigateClimb(-1)}
+              onNext={() => handleNavigateClimb(1)}
               compact
             />
           </View>
@@ -495,14 +516,7 @@ export default function ClimbTabContent({
     <View className="flex-1">
       {/* Header: name + difficulty */}
       <View className="flex-row items-center px-3 pt-1">
-        <ClimbArrowButton
-          direction="previous"
-          disabled={climbIndex <= 0}
-          onPress={() => handleNavigateClimb(-1)}
-          compact={!isExpanded}
-        />
-
-        <View className="flex-1 mx-2">
+        <View className="flex-1 mr-2">
           {isExpanded && isEditing ? (
             <View className="flex-row items-center">
               <Text className="text-[15px] font-barlow-semibold text-foreground mr-1.5">
@@ -568,10 +582,11 @@ export default function ClimbTabContent({
           </View>
         </View>
 
-        <ClimbArrowButton
-          direction="next"
-          disabled={climbIndex < 0 || climbIndex >= sortedClimbs.length - 1}
-          onPress={() => handleNavigateClimb(1)}
+        <ClimbStepControl
+          previousDisabled={climbIndex <= 0}
+          nextDisabled={climbIndex < 0 || climbIndex >= sortedClimbs.length - 1}
+          onPrevious={() => handleNavigateClimb(-1)}
+          onNext={() => handleNavigateClimb(1)}
           compact={!isExpanded}
         />
       </View>
@@ -580,10 +595,7 @@ export default function ClimbTabContent({
       {climbProfile && (
         <View
           className={cn(isExpanded ? "mx-3" : "mx-2")}
-          style={[
-            { flex: isExpanded ? 1.35 : 1 },
-            !isExpanded ? { paddingBottom: Math.max(4, safeBottom - 8) } : undefined,
-          ]}
+          style={[{ flex: isExpanded ? 1.35 : 1 }, !isExpanded ? { paddingBottom: 4 } : undefined]}
         >
           <View
             className="flex-1 rounded-lg overflow-hidden"
@@ -621,10 +633,23 @@ export default function ClimbTabContent({
       {isExpanded && (
         <View className="border-t border-border mt-1" style={{ flex: 0.85 }}>
           <FlatList
+            ref={climbListRef}
             data={sortedClimbs}
             keyExtractor={(item) => item.id}
             renderItem={renderClimbItem}
-            contentContainerStyle={{ paddingBottom: safeBottom }}
+            extraData={climb?.id}
+            getItemLayout={(_, index) => ({
+              length: CLIMB_LIST_ROW_HEIGHT,
+              offset: CLIMB_LIST_ROW_HEIGHT * index,
+              index,
+            })}
+            onScrollToIndexFailed={(info) => {
+              climbListRef.current?.scrollToOffset({
+                offset: Math.max(0, info.averageItemLength * info.index),
+                animated: true,
+              });
+            }}
+            contentContainerStyle={{ paddingBottom: 8 }}
           />
         </View>
       )}
@@ -632,66 +657,116 @@ export default function ClimbTabContent({
   );
 }
 
-function ClimbArrowButton({
-  direction,
-  disabled,
-  onPress,
+function ClimbStepControl({
+  previousDisabled,
+  nextDisabled,
+  onPrevious,
+  onNext,
   compact = false,
 }: {
-  direction: "previous" | "next";
-  disabled: boolean;
-  onPress: () => void;
+  previousDisabled: boolean;
+  nextDisabled: boolean;
+  onPrevious: () => void;
+  onNext: () => void;
   compact?: boolean;
 }) {
-  const colors = useThemeColors();
-  const Icon = direction === "previous" ? ChevronLeft : ChevronRight;
+  const height = 48;
+  const buttonWidth = 42;
+  const iconSize = compact ? 20 : 22;
 
   return (
+    <View className="flex-row items-center gap-2" style={{ height }}>
+      <ClimbStepButton
+        icon={ChevronLeft}
+        disabled={previousDisabled}
+        onPress={onPrevious}
+        label="Previous climb"
+        width={buttonWidth}
+        iconSize={iconSize}
+      />
+      <ClimbStepButton
+        icon={ChevronRight}
+        disabled={nextDisabled}
+        onPress={onNext}
+        label="Next climb"
+        width={buttonWidth}
+        iconSize={iconSize}
+      />
+    </View>
+  );
+}
+
+function ClimbStepButton({
+  icon: Icon,
+  disabled,
+  onPress,
+  label,
+  width,
+  iconSize,
+}: {
+  icon: React.ComponentType<{ color?: string; size?: number; strokeWidth?: number }>;
+  disabled: boolean;
+  onPress: () => void;
+  label: string;
+  width: number;
+  iconSize: number;
+}) {
+  const colors = useThemeColors();
+  return (
     <TouchableOpacity
-      className={cn(
-        "items-center justify-center rounded-full border",
-        "w-[48px] h-[48px]",
-        disabled ? "border-transparent" : "bg-muted border-border",
-      )}
-      style={disabled ? { opacity: 0.4 } : undefined}
+      className="items-center justify-center rounded-lg border"
+      style={{
+        width,
+        height: 42,
+        opacity: disabled ? 0.34 : 1,
+        backgroundColor: colors.surface,
+        borderColor: colors.border,
+      }}
       disabled={disabled}
       onPress={onPress}
-      accessibilityLabel={direction === "previous" ? "Previous climb" : "Next climb"}
+      accessibilityLabel={label}
+      accessibilityRole="button"
       accessibilityState={{ disabled }}
+      activeOpacity={0.68}
     >
       <Icon
-        size={compact ? 21 : 22}
+        size={iconSize}
         color={disabled ? colors.textTertiary : colors.textSecondary}
+        strokeWidth={2.35}
       />
     </TouchableOpacity>
   );
 }
 
-function StatCard({ label, value, detail }: { label: string; value: string; detail?: string }) {
+function MetricCell({ label, value, detail }: { label: string; value: string; detail?: string }) {
+  const colors = useThemeColors();
   return (
-    <View className="flex-1 min-h-[74px] justify-center rounded-lg bg-muted px-2">
-      <Text
-        className="text-[12px] text-muted-foreground font-barlow-medium"
-        numberOfLines={1}
-        adjustsFontSizeToFit
-        minimumFontScale={0.82}
-      >
-        {label}
-      </Text>
-      <Text
-        className="text-[18px] font-barlow-sc-semibold text-foreground"
-        numberOfLines={1}
-        adjustsFontSizeToFit
-        minimumFontScale={0.78}
-      >
-        {value}
-      </Text>
-      {detail && (
+    <View className="flex-1 min-w-0 justify-center pr-2">
+      <View className="flex-row items-baseline">
         <Text
-          className="text-[11px] text-muted-foreground font-barlow-medium"
+          className="text-[11px] text-muted-foreground font-barlow-medium mr-1"
           numberOfLines={1}
           adjustsFontSizeToFit
-          minimumFontScale={0.78}
+          minimumFontScale={0.82}
+        >
+          {label}
+        </Text>
+        <Text
+          className="text-[17px] font-barlow-sc-semibold text-foreground flex-shrink"
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.72}
+        >
+          {value}
+        </Text>
+      </View>
+      {detail && (
+        <Text
+          className="text-[10px] font-barlow-medium"
+          style={{ color: colors.textSecondary }}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.74}
         >
           {detail}
         </Text>

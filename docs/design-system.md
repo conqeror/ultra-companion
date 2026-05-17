@@ -311,7 +311,8 @@ bg-transparent text-destructive — text-only to de-emphasize
 bg-surface/98 (slight translucency)
 border-t border-border-subtle
 icon: 24px, text-tertiary (inactive) / text-accent (active)
-label: labelSmall, text-tertiary (inactive) / text-accent (active)
+mobile ride panel: icon-only, 52dp tap height, full text accessibility labels
+expanded/web surfaces may add labelSmall text when space allows
 ```
 
 ### Badges
@@ -337,7 +338,7 @@ bg-accent/10 text-accent rounded-full px-2 py-0.5 font-labelSmall
 The map takes 100% of the screen. Everything else floats.
 
 - **Floating controls**: top-right corner, vertically stacked (center-on-user)
-- **Bottom panel**: always visible, with tabs for Profile, Upcoming, Weather, Climbs, and POIs; the shared riding horizon selector floats just above it
+- **Bottom panel**: always visible, with an icon-only bottom tab bar for Profile, Upcoming, Weather, Climbs, and POIs; the shared riding horizon selector floats just above it
 - **No persistent HUD on map** — keep map clean. Data lives in the panel
 - **Panel closed state**: map + floating buttons + bottom sheet tabs + collapsed horizon chip
 - **Panel open state**: map compresses upward, panel takes bottom ~25% with route stats + elevation profile

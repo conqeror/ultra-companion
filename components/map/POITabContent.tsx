@@ -10,7 +10,6 @@ import {
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useShallow } from "zustand/react/shallow";
 import { Text } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
@@ -92,7 +91,6 @@ function poiKeyExtractor(item: { id: string }): string {
 
 export default function POITabContent({ activeData }: POITabContentProps) {
   const colors = useThemeColors();
-  const { bottom: safeBottom } = useSafeAreaInsets();
   const units = useSettingsStore((s) => s.units);
   const snappedPosition = useRouteStore((s) => s.snappedPosition);
   const starredPOIIds = usePoiStore((s) => s.starredPOIIds);
@@ -522,7 +520,7 @@ export default function POITabContent({ activeData }: POITabContentProps) {
               renderItem={renderCompactPOI}
               getItemType={() => "compact-poi"}
               showsVerticalScrollIndicator={false}
-              contentContainerStyle={{ paddingBottom: safeBottom }}
+              contentContainerStyle={{ paddingBottom: 8 }}
             />
           </>
         ) : (

@@ -161,6 +161,7 @@ export default function RootLayout() {
       <ThemeProvider value={navTheme}>
         <Stack
           screenOptions={{
+            autoHideHomeIndicator: true,
             headerBackTitle: "Routes",
             headerTitleStyle: { fontFamily: "Barlow-SemiBold" },
           }}

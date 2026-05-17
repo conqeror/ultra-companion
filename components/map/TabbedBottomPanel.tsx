@@ -1,5 +1,6 @@
 import React from "react";
 import { View, TouchableOpacity, useWindowDimensions } from "react-native";
+import { Activity, Clock3, CloudSun, MapPin, Mountain } from "lucide-react-native";
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -9,7 +10,6 @@ import Animated, {
 } from "react-native-reanimated";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Text } from "@/components/ui/text";
 import { useThemeColors } from "@/theme";
 import { useClimbStore } from "@/store/climbStore";
 import { usePanelStore } from "@/store/panelStore";
@@ -22,8 +22,16 @@ import POITabContent from "./POITabContent";
 import RidingHorizonSelector, { RIDING_HORIZON_SELECTOR_OFFSET } from "./RidingHorizonSelector";
 import type { ActiveRouteData, PanelTab } from "@/types";
 
-/** Combined handle + tabs height */
-const HEADER_HEIGHT = 52;
+/** Compact drag target at the top of the content sheet */
+const DRAG_HANDLE_HEIGHT = 18;
+const DRAG_HANDLE_HIT_HEIGHT = 48;
+const DRAG_HANDLE_HIT_WIDTH = 160;
+
+/** Visible icon rail height before the safe-area inset */
+const TAB_BAR_HEIGHT = 50;
+const TAB_BAR_SAFE_AREA_OVERLAP = 24;
+
+const PANEL_ICON_STROKE_WIDTH = 2;
 
 /** No bounce — clamp at snap points */
 const SPRING_CONFIG = { damping: 28, stiffness: 300, overshootClamping: true };
@@ -34,14 +42,15 @@ const VELOCITY_THRESHOLD = 500;
 interface TabDef {
   key: PanelTab;
   label: string;
+  icon: React.ComponentType<{ color?: string; size?: number; strokeWidth?: number }>;
 }
 
 const ALL_TABS: TabDef[] = [
-  { key: "profile", label: "Profile" },
-  { key: "upcoming", label: "Upcoming" },
-  { key: "weather", label: "Weather" },
-  { key: "climbs", label: "Climbs" },
-  { key: "pois", label: "POIs" },
+  { key: "profile", label: "Profile", icon: Activity },
+  { key: "upcoming", label: "Upcoming", icon: Clock3 },
+  { key: "weather", label: "Weather", icon: CloudSun },
+  { key: "climbs", label: "Climbs", icon: Mountain },
+  { key: "pois", label: "POIs", icon: MapPin },
 ];
 
 interface TabbedBottomPanelProps {
@@ -55,8 +64,11 @@ function TabbedBottomPanel({ activeData }: TabbedBottomPanelProps) {
 
   const compactHeight = Math.round(screenHeight * SHEET_COMPACT_RATIO) + safeBottom;
   const expandedHeight = Math.round(screenHeight * SHEET_EXPANDED_RATIO) + safeBottom;
+  const tabBarSafePadding = Math.max(0, safeBottom - TAB_BAR_SAFE_AREA_OVERLAP);
+  const tabBarHeight = TAB_BAR_HEIGHT + tabBarSafePadding;
+  const contentPanelHeight = Math.max(0, expandedHeight - tabBarHeight);
 
-  // The View is expandedHeight tall, positioned at bottom: 0.
+  // The content panel is anchored above the fixed icon rail.
   // translateY pushes it down: compactOffset shows only compactHeight, 0 shows full expandedHeight.
   const compactOffset = expandedHeight - compactHeight;
 
@@ -66,6 +78,7 @@ function TabbedBottomPanel({ activeData }: TabbedBottomPanelProps) {
   const panelTab = usePanelStore((s) => s.panelTab);
   const setPanelTab = usePanelStore((s) => s.setPanelTab);
   const setIsExpanded = usePanelStore((s) => s.setIsExpanded);
+  const isExpanded = usePanelStore((s) => s.isExpanded);
   const setSelectedClimb = useClimbStore((s) => s.setSelectedClimb);
 
   const handleTabPress = React.useCallback(
@@ -75,6 +88,12 @@ function TabbedBottomPanel({ activeData }: TabbedBottomPanelProps) {
     },
     [panelTab, setPanelTab, setSelectedClimb],
   );
+
+  const handleToggleExpanded = React.useCallback(() => {
+    const nextIsExpanded = !isExpanded;
+    setIsExpanded(nextIsExpanded);
+    sheetTranslateY.value = withSpring(nextIsExpanded ? 0 : compactOffset, SPRING_CONFIG);
+  }, [compactOffset, isExpanded, setIsExpanded, sheetTranslateY]);
 
   const panGesture = Gesture.Pan()
     .activeOffsetY([-10, 10])
@@ -105,9 +124,9 @@ function TabbedBottomPanel({ activeData }: TabbedBottomPanelProps) {
       sheetTranslateY.value = withSpring(target, SPRING_CONFIG);
     });
 
-  // Single combined animated style — merges sheet position + keyboard offset
+  // Merges sheet position + keyboard offset so controls stay reachable during text entry.
   const keyboard = useAnimatedKeyboard();
-  const animatedSheetStyle = useAnimatedStyle(() => {
+  const animatedContentStyle = useAnimatedStyle(() => {
     const rawKeyboardOffset = Math.max(0, keyboard.height.value - safeBottom);
     // Don't let the keyboard push the sheet above the top bar
     // sheetTranslateY: 0 = expanded, compactOffset = compact
@@ -117,37 +136,79 @@ function TabbedBottomPanel({ activeData }: TabbedBottomPanelProps) {
       transform: [{ translateY: sheetTranslateY.value - keyboardOffset }],
     };
   });
+  const animatedTabBarStyle = useAnimatedStyle(() => {
+    const rawKeyboardOffset = Math.max(0, keyboard.height.value - safeBottom);
+    const maxOffset = screenHeight - expandedHeight - safeTop + sheetTranslateY.value;
+    const keyboardOffset = Math.min(rawKeyboardOffset, Math.max(0, maxOffset));
+    return {
+      transform: [{ translateY: -keyboardOffset }],
+    };
+  });
 
-  const isExpanded = usePanelStore((s) => s.isExpanded);
-  const compactContentHeight = compactHeight - HEADER_HEIGHT;
-  const expandedContentHeight = expandedHeight - HEADER_HEIGHT;
+  const compactContentHeight = Math.max(0, compactHeight - tabBarHeight - DRAG_HANDLE_HEIGHT);
+  const expandedContentHeight = Math.max(0, expandedHeight - tabBarHeight - DRAG_HANDLE_HEIGHT);
   const effectiveContentHeight = isExpanded ? expandedContentHeight : compactContentHeight;
 
   return (
-    <Animated.View
+    <View
       pointerEvents="box-none"
       className="absolute bottom-0 left-0 right-0"
-      style={[{ height: expandedHeight + RIDING_HORIZON_SELECTOR_OFFSET }, animatedSheetStyle]}
+      style={{ height: expandedHeight + RIDING_HORIZON_SELECTOR_OFFSET }}
     >
-      <RidingHorizonSelector />
-
-      <View
-        className="absolute bottom-0 left-0 right-0 rounded-t-2xl shadow-lg border-t border-border"
-        style={{ height: expandedHeight, backgroundColor: colors.surface }}
+      <Animated.View
+        pointerEvents="box-none"
+        className="absolute left-0 right-0"
+        style={[
+          {
+            bottom: tabBarHeight,
+            height: contentPanelHeight + RIDING_HORIZON_SELECTOR_OFFSET,
+          },
+          animatedContentStyle,
+        ]}
       >
-        {/* Handle + tabs — single compact gesture target */}
-        <GestureDetector gesture={panGesture}>
-          <Animated.View>
+        <RidingHorizonSelector />
+
+        <View
+          className="absolute bottom-0 left-0 right-0 rounded-t-2xl shadow-lg border-t border-border"
+          style={{ height: contentPanelHeight, backgroundColor: colors.surface }}
+        >
+          <View
+            className="items-center justify-center"
+            style={{
+              height: DRAG_HANDLE_HEIGHT,
+              borderBottomWidth: 1,
+              borderBottomColor: colors.borderSubtle,
+            }}
+          >
             <View
-              className="px-2"
+              className="rounded-full"
               style={{
-                height: HEADER_HEIGHT,
-                borderBottomWidth: 1,
-                borderBottomColor: colors.borderSubtle,
+                width: 32,
+                height: 4,
+                backgroundColor: colors.textTertiary,
+                opacity: 0.5,
+              }}
+            />
+          </View>
+
+          {/* Invisible 48dp grab/tap target over the compact visual handle. */}
+          <GestureDetector gesture={panGesture}>
+            <Animated.View
+              className="absolute top-0 z-10 items-center justify-start"
+              style={{
+                alignSelf: "center",
+                height: DRAG_HANDLE_HIT_HEIGHT,
+                width: DRAG_HANDLE_HIT_WIDTH,
               }}
             >
-              {/* Drag handle pill */}
-              <View className="items-center pt-1.5 pb-0.5">
+              <TouchableOpacity
+                className="h-full w-full items-center justify-start pt-[7px]"
+                onPress={handleToggleExpanded}
+                accessibilityLabel={isExpanded ? "Collapse bottom panel" : "Expand bottom panel"}
+                accessibilityRole="button"
+                accessibilityState={{ expanded: isExpanded }}
+                activeOpacity={1}
+              >
                 <View
                   className="rounded-full"
                   style={{
@@ -157,60 +218,68 @@ function TabbedBottomPanel({ activeData }: TabbedBottomPanelProps) {
                     opacity: 0.5,
                   }}
                 />
-              </View>
+              </TouchableOpacity>
+            </Animated.View>
+          </GestureDetector>
 
-              {/* Tab buttons */}
-              <View className="flex-row flex-1 items-center">
-                {ALL_TABS.map((tab) => {
-                  const isActive = panelTab === tab.key;
-                  return (
-                    <TouchableOpacity
-                      key={tab.key}
-                      className="flex-1 items-center justify-center h-full"
-                      onPress={() => handleTabPress(tab.key)}
-                      accessibilityLabel={`${tab.label} tab`}
-                      accessibilityRole="tab"
-                      accessibilityState={{ selected: isActive }}
-                    >
-                      <Text
-                        className="text-[15px] font-barlow-semibold"
-                        style={{ color: isActive ? colors.accent : colors.textTertiary }}
-                        numberOfLines={1}
-                        adjustsFontSizeToFit
-                        minimumFontScale={0.82}
-                      >
-                        {tab.label}
-                      </Text>
-                      {isActive && (
-                        <View
-                          className="absolute bottom-0 left-3 right-3 rounded-t-sm"
-                          style={{ height: 2, backgroundColor: colors.accent }}
-                        />
-                      )}
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            </View>
-          </Animated.View>
-        </GestureDetector>
-
-        {/* Content — clips to available height */}
-        <View style={{ height: effectiveContentHeight, overflow: "hidden" }}>
-          {panelTab === "profile" && (
-            <ProfileTabContent
-              activeData={activeData}
-              width={screenWidth}
-              height={effectiveContentHeight}
-            />
-          )}
-          {panelTab === "upcoming" && <UpcomingTabContent activeData={activeData} />}
-          {panelTab === "weather" && <WeatherPanel activeData={activeData} />}
-          {panelTab === "climbs" && <ClimbTabContent activeData={activeData} />}
-          {panelTab === "pois" && <POITabContent activeData={activeData} />}
+          {/* Content — clips to available height */}
+          <View style={{ height: effectiveContentHeight, overflow: "hidden" }}>
+            {panelTab === "profile" && (
+              <ProfileTabContent
+                activeData={activeData}
+                width={screenWidth}
+                height={effectiveContentHeight}
+              />
+            )}
+            {panelTab === "upcoming" && <UpcomingTabContent activeData={activeData} />}
+            {panelTab === "weather" && <WeatherPanel activeData={activeData} />}
+            {panelTab === "climbs" && <ClimbTabContent activeData={activeData} />}
+            {panelTab === "pois" && <POITabContent activeData={activeData} />}
+          </View>
         </View>
-      </View>
-    </Animated.View>
+      </Animated.View>
+
+      <Animated.View
+        className="absolute bottom-0 left-0 right-0 border-t border-border-subtle"
+        style={[
+          {
+            height: tabBarHeight,
+            paddingBottom: tabBarSafePadding,
+            backgroundColor: colors.surface,
+          },
+          animatedTabBarStyle,
+        ]}
+      >
+        <Animated.View className="h-full flex-row items-start px-2">
+          {ALL_TABS.map((tab) => {
+            const isActive = panelTab === tab.key;
+            const Icon = tab.icon;
+            return (
+              <TouchableOpacity
+                key={tab.key}
+                className="h-[50px] flex-1 items-center justify-center"
+                onPress={() => handleTabPress(tab.key)}
+                accessibilityLabel={`${tab.label} tab`}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: isActive }}
+                activeOpacity={0.78}
+              >
+                <View
+                  className="h-[44px] w-[44px] items-center justify-center rounded-lg"
+                  style={{ backgroundColor: isActive ? colors.accentSubtle : "transparent" }}
+                >
+                  <Icon
+                    size={24}
+                    color={isActive ? colors.accent : colors.textTertiary}
+                    strokeWidth={PANEL_ICON_STROKE_WIDTH}
+                  />
+                </View>
+              </TouchableOpacity>
+            );
+          })}
+        </Animated.View>
+      </Animated.View>
+    </View>
   );
 }
 
