@@ -527,18 +527,19 @@ export default function SegmentList({
               ))
             )}
             {patchBaseVariant && (
-              <Button
-                variant="secondary"
-                className="mt-2 h-12 self-start px-3"
+              <TouchableOpacity
+                className="mt-0.5 h-9 flex-row items-center self-start px-1"
                 onPress={() =>
                   onAddPatchVariant(patchBaseVariant.route.id, patchBaseVariant.segment.position)
                 }
+                accessibilityRole="button"
+                hitSlop={{ top: 6, bottom: 6, left: 8, right: 8 }}
               >
-                <Plus size={16} color={colors.accent} />
-                <Text className="ml-2 text-[14px] font-barlow-semibold text-primary">
-                  Add Patch Variant
+                <Plus size={14} color={colors.textTertiary} />
+                <Text className="ml-1.5 text-[13px] font-barlow-medium text-muted-foreground">
+                  Add patch variant
                 </Text>
-              </Button>
+              </TouchableOpacity>
             )}
           </View>
         </ScaleDecorator>
@@ -567,6 +568,7 @@ export default function SegmentList({
     <View>
       <NestableDraggableFlatList
         data={localGroups}
+        activationDistance={1}
         keyExtractor={(item) => item.key}
         renderItem={renderItem}
         onDragEnd={handleDragEnd}

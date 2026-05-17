@@ -167,7 +167,14 @@ export default function RootLayout() {
         >
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="+not-found" options={{ headerShown: false, animation: "none" }} />
-          <Stack.Screen name="menu" options={{ presentation: "modal", headerShown: false }} />
+          <Stack.Screen
+            name="menu"
+            options={{
+              presentation: "fullScreenModal",
+              headerShown: false,
+              gestureEnabled: false,
+            }}
+          />
           <Stack.Screen name="route/[id]" options={{ title: "Route" }} />
           <Stack.Screen name="collection/[id]" options={{ title: "Collection" }} />
         </Stack>
