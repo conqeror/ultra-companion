@@ -56,8 +56,7 @@ function eventKeyExtractor(event: UpcomingRowModel): string {
 
 export default function UpcomingTabContent({ activeData }: UpcomingTabContentProps) {
   const listRef = useRef<FlashListRef<UpcomingRowModel>>(null);
-  const initialScrollOffsetRef = useRef(usePanelStore.getState().upcomingScrollOffset);
-  const restoredScrollOffsetRef = useRef(false);
+  const restoredScrollKeyRef = useRef<string | null>(null);
   const colors = useThemeColors();
   const { bottom: safeBottom } = useSafeAreaInsets();
   const units = useSettingsStore((s) => s.units);
@@ -69,10 +68,14 @@ export default function UpcomingTabContent({ activeData }: UpcomingTabContentPro
   const cumulativeTime = useEtaStore((s) => s.cumulativeTime);
   const panelMode = usePanelStore((s) => s.panelMode);
   const setPanelTab = usePanelStore((s) => s.setPanelTab);
-  const setUpcomingScrollOffset = usePanelStore((s) => s.setUpcomingScrollOffset);
+  const setPanelScrollOffset = usePanelStore((s) => s.setPanelScrollOffset);
   const timing = useActiveRouteTiming(activeData);
 
   const routeIds = useMemo(() => activeData?.routeIds ?? [], [activeData?.routeIds]);
+  const scrollKey = useMemo(
+    () => `${activeData?.id ?? "no-route"}:${panelMode}`,
+    [activeData?.id, panelMode],
+  );
   const segments = activeData?.segments ?? null;
   const routePoints = activeData?.points ?? null;
   const totalDistanceMeters = activeData?.totalDistanceMeters ?? 0;
@@ -177,20 +180,20 @@ export default function UpcomingTabContent({ activeData }: UpcomingTabContentPro
   );
 
   useEffect(() => {
-    const offset = initialScrollOffsetRef.current;
-    if (restoredScrollOffsetRef.current || offset <= 0 || rowModels.length === 0) return;
+    if (restoredScrollKeyRef.current === scrollKey || rowModels.length === 0) return;
 
-    restoredScrollOffsetRef.current = true;
+    const offset = usePanelStore.getState().getPanelScrollOffset("upcoming", scrollKey);
+    restoredScrollKeyRef.current = scrollKey;
     requestAnimationFrame(() => {
       listRef.current?.scrollToOffset({ offset, animated: false });
     });
-  }, [rowModels.length]);
+  }, [rowModels.length, scrollKey]);
 
   const handleScroll = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-      setUpcomingScrollOffset(Math.max(0, event.nativeEvent.contentOffset.y));
+      setPanelScrollOffset("upcoming", scrollKey, event.nativeEvent.contentOffset.y);
     },
-    [setUpcomingScrollOffset],
+    [scrollKey, setPanelScrollOffset],
   );
 
   const handleEventPress = useCallback(

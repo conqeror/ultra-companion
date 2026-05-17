@@ -7,6 +7,8 @@ import {
   TextInput as RNTextInput,
   Alert,
   Linking,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useShallow } from "zustand/react/shallow";
@@ -101,6 +103,7 @@ export default function POITabContent({ activeData }: POITabContentProps) {
   const isExpanded = usePanelStore((s) => s.isExpanded);
   const panelMode = usePanelStore((s) => s.panelMode);
   const consumeDetailReturnTab = usePanelStore((s) => s.consumeDetailReturnTab);
+  const setPanelScrollOffset = usePanelStore((s) => s.setPanelScrollOffset);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [showAddPOI, setShowAddPOI] = useState(false);
@@ -108,6 +111,7 @@ export default function POITabContent({ activeData }: POITabContentProps) {
   const [loadedSavedPOITargets, setLoadedSavedPOITargets] = useState<SavedPOITarget[] | null>(null);
   const deferredSearchQuery = useDeferredValue(searchQuery);
   const expandedListRef = useRef<FlashListRef<POIListRowModel> | null>(null);
+  const restoredScrollKeyRef = useRef<string | null>(null);
 
   const routeIds = useMemo(() => activeData?.routeIds ?? [], [activeData?.routeIds]);
   const routePoints = activeData?.points ?? null;
@@ -134,6 +138,11 @@ export default function POITabContent({ activeData }: POITabContentProps) {
     [derivedCurrentDist, ridingHorizonMeters, activeTotalDistance],
   );
   const horizonScopeLabel = ridingHorizonScopeLabelForMode(panelMode);
+  const poiScrollKey = useMemo(() => {
+    const categoriesKey = [...enabledCategories].sort().join(",");
+    const searchKey = deferredSearchQuery.trim().toLowerCase();
+    return `${activeData?.id ?? "no-route"}:${panelMode}:${categoriesKey}:${searchKey}`;
+  }, [activeData?.id, deferredSearchQuery, enabledCategories, panelMode]);
 
   const savedPOITargets = useMemo<SavedPOITarget[]>(() => {
     if (!activeData) return [];
@@ -333,9 +342,32 @@ export default function POITabContent({ activeData }: POITabContentProps) {
   }, []);
 
   useEffect(() => {
-    if (!isExpanded) return;
-    expandedListRef.current?.scrollToOffset({ offset: 0, animated: false });
-  }, [activeData?.id, deferredSearchQuery, enabledCategories, isExpanded, panelMode]);
+    if (selectedPOI) {
+      restoredScrollKeyRef.current = null;
+      return;
+    }
+
+    if (
+      !isExpanded ||
+      restoredScrollKeyRef.current === poiScrollKey ||
+      filteredPOIModels.length === 0
+    )
+      return;
+
+    const offset = usePanelStore.getState().getPanelScrollOffset("pois", poiScrollKey);
+    restoredScrollKeyRef.current = poiScrollKey;
+    requestAnimationFrame(() => {
+      expandedListRef.current?.scrollToOffset({ offset, animated: false });
+    });
+  }, [filteredPOIModels.length, isExpanded, poiScrollKey, selectedPOI]);
+
+  const handleExpandedListScroll = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      if (event.nativeEvent.contentOffset.y > 2) setPOIFiltersExpanded(false);
+      setPanelScrollOffset("pois", poiScrollKey, event.nativeEvent.contentOffset.y);
+    },
+    [poiScrollKey, setPanelScrollOffset],
+  );
 
   useEffect(() => {
     if (isExpanded) setPOIFiltersExpanded(true);
@@ -450,7 +482,9 @@ export default function POITabContent({ activeData }: POITabContentProps) {
           contentContainerStyle={EXPANDED_POI_CONTENT_STYLE}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
+          onScroll={handleExpandedListScroll}
           onScrollBeginDrag={handleExpandedListScrollBegin}
+          scrollEventThrottle={250}
           ListEmptyComponent={
             <View className="items-center justify-center px-5 py-10">
               <MapPin size={24} color={colors.textTertiary} />

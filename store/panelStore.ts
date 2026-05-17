@@ -20,6 +20,47 @@ function readString(key: string): string | undefined {
   }
 }
 
+type PanelScrollList = "upcoming" | "pois";
+type PanelScrollOffsets = Record<PanelScrollList, Record<string, number>>;
+
+const EMPTY_SCROLL_OFFSETS: PanelScrollOffsets = {
+  upcoming: {},
+  pois: {},
+};
+
+function readPanelScrollOffsets(): PanelScrollOffsets {
+  const raw = readString("panelScrollOffsets");
+  if (!raw) return EMPTY_SCROLL_OFFSETS;
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<PanelScrollOffsets>;
+    return {
+      upcoming: sanitizeScrollOffsets(parsed.upcoming),
+      pois: sanitizeScrollOffsets(parsed.pois),
+    };
+  } catch {
+    return EMPTY_SCROLL_OFFSETS;
+  }
+}
+
+function sanitizeScrollOffsets(offsets: unknown): Record<string, number> {
+  if (!offsets || typeof offsets !== "object") return {};
+
+  const sanitized: Record<string, number> = {};
+  for (const [key, value] of Object.entries(offsets)) {
+    if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+      sanitized[key] = value;
+    }
+  }
+  return sanitized;
+}
+
+function persistPanelScrollOffsets(offsets: PanelScrollOffsets) {
+  try {
+    getStorage().set("panelScrollOffsets", JSON.stringify(offsets));
+  } catch {}
+}
+
 interface PanelState {
   panelMode: PanelMode;
   cyclePanelMode: () => void;
@@ -38,9 +79,10 @@ interface PanelState {
   setDetailReturnTab: (tab: PanelTab | null) => void;
   consumeDetailReturnTab: () => PanelTab | null;
 
-  /** Last visible Upcoming list offset, used when returning from detail views */
-  upcomingScrollOffset: number;
-  setUpcomingScrollOffset: (offset: number) => void;
+  /** Last visible list offsets, keyed by route/filter context */
+  panelScrollOffsets: PanelScrollOffsets;
+  getPanelScrollOffset: (list: PanelScrollList, key: string) => number;
+  setPanelScrollOffset: (list: PanelScrollList, key: string, offset: number) => void;
 }
 
 const DEFAULT_PANEL_MODE: PanelMode = "upcoming-50";
@@ -111,9 +153,21 @@ export const usePanelStore = create<PanelState>((set, get) => ({
     return tab;
   },
 
-  upcomingScrollOffset: 0,
-  setUpcomingScrollOffset: (upcomingScrollOffset) => {
-    if (Math.abs(get().upcomingScrollOffset - upcomingScrollOffset) < 1) return;
-    set({ upcomingScrollOffset });
+  panelScrollOffsets: readPanelScrollOffsets(),
+  getPanelScrollOffset: (list, key) => get().panelScrollOffsets[list][key] ?? 0,
+  setPanelScrollOffset: (list, key, offset) => {
+    const scrollOffset = Math.max(0, offset);
+    const current = get().panelScrollOffsets[list][key] ?? 0;
+    if (Math.abs(current - scrollOffset) < 1) return;
+
+    const next = {
+      ...get().panelScrollOffsets,
+      [list]: {
+        ...get().panelScrollOffsets[list],
+        [key]: scrollOffset,
+      },
+    };
+    persistPanelScrollOffsets(next);
+    set({ panelScrollOffsets: next });
   },
 }));
