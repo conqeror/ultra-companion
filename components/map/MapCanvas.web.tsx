@@ -52,7 +52,11 @@ import {
   filterClimbsToRidingHorizon,
 } from "@/utils/ridingHorizon";
 import { resolveActiveClimb } from "@/utils/climbSelect";
-import { getClimbMapBounds, getClimbMapSamples } from "@/utils/climbGeometry";
+import {
+  getClimbMapBounds,
+  getClimbMapSamples,
+  getZoomLevelToFitBounds,
+} from "@/utils/climbGeometry";
 import { buildClimbDistanceMarkerFeatureCollection } from "@/utils/climbDistanceMarkers";
 import { displayTemperatureC, temperatureGradientColor } from "@/utils/temperatureOverlay";
 import type {
@@ -156,6 +160,12 @@ const CLUSTER_OVERFLOW_TEXT_OFFSET = [0.45, 0] as const;
 const FALLBACK_ICON_NAME = "MapPin";
 const MAPBOX_ICON_PIXEL_RATIO = 2;
 const WEB_POI_ICON_STROKE_WIDTH = 1.65;
+const CLIMB_PAN_PADDING = {
+  top: 72,
+  right: 32,
+  bottom: 40,
+  left: 32,
+};
 
 const iconNames = Array.from(
   new Set([...POI_CATEGORIES.map((category) => category.iconName), FALLBACK_ICON_NAME]),
@@ -884,6 +894,8 @@ function MapCanvas({
       highlightedClimb.effectiveEndDistanceMeters,
     );
     if (!climbBounds) return;
+    const currentZoom = map.getZoom();
+    const container = map.getContainer();
     setFollowUser(false);
     cameraSet(map, {
       centerCoordinate: climbBounds.center,
@@ -893,7 +905,18 @@ function MapCanvas({
         paddingBottom: cameraPadding.paddingBottom,
         paddingLeft: cameraPadding.paddingLeft,
       },
-      zoomLevel: map.getZoom(),
+      zoomLevel: getZoomLevelToFitBounds(
+        currentZoom,
+        climbBounds,
+        container.clientWidth,
+        container.clientHeight,
+        {
+          top: CLIMB_PAN_PADDING.top,
+          right: cameraPadding.paddingRight + CLIMB_PAN_PADDING.right,
+          bottom: cameraPadding.paddingBottom + CLIMB_PAN_PADDING.bottom,
+          left: cameraPadding.paddingLeft + CLIMB_PAN_PADDING.left,
+        },
+      ),
       animationDuration: 500,
     });
   }, [mapReady, highlightedClimb, activeRoutePoints, cameraPadding, setFollowUser]);

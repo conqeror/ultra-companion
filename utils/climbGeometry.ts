@@ -26,6 +26,8 @@ export interface MapViewportPadding {
 const DISTANCE_EPSILON_M = 0.01;
 const MERCATOR_TILE_SIZE = 512;
 const MAX_MERCATOR_LATITUDE = 85.05112878;
+const CLIMB_ZOOM_IN_THRESHOLD = 2;
+const CLIMB_ZOOM_IN_FRACTION = 0.5;
 
 export function getClimbMapSamples(
   points: RoutePoint[],
@@ -107,7 +109,12 @@ export function getZoomLevelToFitBounds(
   const fitZoom = Math.min(fitZoomX, fitZoomY);
   if (!Number.isFinite(fitZoom)) return currentZoom;
 
-  return Math.min(currentZoom, fitZoom);
+  if (currentZoom > fitZoom) return fitZoom;
+
+  const zoomInDelta = fitZoom - currentZoom;
+  if (zoomInDelta < CLIMB_ZOOM_IN_THRESHOLD) return currentZoom;
+
+  return currentZoom + zoomInDelta * CLIMB_ZOOM_IN_FRACTION;
 }
 
 function addSample(samples: ClimbMapSample[], sample: ClimbMapSample): void {

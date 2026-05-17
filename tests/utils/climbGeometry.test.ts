@@ -59,7 +59,7 @@ describe("climbGeometry", () => {
     expect(bounds?.center).toEqual([1.5, 1.5]);
   });
 
-  it("keeps current zoom when bounds fit and lowers zoom when they do not", () => {
+  it("keeps current zoom when bounds roughly fit and lowers zoom when they do not", () => {
     const bounds = {
       ne: [18.5, 49.5] as [number, number],
       sw: [18.4, 49.4] as [number, number],
@@ -75,5 +75,26 @@ describe("climbGeometry", () => {
 
     expect(getZoomLevelToFitBounds(9, bounds, 390, 844, padding)).toBe(9);
     expect(getZoomLevelToFitBounds(15, bounds, 390, 844, padding)).toBeLessThan(15);
+  });
+
+  it("zooms halfway toward a climb fit when the current zoom is far out", () => {
+    const bounds = {
+      ne: [18.5, 49.5] as [number, number],
+      sw: [18.4, 49.4] as [number, number],
+      center: [18.45, 49.45] as [number, number],
+      corners: [
+        [18.4, 49.4],
+        [18.4, 49.5],
+        [18.5, 49.4],
+        [18.5, 49.5],
+      ] as [number, number][],
+    };
+    const padding = { top: 72, right: 32, bottom: 340, left: 32 };
+
+    const fitZoom = getZoomLevelToFitBounds(20, bounds, 390, 844, padding);
+    const easedZoom = getZoomLevelToFitBounds(6, bounds, 390, 844, padding);
+
+    expect(easedZoom).toBeGreaterThan(6);
+    expect(easedZoom).toBeCloseTo(6 + (fitZoom - 6) / 2);
   });
 });
