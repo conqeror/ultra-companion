@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo, useCallback, useRef } from "react";
+import React, { useEffect, useState, useMemo, useCallback } from "react";
 import {
   View,
   useWindowDimensions,
@@ -11,7 +11,6 @@ import {
 import { NestableScrollContainer } from "react-native-draggable-flatlist";
 import { useLocalSearchParams, useRouter, Stack } from "expo-router";
 import { DateTimePicker } from "@expo/ui/datetimepicker";
-import { Camera, MapView as MapboxMapView } from "@rnmapbox/maps";
 import { CalendarClock, Share2 } from "lucide-react-native";
 import { Text } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
@@ -28,14 +27,7 @@ import type {
   RoutePoint,
   StitchedCollection,
 } from "@/types";
-import { useMapStyle } from "@/hooks/useMapStyle";
-import { useRouteGeometryZoom } from "@/hooks/useRouteGeometryZoom";
-import {
-  usePreparedRouteGeometries,
-  type PreparedRouteGeometryRequest,
-} from "@/hooks/usePreparedRouteGeometries";
 import { formatDistance, formatElevation } from "@/utils/formatters";
-import { computeBounds } from "@/utils/geo";
 import {
   getStitchedSourceRouteIds,
   isPatchVariantProposalPoorMatch,
@@ -45,9 +37,7 @@ import {
   stitchPOIs,
 } from "@/services/stitchingService";
 import ElevationProfile from "@/components/elevation/ElevationProfile";
-import { MAP_LAYER_ANCHOR_IDS } from "@/constants/mapLayers";
-import MapLayerAnchors from "@/components/map/MapLayerAnchors";
-import RouteLayer from "@/components/map/RouteLayer";
+import RoutePreviewMap, { type RoutePreviewMapLayer } from "@/components/map/RoutePreviewMap";
 import StatBox from "@/components/common/StatBox";
 import SegmentList from "@/components/collection/SegmentList";
 import AddSegmentSheet from "@/components/collection/AddSegmentSheet";
@@ -84,10 +74,7 @@ export default function CollectionDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { width: screenWidth } = useWindowDimensions();
-  const cameraRef = useRef<Camera>(null);
   const colors = useThemeColors();
-  const mapStyle = useMapStyle();
-  const { routeGeometryToleranceMeters, updateRouteGeometryZoom } = useRouteGeometryZoom();
 
   const [collection, setCollection] = useState<Collection | null>(null);
   const [segmentsWithRoutes, setSegmentsWithRoutes] = useState<CollectionSegmentWithRoute[]>([]);
@@ -203,59 +190,28 @@ export default function CollectionDetailScreen() {
       .filter((overlay): overlay is VariantRouteOverlay => overlay != null);
   }, [segmentsWithRoutes, stitched]);
 
-  const bounds = useMemo(() => {
-    if (!stitched?.points.length) return null;
-    return computeBounds([
-      ...stitched.points,
-      ...variantRouteOverlays.flatMap((overlay) => overlay.points),
-    ]);
-  }, [stitched, variantRouteOverlays]);
-
   const selectedRouteLayerId = useMemo(
     () => (collection ? `collection-${collection.id}` : "collection"),
     [collection],
   );
-  const routeGeometryRequests = useMemo<PreparedRouteGeometryRequest[]>(() => {
-    const requests = variantRouteOverlays.map((overlay) => ({
+
+  const previewLayers = useMemo<RoutePreviewMapLayer[]>(() => {
+    const layers = variantRouteOverlays.map((overlay) => ({
       id: overlay.route.id,
       cacheKey: overlay.route.id,
       points: overlay.points,
-      toleranceMeters: routeGeometryToleranceMeters,
+      isActive: false,
     }));
     if (stitched?.points.length) {
-      requests.push({
+      layers.push({
         id: selectedRouteLayerId,
         cacheKey: selectedRouteLayerId,
         points: stitched.points,
-        toleranceMeters: routeGeometryToleranceMeters,
+        isActive: true,
       });
     }
-    return requests;
-  }, [variantRouteOverlays, stitched?.points, selectedRouteLayerId, routeGeometryToleranceMeters]);
-  const preparedRouteGeometries = usePreparedRouteGeometries(routeGeometryRequests);
-
-  // Fit mini map camera when bounds change (defaultSettings only applies on mount)
-  useEffect(() => {
-    if (!bounds) return;
-    cameraRef.current?.setCamera({
-      bounds: {
-        ne: bounds.ne,
-        sw: bounds.sw,
-        paddingLeft: 40,
-        paddingRight: 40,
-        paddingTop: 40,
-        paddingBottom: 40,
-      },
-      animationDuration: 300,
-    });
-  }, [bounds]);
-
-  const handleCameraChanged = useCallback(
-    (state: { properties: { zoom: number } }) => {
-      updateRouteGeometryZoom(state.properties.zoom);
-    },
-    [updateRouteGeometryZoom],
-  );
+    return layers;
+  }, [selectedRouteLayerId, stitched?.points, variantRouteOverlays]);
 
   const resolvedSegmentPointsByRouteId = useMemo(() => {
     const out: Record<string, RoutePoint[]> = {};
@@ -604,60 +560,9 @@ export default function CollectionDetailScreen() {
         contentContainerStyle={{ paddingBottom: 48 }}
       >
         {/* Mini map */}
-        {stitched && stitched.points.length > 0 && collection && (
-          <View className="h-[250px] mx-4 mt-4 rounded-xl overflow-hidden">
-            <MapboxMapView
-              style={{ flex: 1 }}
-              {...mapStyle.props}
-              compassEnabled={false}
-              scaleBarEnabled={false}
-              rotateEnabled={false}
-              pitchEnabled={false}
-              scrollEnabled={true}
-              zoomEnabled={true}
-              onCameraChanged={handleCameraChanged}
-            >
-              <Camera
-                ref={cameraRef}
-                defaultSettings={
-                  bounds
-                    ? {
-                        bounds: {
-                          ne: bounds.ne,
-                          sw: bounds.sw,
-                          paddingLeft: 40,
-                          paddingRight: 40,
-                          paddingTop: 40,
-                          paddingBottom: 40,
-                        },
-                      }
-                    : undefined
-                }
-              />
-              <MapLayerAnchors key={`map-layer-anchors-${mapStyle.styleKey}`} />
-              {variantRouteOverlays.map((overlay) => {
-                const prepared = preparedRouteGeometries[overlay.route.id];
-                if (!prepared) return null;
-                return (
-                  <RouteLayer
-                    key={`${overlay.route.id}-${mapStyle.styleKey}`}
-                    routeId={overlay.route.id}
-                    geoJSON={prepared.geoJSON}
-                    isActive={false}
-                    aboveLayerID={MAP_LAYER_ANCHOR_IDS.routeLine}
-                  />
-                );
-              })}
-              {preparedRouteGeometries[selectedRouteLayerId] && (
-                <RouteLayer
-                  key={`${collection.id}-${mapStyle.styleKey}`}
-                  routeId={selectedRouteLayerId}
-                  geoJSON={preparedRouteGeometries[selectedRouteLayerId].geoJSON}
-                  isActive
-                  aboveLayerID={MAP_LAYER_ANCHOR_IDS.routeLine}
-                />
-              )}
-            </MapboxMapView>
+        {previewLayers.length > 0 && (
+          <View className="mx-4 mt-4 rounded-xl overflow-hidden" style={{ height: 250 }}>
+            <RoutePreviewMap layers={previewLayers} />
           </View>
         )}
 

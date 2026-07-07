@@ -7,9 +7,20 @@ import StatBox from "@/components/common/StatBox";
 import { useThemeColors } from "@/theme";
 import { useCollectionStore } from "@/store/collectionStore";
 import { useSettingsStore } from "@/store/settingsStore";
-import { stitchCollection } from "@/services/stitchingService";
+import {
+  getStitchedSourceRouteIds,
+  sliceRoutePointsByDistance,
+  stitchCollection,
+} from "@/services/stitchingService";
 import { formatDistance, formatElevation } from "@/utils/formatters";
-import type { Collection, CollectionSegmentWithRoute, StitchedCollection } from "@/types";
+import type {
+  Collection,
+  CollectionSegmentWithRoute,
+  Route,
+  RoutePoint,
+  StitchedCollection,
+} from "@/types";
+import RoutePreviewMap, { type RoutePreviewMapLayer } from "@/components/map/RoutePreviewMap";
 
 function formatPlannedStart(plannedStartMs: number | null): string {
   if (plannedStartMs == null) return "Not set";
@@ -19,6 +30,11 @@ function formatPlannedStart(plannedStartMs: number | null): string {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+interface VariantRouteOverlay {
+  route: Route;
+  points: RoutePoint[];
 }
 
 export default function CollectionDetailWebScreen() {
@@ -48,6 +64,29 @@ export default function CollectionDetailWebScreen() {
         let stitchedData: StitchedCollection | null = null;
         try {
           stitchedData = segmentRows.length > 0 ? await stitchCollection(id) : null;
+          if (stitchedData) {
+            const { getRoutePoints } = await import("@/db/database");
+            const stitchedSourceRouteIds = new Set(
+              getStitchedSourceRouteIds(stitchedData.segments),
+            );
+            const unselectedRouteIds = segmentRows
+              .filter(
+                (segment) =>
+                  !segment.segment.isSelected && !stitchedData?.pointsByRouteId[segment.route.id],
+              )
+              .map((segment) => segment.route.id);
+            for (const routeId of stitchedSourceRouteIds) {
+              if (!stitchedData.pointsByRouteId[routeId] && !unselectedRouteIds.includes(routeId)) {
+                unselectedRouteIds.push(routeId);
+              }
+            }
+            const unselectedPoints = await Promise.all(
+              unselectedRouteIds.map((routeId) => getRoutePoints(routeId)),
+            );
+            for (let i = 0; i < unselectedRouteIds.length; i++) {
+              stitchedData.pointsByRouteId[unselectedRouteIds[i]] = unselectedPoints[i];
+            }
+          }
         } catch {}
         if (!cancelled) {
           setCollection(current ?? null);
@@ -80,6 +119,67 @@ export default function CollectionDetailWebScreen() {
     () => segments.filter((segment) => segment.segment.isSelected),
     [segments],
   );
+
+  const variantRouteOverlays = useMemo<VariantRouteOverlay[]>(() => {
+    if (!stitched) return [];
+    const selectedByPosition = new Map<number, CollectionSegmentWithRoute>();
+    for (const segment of segments) {
+      if (segment.segment.isSelected) selectedByPosition.set(segment.segment.position, segment);
+    }
+    return segments
+      .filter((segment) => !segment.segment.isSelected)
+      .map((segment) => {
+        const rawPoints = stitched.pointsByRouteId[segment.route.id] ?? null;
+        const selectedVariant = selectedByPosition.get(segment.segment.position);
+        const points =
+          rawPoints &&
+          segment.segment.variantKind === "full" &&
+          selectedVariant?.segment.variantKind === "patch" &&
+          selectedVariant.segment.baseRouteId === segment.route.id &&
+          selectedVariant.segment.replaceStartDistanceMeters != null &&
+          selectedVariant.segment.replaceEndDistanceMeters != null
+            ? sliceRoutePointsByDistance(
+                rawPoints,
+                selectedVariant.segment.replaceStartDistanceMeters,
+                selectedVariant.segment.replaceEndDistanceMeters,
+              )
+            : rawPoints;
+        if (!points || points.length < 2) return null;
+        return {
+          route: {
+            ...segment.route,
+            id: `variant-${segment.route.id}`,
+            isActive: false,
+            isVisible: true,
+          },
+          points,
+        };
+      })
+      .filter((overlay): overlay is VariantRouteOverlay => overlay != null);
+  }, [segments, stitched]);
+
+  const selectedRouteLayerId = useMemo(
+    () => (collection ? `collection-${collection.id}` : "collection"),
+    [collection],
+  );
+
+  const previewLayers = useMemo<RoutePreviewMapLayer[]>(() => {
+    const layers = variantRouteOverlays.map((overlay) => ({
+      id: overlay.route.id,
+      cacheKey: overlay.route.id,
+      points: overlay.points,
+      isActive: false,
+    }));
+    if (stitched?.points.length) {
+      layers.push({
+        id: selectedRouteLayerId,
+        cacheKey: selectedRouteLayerId,
+        points: stitched.points,
+        isActive: true,
+      });
+    }
+    return layers;
+  }, [selectedRouteLayerId, stitched?.points, variantRouteOverlays]);
 
   const handleOpenOnMap = useCallback(async () => {
     if (!collection) return;
@@ -115,6 +215,12 @@ export default function CollectionDetailWebScreen() {
             Start: {formatPlannedStart(collection.plannedStartMs)}
           </Text>
         </View>
+
+        {previewLayers.length > 0 && (
+          <View className="overflow-hidden rounded-xl" style={{ height: 250 }}>
+            <RoutePreviewMap layers={previewLayers} />
+          </View>
+        )}
 
         <View className="flex-row gap-3">
           <StatBox

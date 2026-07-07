@@ -1,7 +1,6 @@
-import React, { useCallback, useEffect, useState, useMemo, useRef } from "react";
+import React, { useCallback, useEffect, useState, useMemo } from "react";
 import { View, ScrollView, useWindowDimensions, ActivityIndicator, Alert } from "react-native";
 import { useLocalSearchParams, Stack } from "expo-router";
-import { Camera, MapView as MapboxMapView } from "@rnmapbox/maps";
 import { Share2 } from "lucide-react-native";
 import { Text } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
@@ -11,24 +10,12 @@ import { useSettingsStore } from "@/store/settingsStore";
 import { usePoiStore } from "@/store/poiStore";
 import { useClimbStore } from "@/store/climbStore";
 import type { RouteWithPoints, Climb } from "@/types";
-import { useMapStyle } from "@/hooks/useMapStyle";
-import { useRouteGeometryZoom } from "@/hooks/useRouteGeometryZoom";
-import {
-  usePreparedRouteGeometries,
-  type PreparedRouteGeometryRequest,
-} from "@/hooks/usePreparedRouteGeometries";
 import { formatDistance, formatElevation } from "@/utils/formatters";
-import {
-  computeBounds,
-  computeElevationProgressAtDistance,
-  findPointIndexAtOrAfterDistance,
-} from "@/utils/geo";
+import { computeElevationProgressAtDistance, findPointIndexAtOrAfterDistance } from "@/utils/geo";
 import { resolveRouteProgress } from "@/utils/routeProgress";
 import { toDisplayClimbs, toDisplayPOIs } from "@/services/displayDistance";
 import ElevationProfile from "@/components/elevation/ElevationProfile";
-import { MAP_LAYER_ANCHOR_IDS } from "@/constants/mapLayers";
-import MapLayerAnchors from "@/components/map/MapLayerAnchors";
-import RouteLayer from "@/components/map/RouteLayer";
+import RoutePreviewMap, { type RoutePreviewMapLayer } from "@/components/map/RoutePreviewMap";
 import StatBox from "@/components/common/StatBox";
 import DataSection from "@/components/route/DataSection";
 import AddSavedPOISheet from "@/components/poi/AddSavedPOISheet";
@@ -41,10 +28,7 @@ const EMPTY_CLIMBS: Climb[] = [];
 export default function RouteDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { width: screenWidth } = useWindowDimensions();
-  const cameraRef = useRef<Camera>(null);
   const colors = useThemeColors();
-  const mapStyle = useMapStyle();
-  const { routeGeometryToleranceMeters, updateRouteGeometryZoom } = useRouteGeometryZoom();
 
   const [route, setRoute] = useState<RouteWithPoints | null>(null);
   const [loading, setLoading] = useState(true);
@@ -105,38 +89,25 @@ export default function RouteDetailScreen() {
 
   const chartClimbs = useMemo(() => toDisplayClimbs(routeClimbs), [routeClimbs]);
 
-  const bounds = useMemo(() => {
-    if (!route?.points.length) return null;
-    return computeBounds(route.points);
-  }, [route]);
-  const routeGeometryRequests = useMemo<PreparedRouteGeometryRequest[]>(
+  const previewLayers = useMemo<RoutePreviewMapLayer[]>(
     () =>
-      route
+      route?.points.length
         ? [
             {
-              id: "route",
+              id: route.id,
               cacheKey: route.id,
               points: route.points,
-              toleranceMeters: routeGeometryToleranceMeters,
+              isActive: true,
             },
           ]
         : [],
-    [route, routeGeometryToleranceMeters],
+    [route],
   );
-  const preparedRouteGeometries = usePreparedRouteGeometries(routeGeometryRequests);
-  const routeGeoJSON = preparedRouteGeometries.route?.geoJSON ?? null;
 
   const savedPOITargets = useMemo<SavedPOITarget[]>(() => {
     if (!route) return [];
     return [{ routeId: route.id, routeName: route.name, points: route.points }];
   }, [route]);
-
-  const handleCameraChanged = useCallback(
-    (state: { properties: { zoom: number } }) => {
-      updateRouteGeometryZoom(state.properties.zoom);
-    },
-    [updateRouteGeometryZoom],
-  );
 
   const handleExportGPX = useCallback(async () => {
     if (!route) return;
@@ -175,47 +146,11 @@ export default function RouteDetailScreen() {
       <Stack.Screen options={screenOptions} />
       <ScrollView className="flex-1 bg-background" contentContainerStyle={{ paddingBottom: 40 }}>
         {/* Mini map */}
-        <View className="h-[250px] mx-4 mt-4 rounded-xl overflow-hidden">
-          <MapboxMapView
-            style={{ flex: 1 }}
-            {...mapStyle.props}
-            compassEnabled={false}
-            scaleBarEnabled={false}
-            rotateEnabled={false}
-            pitchEnabled={false}
-            scrollEnabled={true}
-            zoomEnabled={true}
-            onCameraChanged={handleCameraChanged}
-          >
-            <Camera
-              ref={cameraRef}
-              defaultSettings={
-                bounds
-                  ? {
-                      bounds: {
-                        ne: bounds.ne,
-                        sw: bounds.sw,
-                        paddingLeft: 40,
-                        paddingRight: 40,
-                        paddingTop: 40,
-                        paddingBottom: 40,
-                      },
-                    }
-                  : undefined
-              }
-            />
-            <MapLayerAnchors key={`map-layer-anchors-${mapStyle.styleKey}`} />
-            {routeGeoJSON && (
-              <RouteLayer
-                key={mapStyle.styleKey}
-                routeId={route.id}
-                geoJSON={routeGeoJSON}
-                isActive
-                aboveLayerID={MAP_LAYER_ANCHOR_IDS.routeLine}
-              />
-            )}
-          </MapboxMapView>
-        </View>
+        {previewLayers.length > 0 && (
+          <View className="mx-4 mt-4 rounded-xl overflow-hidden" style={{ height: 250 }}>
+            <RoutePreviewMap layers={previewLayers} />
+          </View>
+        )}
 
         {/* Stats */}
         <View className="flex-row px-4 mt-3 mb-3 gap-3">

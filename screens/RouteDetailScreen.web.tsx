@@ -9,6 +9,7 @@ import { useRouteStore } from "@/store/routeStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import { formatDistance, formatElevation } from "@/utils/formatters";
 import type { RouteWithPoints } from "@/types";
+import RoutePreviewMap, { type RoutePreviewMapLayer } from "@/components/map/RoutePreviewMap";
 
 export default function RouteDetailWebScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -37,6 +38,20 @@ export default function RouteDetailWebScreen() {
   }, [id, getRouteDetail]);
 
   const screenOptions = useMemo(() => ({ title: route?.name ?? "Route" }), [route?.name]);
+  const previewLayers = useMemo<RoutePreviewMapLayer[]>(
+    () =>
+      route?.points.length
+        ? [
+            {
+              id: route.id,
+              cacheKey: route.id,
+              points: route.points,
+              isActive: true,
+            },
+          ]
+        : [],
+    [route],
+  );
 
   const handleOpenOnMap = useCallback(async () => {
     if (!route) return;
@@ -68,6 +83,12 @@ export default function RouteDetailWebScreen() {
           <Text className="text-[28px] font-barlow-semibold text-foreground">{route.name}</Text>
           <Text className="text-[15px] font-barlow text-muted-foreground">{route.fileName}</Text>
         </View>
+
+        {previewLayers.length > 0 && (
+          <View className="overflow-hidden rounded-xl" style={{ height: 250 }}>
+            <RoutePreviewMap layers={previewLayers} />
+          </View>
+        )}
 
         <View className="flex-row gap-3">
           <StatBox label="Distance" value={formatDistance(route.totalDistanceMeters, units)} />
