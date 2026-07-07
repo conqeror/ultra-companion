@@ -568,7 +568,6 @@ export default function SegmentList({
     <View>
       <NestableDraggableFlatList
         data={localGroups}
-        activationDistance={1}
         keyExtractor={(item) => item.key}
         renderItem={renderItem}
         onDragEnd={handleDragEnd}
