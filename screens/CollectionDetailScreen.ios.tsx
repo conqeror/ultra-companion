@@ -5,12 +5,12 @@ import {
   ActivityIndicator,
   Alert,
   Modal,
+  Platform,
   Pressable,
 } from "react-native";
 import { NestableScrollContainer } from "react-native-draggable-flatlist";
 import { useLocalSearchParams, useRouter, Stack } from "expo-router";
-import { DatePicker, Host } from "@expo/ui/swift-ui";
-import { datePickerStyle } from "@expo/ui/swift-ui/modifiers";
+import { DateTimePicker } from "@expo/ui/datetimepicker";
 import { Camera, MapView as MapboxMapView } from "@rnmapbox/maps";
 import { CalendarClock, Share2 } from "lucide-react-native";
 import { Text } from "@/components/ui/text";
@@ -810,14 +810,15 @@ export default function CollectionDetailScreen() {
               Local start date and time.
             </Text>
             <View className="mt-3 overflow-hidden rounded-lg border border-border bg-card">
-              <Host matchContents={{ vertical: true }} style={{ minHeight: 216 }}>
-                <DatePicker
-                  selection={startDraftDate}
-                  displayedComponents={["date", "hourAndMinute"]}
-                  onDateChange={setStartDraftDate}
-                  modifiers={[datePickerStyle("wheel")]}
-                />
-              </Host>
+              <DateTimePicker
+                value={startDraftDate}
+                mode="datetime"
+                display="spinner"
+                presentation="inline"
+                accentColor={colors.accent}
+                onValueChange={(_event, date) => setStartDraftDate(date)}
+                style={{ minHeight: Platform.OS === "android" ? 320 : 216 }}
+              />
             </View>
             <Text className="mt-2 text-[13px] font-barlow-medium text-muted-foreground">
               {formatPlannedStart(startDraftDate.getTime())}

@@ -13,6 +13,10 @@ type OfflineTilesEvents = {
 const OfflineTilesModule = requireNativeModule("OfflineTiles");
 const emitter = new EventEmitter<OfflineTilesEvents>(OfflineTilesModule);
 
+export function setMapboxAccessToken(accessToken: string): void {
+  OfflineTilesModule.setAccessToken?.(accessToken);
+}
+
 export function downloadTileRegion(
   id: string,
   styleURL: string,

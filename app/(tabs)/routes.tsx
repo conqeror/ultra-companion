@@ -13,6 +13,7 @@ import { Text } from "@/components/ui/text";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import TextPromptModal from "@/components/common/TextPromptModal";
 import { cn } from "@/lib/cn";
 import { useRouteStore } from "@/store/routeStore";
 import { useCollectionStore } from "@/store/collectionStore";
@@ -24,6 +25,13 @@ import { useThemeColors } from "@/theme";
 import type { Route, Collection, RouteImportSummary } from "@/types";
 
 type SectionItem = { type: "collection"; data: Collection } | { type: "route"; data: Route };
+
+interface CollectionPromptState {
+  title: string;
+  message: string;
+  confirmLabel: string;
+  onSubmit: (name: string) => Promise<void>;
+}
 
 function getErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof Error && error.message) return error.message;
@@ -84,6 +92,9 @@ export default function RoutesScreen() {
   const setActiveCollection = useCollectionStore((s) => s.setActiveCollection);
   const activeStitchedCollection = useCollectionStore((s) => s.activeStitchedCollection);
   const assignedRouteIds = useCollectionStore((s) => s.assignedRouteIds);
+  const [collectionPrompt, setCollectionPrompt] = React.useState<CollectionPromptState | null>(
+    null,
+  );
 
   const units = useSettingsStore((s) => s.units);
   const isRouteOfflineReady = useOfflineStore((s) => s.isRouteOfflineReady);
@@ -156,55 +167,40 @@ export default function RoutesScreen() {
   );
 
   const handleCreateCollection = useCallback(() => {
-    Alert.prompt(
-      "New Collection",
-      "Enter a name for the collection",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Create",
-          onPress: async (name?: string) => {
-            if (!name?.trim()) return;
-            const id = await createCollection(name.trim());
-            openCollectionDetail(id);
-          },
-        },
-      ],
-      "plain-text",
-    );
+    setCollectionPrompt({
+      title: "New Collection",
+      message: "Enter a name for the collection",
+      confirmLabel: "Create",
+      onSubmit: async (name) => {
+        try {
+          const id = await createCollection(name);
+          openCollectionDetail(id);
+        } catch (e: unknown) {
+          Alert.alert("Collection Failed", getErrorMessage(e, "Could not create collection."));
+        }
+      },
+    });
   }, [createCollection, openCollectionDetail]);
 
   const promptCreateCollectionFromRoutes = useCallback(
     (importedRoutes: Route[]) => {
-      Alert.prompt(
-        "New Collection",
-        "Name this collection",
-        [
-          { text: "Cancel", style: "cancel" },
-          {
-            text: "Create",
-            onPress: async (name?: string) => {
-              const trimmed = name?.trim();
-              if (!trimmed) return;
-
-              try {
-                const id = await createCollection(trimmed);
-                for (const route of importedRoutes) {
-                  await addSegment(id, route.id);
-                }
-                await loadCollections();
-                openCollectionDetail(id);
-              } catch (e: unknown) {
-                Alert.alert(
-                  "Collection Failed",
-                  getErrorMessage(e, "Could not create collection."),
-                );
-              }
-            },
-          },
-        ],
-        "plain-text",
-      );
+      setCollectionPrompt({
+        title: "New Collection",
+        message: "Name this collection",
+        confirmLabel: "Create",
+        onSubmit: async (name) => {
+          try {
+            const id = await createCollection(name);
+            for (const route of importedRoutes) {
+              await addSegment(id, route.id);
+            }
+            await loadCollections();
+            openCollectionDetail(id);
+          } catch (e: unknown) {
+            Alert.alert("Collection Failed", getErrorMessage(e, "Could not create collection."));
+          }
+        },
+      });
     },
     [addSegment, createCollection, loadCollections, openCollectionDetail],
   );
@@ -501,6 +497,16 @@ export default function RoutesScreen() {
           )}
         </Button>
       </View>
+
+      <TextPromptModal
+        visible={collectionPrompt != null}
+        title={collectionPrompt?.title ?? ""}
+        message={collectionPrompt?.message}
+        confirmLabel={collectionPrompt?.confirmLabel}
+        placeholder="Collection name"
+        onCancel={() => setCollectionPrompt(null)}
+        onSubmit={collectionPrompt?.onSubmit ?? (async () => {})}
+      />
     </View>
   );
 }

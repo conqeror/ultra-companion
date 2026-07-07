@@ -1,0 +1,35 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'com.ultra'
+version = '1.0.0'
+
+def safeExtGet(prop, fallback) {
+  rootProject.ext.has(prop) ? rootProject.ext.get(prop) : fallback
+}
+
+def rnMapboxPackageJson = new groovy.json.JsonSlurper().parseText(
+  new File(rootDir, '../node_modules/@rnmapbox/maps/package.json').text
+)
+def mapboxVersion = safeExtGet('RNMapboxMapsVersion', rnMapboxPackageJson.mapbox.android)
+
+android {
+  namespace 'com.ultra.offlinetiles'
+
+  defaultConfig {
+    versionCode 1
+    versionName '1.0.0'
+  }
+}
+
+dependencies {
+  def targetSdk = safeExtGet('targetSdkVersion', 35)
+
+  if (targetSdk >= 35) {
+    implementation "com.mapbox.maps:android-ndk27:${mapboxVersion}"
+  } else {
+    implementation "com.mapbox.maps:android:${mapboxVersion}"
+  }
+}
