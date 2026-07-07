@@ -3,10 +3,12 @@ import {
   OSM_POI_DISCOVERY_CATEGORIES,
   getPoiCategoryCorridorWidthM,
   OVERPASS_API_URLS,
+  OVERPASS_REQUEST_TIMEOUT_MS,
   OVERPASS_SEGMENT_LENGTH_M,
   OVERPASS_RETRY_DELAYS,
+  OVERPASS_USER_AGENT,
 } from "@/constants";
-import { downsampleRoutePointsByDistance, splitRoutePointsByDistance } from "@/utils/geo";
+import { splitRoutePointsByDistance } from "@/utils/geo";
 
 let _nextServerIndex = 0;
 
@@ -33,17 +35,53 @@ interface OverpassResponse {
   elements: OverpassElement[];
 }
 
-const QUERY_POINT_INTERVAL_M = 1_000;
+const METERS_PER_DEGREE_LAT = 111_320;
+const MIN_LON_COSINE = 0.1;
 
-function sameQueryPoint(a: { lat: number; lon: number }, b: { lat: number; lon: number }): boolean {
-  return a.lat === b.lat && a.lon === b.lon;
+function formatCoord(value: number): string {
+  return value.toFixed(6).replace(/\.?0+$/, "");
 }
 
 // --- Overpass QL query building ---
 
-/** Build the coordinate string for an around filter: lat1,lon1,lat2,lon2,... */
-function coordString(pts: { lat: number; lon: number }[]): string {
-  return pts.map((p) => `${p.lat},${p.lon}`).join(",");
+function maxCorridorWidthForCategories(
+  discoveryCategories: POICategory[],
+  fallbackWidthM: number,
+): number {
+  return Math.max(
+    ...discoveryCategories.map((category) =>
+      getPoiCategoryCorridorWidthM(category, fallbackWidthM),
+    ),
+  );
+}
+
+function buildPaddedBounds(
+  points: { lat: number; lon: number }[],
+  paddingMeters: number,
+): { south: number; west: number; north: number; east: number } {
+  let south = points[0].lat;
+  let north = points[0].lat;
+  let west = points[0].lon;
+  let east = points[0].lon;
+
+  for (const point of points) {
+    south = Math.min(south, point.lat);
+    north = Math.max(north, point.lat);
+    west = Math.min(west, point.lon);
+    east = Math.max(east, point.lon);
+  }
+
+  const centerLatRad = (((south + north) / 2) * Math.PI) / 180;
+  const latPadding = paddingMeters / METERS_PER_DEGREE_LAT;
+  const lonPadding =
+    paddingMeters / (METERS_PER_DEGREE_LAT * Math.max(Math.cos(centerLatRad), MIN_LON_COSINE));
+
+  return {
+    south: Math.max(-90, south - latPadding),
+    west: Math.max(-180, west - lonPadding),
+    north: Math.min(90, north + latPadding),
+    east: Math.min(180, east + lonPadding),
+  };
 }
 
 /** Build a complete Overpass QL query for all POI categories in a corridor */
@@ -52,12 +90,12 @@ export function buildOverpassQuery(
   corridorWidthM: number,
   discoveryCategories: POICategory[] = OSM_POI_DISCOVERY_CATEGORIES,
 ): string | null {
-  const coords = coordString(points);
+  if (points.length === 0) return null;
+
   const enabled = new Set(discoveryCategories);
   const q = (category: POICategory, selector: string) => {
     if (!enabled.has(category)) return null;
-    const radius = getPoiCategoryCorridorWidthM(category, corridorWidthM);
-    return `  ${selector}(around:${radius},${coords});`;
+    return `  ${selector};`;
   };
 
   const clauses = [
@@ -87,7 +125,16 @@ export function buildOverpassQuery(
 
   if (clauses.length === 0) return null;
 
-  return `[out:json][timeout:30];
+  const paddingMeters = maxCorridorWidthForCategories(discoveryCategories, corridorWidthM);
+  const bounds = buildPaddedBounds(points, paddingMeters);
+  const bbox = [
+    formatCoord(bounds.south),
+    formatCoord(bounds.west),
+    formatCoord(bounds.north),
+    formatCoord(bounds.east),
+  ].join(",");
+
+  return `[out:json][timeout:30][bbox:${bbox}];
 (
 ${clauses.join("\n")}
 );
@@ -101,11 +148,20 @@ async function tryOverpassRequest(
   url: string,
   query: string,
 ): Promise<{ elements: OverpassElement[] } | { rateLimited: true } | { error: Error }> {
+  const abortController = new AbortController();
+  const timeoutId = setTimeout(() => {
+    abortController.abort();
+  }, OVERPASS_REQUEST_TIMEOUT_MS);
+
   try {
     const response = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "User-Agent": OVERPASS_USER_AGENT,
+      },
       body: `data=${encodeURIComponent(query)}`,
+      signal: abortController.signal,
     });
 
     if (response.status === 400) {
@@ -124,6 +180,8 @@ async function tryOverpassRequest(
     return { elements: data.elements };
   } catch (error) {
     return { error: error instanceof Error ? error : new Error(String(error)) };
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
@@ -185,13 +243,11 @@ export async function fetchAllPOIs(
   for (let i = 0; i < segments.length; i++) {
     onProgress?.(i, segments.length);
 
-    // Downsample segment points to ~1 per km for the query
-    const downsampled = downsampleRoutePointsByDistance(segments[i], {
-      intervalMeters: QUERY_POINT_INTERVAL_M,
-      mapPoint: (point) => ({ lat: point.latitude, lon: point.longitude }),
-      isSameOutput: sameQueryPoint,
-    });
-    const query = buildOverpassQuery(downsampled, corridorWidthM, discoveryCategories);
+    const query = buildOverpassQuery(
+      segments[i].map((point) => ({ lat: point.latitude, lon: point.longitude })),
+      corridorWidthM,
+      discoveryCategories,
+    );
     if (!query) continue;
     const elements = await fetchOverpassSegment(query);
 

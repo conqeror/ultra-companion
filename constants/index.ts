@@ -245,11 +245,14 @@ export function getMaxPoiCorridorWidthM(fallbackWidthM = DEFAULT_CORRIDOR_WIDTH_
 
 export const OVERPASS_API_URLS = [
   "https://overpass-api.de/api/interpreter",
-  "https://overpass.kumi.systems/api/interpreter",
+  "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
   "https://overpass.private.coffee/api/interpreter",
 ];
 export const OVERPASS_SEGMENT_LENGTH_M = 50_000;
 export const OVERPASS_RETRY_DELAYS = [2000, 5000, 15000];
+export const OVERPASS_REQUEST_TIMEOUT_MS = 35_000;
+export const OVERPASS_USER_AGENT =
+  "UltraCompanion/1.0 (https://github.com/conqeror/ultra-companion)";
 
 /** Max elevation difference between POI and route at nearest point (meters) */
 export const POI_MAX_ELEVATION_DIFF_M = 25;
