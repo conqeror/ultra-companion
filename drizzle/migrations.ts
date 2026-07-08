@@ -10,6 +10,7 @@ export default {
       { idx: 3, when: 1777986757000, tag: "0003_add_collection_planned_start", breakpoints: true },
       { idx: 4, when: 1777986758000, tag: "0004_add_patch_route_variants", breakpoints: true },
       { idx: 5, when: 1777986759000, tag: "0005_add_planning_metadata", breakpoints: true },
+      { idx: 6, when: 1777986760000, tag: "0006_add_relative_eta_cache", breakpoints: true },
     ],
   },
   migrations: {
@@ -113,6 +114,21 @@ CREATE INDEX \`idx_collection_segments_base_route\` ON \`collection_segments\` (
 	\`value\` text NOT NULL,
 	\`updatedAt\` text NOT NULL
 );
+`,
+    m0006: `CREATE TABLE IF NOT EXISTS \`relative_eta_cache\` (
+	\`cacheKey\` text PRIMARY KEY NOT NULL,
+	\`scope\` text NOT NULL,
+	\`scopeId\` text NOT NULL,
+	\`signature\` text NOT NULL,
+	\`powerConfigKey\` text NOT NULL,
+	\`algorithmVersion\` integer NOT NULL,
+	\`pointCount\` integer NOT NULL,
+	\`totalDurationSeconds\` real NOT NULL,
+	\`cumulativeSeconds\` blob NOT NULL,
+	\`updatedAt\` text NOT NULL
+);
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS \`idx_relative_eta_cache_scope\` ON \`relative_eta_cache\` (\`scope\`,\`scopeId\`);
 `,
   },
 };

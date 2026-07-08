@@ -36,6 +36,24 @@ function getErrorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
+function scheduleRouteETAPrewarm(route: Route, points: RoutePoint[]): void {
+  void Promise.resolve()
+    .then(async () => {
+      const { useEtaStore } = await import("@/store/etaStore");
+      useEtaStore.getState().prewarmRelativeETA({
+        scope: "route",
+        scopeId: route.id,
+        points,
+        totalDistanceMeters: route.totalDistanceMeters,
+        totalAscentMeters: route.totalAscentMeters,
+        totalDescentMeters: route.totalDescentMeters,
+      });
+    })
+    .catch((error) => {
+      console.warn(`Failed to schedule ETA prewarm for route ${route.id}:`, error);
+    });
+}
+
 interface RouteState {
   routes: Route[];
   isLoading: boolean;
@@ -168,6 +186,7 @@ export const useRouteStore = create<RouteState>((set, get) => ({
     // Detect and store climbs
     const { detectAndStoreClimbs } = await import("@/services/climbDetector");
     await detectAndStoreClimbs(route.id, parsed.points);
+    scheduleRouteETAPrewarm(route, parsed.points);
 
     await get().loadRouteMetadata();
     return route;

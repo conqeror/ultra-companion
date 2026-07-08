@@ -15,6 +15,7 @@ import type {
   Route,
   RoutePoint,
   RouteWithPoints,
+  RelativeETAScope,
   StarredEntityType,
   StarredItem,
 } from "@/types";
@@ -53,6 +54,24 @@ type RawPOI = Omit<POI, "source" | "category" | "tags"> & {
 
 type RawStarredItem = Omit<StarredItem, "entityType"> & {
   entityType: string;
+};
+
+export interface RelativeETACacheRecord {
+  cacheKey: string;
+  scope: RelativeETAScope;
+  scopeId: string;
+  signature: string;
+  powerConfigKey: string;
+  algorithmVersion: number;
+  pointCount: number;
+  totalDurationSeconds: number;
+  cumulativeSeconds: Uint8Array;
+  updatedAt: string;
+}
+
+type RawRelativeETACacheRecord = Omit<RelativeETACacheRecord, "scope" | "cumulativeSeconds"> & {
+  scope: string;
+  cumulativeSeconds: Uint8Array | ArrayBuffer | number[];
 };
 
 let databasePromise: Promise<SQLiteDatabase> | null = null;
@@ -126,6 +145,41 @@ function normalizeStarredItem(row: RawStarredItem): StarredItem {
     ...row,
     entityType: row.entityType as StarredEntityType,
   };
+}
+
+function toUint8Array(value: Uint8Array | ArrayBuffer | number[]): Uint8Array {
+  if (value instanceof Uint8Array) return value;
+  if (value instanceof ArrayBuffer) return new Uint8Array(value);
+  return new Uint8Array(value);
+}
+
+function normalizeRelativeETACacheRecord(row: RawRelativeETACacheRecord): RelativeETACacheRecord {
+  return {
+    ...row,
+    scope: row.scope === "collection" ? "collection" : "route",
+    cumulativeSeconds: toUint8Array(row.cumulativeSeconds),
+  };
+}
+
+async function ensureRelativeETACacheSchema(): Promise<void> {
+  await (
+    await getWebSQLiteDatabase()
+  ).execAsync(`
+    CREATE TABLE IF NOT EXISTS relative_eta_cache (
+      cacheKey text PRIMARY KEY NOT NULL,
+      scope text NOT NULL,
+      scopeId text NOT NULL,
+      signature text NOT NULL,
+      powerConfigKey text NOT NULL,
+      algorithmVersion integer NOT NULL,
+      pointCount integer NOT NULL,
+      totalDurationSeconds real NOT NULL,
+      cumulativeSeconds blob NOT NULL,
+      updatedAt text NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_relative_eta_cache_scope
+      ON relative_eta_cache (scope, scopeId);
+  `);
 }
 
 function placeholders(count: number): string {
@@ -265,6 +319,71 @@ export async function getPlanningMetadata(key: string): Promise<string | null> {
   );
 }
 
+// --- Derived Data CRUD ---
+
+export async function getRelativeETACache(
+  cacheKey: string,
+): Promise<RelativeETACacheRecord | null> {
+  await ensureRelativeETACacheSchema();
+  const row = await getFirst<RawRelativeETACacheRecord>(
+    `SELECT cacheKey, scope, scopeId, signature, powerConfigKey, algorithmVersion,
+            pointCount, totalDurationSeconds, cumulativeSeconds, updatedAt
+     FROM relative_eta_cache
+     WHERE cacheKey = ?`,
+    [cacheKey],
+  );
+  return row ? normalizeRelativeETACacheRecord(row) : null;
+}
+
+export async function upsertRelativeETACache(record: RelativeETACacheRecord): Promise<void> {
+  await ensureRelativeETACacheSchema();
+  await run(
+    `INSERT INTO relative_eta_cache (
+       cacheKey, scope, scopeId, signature, powerConfigKey, algorithmVersion,
+       pointCount, totalDurationSeconds, cumulativeSeconds, updatedAt
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(cacheKey) DO UPDATE SET
+       scope = excluded.scope,
+       scopeId = excluded.scopeId,
+       signature = excluded.signature,
+       powerConfigKey = excluded.powerConfigKey,
+       algorithmVersion = excluded.algorithmVersion,
+       pointCount = excluded.pointCount,
+       totalDurationSeconds = excluded.totalDurationSeconds,
+       cumulativeSeconds = excluded.cumulativeSeconds,
+       updatedAt = excluded.updatedAt`,
+    [
+      record.cacheKey,
+      record.scope,
+      record.scopeId,
+      record.signature,
+      record.powerConfigKey,
+      record.algorithmVersion,
+      record.pointCount,
+      record.totalDurationSeconds,
+      record.cumulativeSeconds,
+      record.updatedAt,
+    ],
+  );
+}
+
+export async function deleteRelativeETACache(
+  scope: RelativeETAScope,
+  scopeId: string,
+): Promise<void> {
+  await ensureRelativeETACacheSchema();
+  await run("DELETE FROM relative_eta_cache WHERE scope = ? AND scopeId = ?", [scope, scopeId]);
+}
+
+export async function clearRelativeETACaches(scopeId?: string): Promise<void> {
+  await ensureRelativeETACacheSchema();
+  if (scopeId) {
+    await run("DELETE FROM relative_eta_cache WHERE scopeId = ?", [scopeId]);
+    return;
+  }
+  await run("DELETE FROM relative_eta_cache");
+}
+
 // --- Route CRUD ---
 
 export async function insertRoute(route: Route, points: RoutePoint[]): Promise<void> {
@@ -362,6 +481,7 @@ export async function deleteRoute(routeId: string): Promise<void> {
     );
     await database.runAsync("DELETE FROM routes WHERE id = ?", [routeId]);
   });
+  await deleteRelativeETACache("route", routeId);
 }
 
 export async function updateRouteVisibility(routeId: string, isVisible: boolean): Promise<void> {
@@ -659,6 +779,7 @@ export async function getAllCollections(): Promise<Collection[]> {
 
 export async function deleteCollection(collectionId: string): Promise<void> {
   await run("DELETE FROM collections WHERE id = ?", [collectionId]);
+  await deleteRelativeETACache("collection", collectionId);
 }
 
 export async function renameCollection(collectionId: string, name: string): Promise<void> {

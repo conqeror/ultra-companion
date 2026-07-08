@@ -1,5 +1,5 @@
 import React from "react";
-import { View, TouchableOpacity, useWindowDimensions } from "react-native";
+import { ActivityIndicator, View, TouchableOpacity, useWindowDimensions } from "react-native";
 import { Activity, Clock3, CloudSun, MapPin, Mountain } from "lucide-react-native";
 import Animated, {
   useSharedValue,
@@ -11,7 +11,9 @@ import Animated, {
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useThemeColors } from "@/theme";
+import { Text } from "@/components/ui/text";
 import { useClimbStore } from "@/store/climbStore";
+import { useEtaStore } from "@/store/etaStore";
 import { usePanelStore } from "@/store/panelStore";
 import { SHEET_COMPACT_RATIO, SHEET_EXPANDED_RATIO } from "@/constants";
 import ProfileTabContent from "./ProfileTabContent";
@@ -30,6 +32,7 @@ const DRAG_HANDLE_HIT_WIDTH = 160;
 /** Visible icon rail height before the safe-area inset */
 const TAB_BAR_HEIGHT = 50;
 const TAB_BAR_SAFE_AREA_OVERLAP = 24;
+const ETA_STATUS_HEIGHT = 30;
 
 const PANEL_ICON_STROKE_WIDTH = 2;
 
@@ -80,6 +83,10 @@ function TabbedBottomPanel({ activeData }: TabbedBottomPanelProps) {
   const setIsExpanded = usePanelStore((s) => s.setIsExpanded);
   const isExpanded = usePanelStore((s) => s.isExpanded);
   const setSelectedClimb = useClimbStore((s) => s.setSelectedClimb);
+  const etaStatus = useEtaStore((s) => s.etaStatus);
+  const etaProgress = useEtaStore((s) => s.etaProgress);
+  const etaRouteId = useEtaStore((s) => s.routeId);
+  const cumulativeTime = useEtaStore((s) => s.cumulativeTime);
 
   const handleTabPress = React.useCallback(
     (tab: PanelTab) => {
@@ -148,6 +155,19 @@ function TabbedBottomPanel({ activeData }: TabbedBottomPanelProps) {
   const compactContentHeight = Math.max(0, compactHeight - tabBarHeight - DRAG_HANDLE_HEIGHT);
   const expandedContentHeight = Math.max(0, expandedHeight - tabBarHeight - DRAG_HANDLE_HEIGHT);
   const effectiveContentHeight = isExpanded ? expandedContentHeight : compactContentHeight;
+  const showETAStatus =
+    !!activeData &&
+    etaRouteId === activeData.id &&
+    !cumulativeTime &&
+    (etaStatus === "loading" || etaStatus === "computing");
+  const etaBodyHeight = Math.max(
+    0,
+    effectiveContentHeight - (showETAStatus ? ETA_STATUS_HEIGHT : 0),
+  );
+  const etaLabel =
+    etaStatus === "computing" && etaProgress
+      ? `Calculating ETA... ${Math.round((etaProgress.computedPoints / Math.max(1, etaProgress.totalPoints)) * 100)}%`
+      : "Calculating ETA...";
 
   return (
     <View
@@ -224,17 +244,30 @@ function TabbedBottomPanel({ activeData }: TabbedBottomPanelProps) {
 
           {/* Content — clips to available height */}
           <View style={{ height: effectiveContentHeight, overflow: "hidden" }}>
-            {panelTab === "profile" && (
-              <ProfileTabContent
-                activeData={activeData}
-                width={screenWidth}
-                height={effectiveContentHeight}
-              />
+            {showETAStatus && (
+              <View
+                className="flex-row items-center justify-center gap-2 border-b border-border-subtle"
+                style={{ height: ETA_STATUS_HEIGHT, backgroundColor: colors.surfaceRaised }}
+              >
+                <ActivityIndicator size="small" color={colors.accent} />
+                <Text className="text-[13px] font-barlow-medium text-muted-foreground">
+                  {etaLabel}
+                </Text>
+              </View>
             )}
-            {panelTab === "upcoming" && <UpcomingTabContent activeData={activeData} />}
-            {panelTab === "weather" && <WeatherPanel activeData={activeData} />}
-            {panelTab === "climbs" && <ClimbTabContent activeData={activeData} />}
-            {panelTab === "pois" && <POITabContent activeData={activeData} />}
+            <View style={{ height: etaBodyHeight, overflow: "hidden" }}>
+              {panelTab === "profile" && (
+                <ProfileTabContent
+                  activeData={activeData}
+                  width={screenWidth}
+                  height={etaBodyHeight}
+                />
+              )}
+              {panelTab === "upcoming" && <UpcomingTabContent activeData={activeData} />}
+              {panelTab === "weather" && <WeatherPanel activeData={activeData} />}
+              {panelTab === "climbs" && <ClimbTabContent activeData={activeData} />}
+              {panelTab === "pois" && <POITabContent activeData={activeData} />}
+            </View>
           </View>
         </View>
       </Animated.View>

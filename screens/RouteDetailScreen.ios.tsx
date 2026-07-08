@@ -191,7 +191,13 @@ export default function RouteDetailScreen() {
         </View>
 
         {/* Data: Map tiles, Google Places, OSM */}
-        <DataSection routeId={id!} points={route.points} />
+        <DataSection
+          routeId={id!}
+          points={route.points}
+          totalDistanceMeters={route.totalDistanceMeters}
+          totalAscentMeters={route.totalAscentMeters}
+          totalDescentMeters={route.totalDescentMeters}
+        />
 
         {/* Progress (if snapped) */}
         {currentDistanceMeters != null && elevProgress && (

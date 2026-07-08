@@ -3,6 +3,7 @@ import {
   text,
   integer,
   real,
+  blob,
   index,
   unique,
   primaryKey,
@@ -16,6 +17,25 @@ export const planningMetadata = sqliteTable("planning_metadata", {
   value: text("value").notNull(),
   updatedAt: text("updatedAt").notNull(),
 });
+
+// --- Derived Data ---
+
+export const relativeEtaCache = sqliteTable(
+  "relative_eta_cache",
+  {
+    cacheKey: text("cacheKey").primaryKey(),
+    scope: text("scope").notNull(),
+    scopeId: text("scopeId").notNull(),
+    signature: text("signature").notNull(),
+    powerConfigKey: text("powerConfigKey").notNull(),
+    algorithmVersion: integer("algorithmVersion").notNull(),
+    pointCount: integer("pointCount").notNull(),
+    totalDurationSeconds: real("totalDurationSeconds").notNull(),
+    cumulativeSeconds: blob("cumulativeSeconds", { mode: "buffer" }).notNull().$type<Uint8Array>(),
+    updatedAt: text("updatedAt").notNull(),
+  },
+  (table) => [index("idx_relative_eta_cache_scope").on(table.scope, table.scopeId)],
+);
 
 // --- Climbs ---
 

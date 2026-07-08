@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { View, Alert } from "react-native";
 import { Text } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
@@ -6,12 +6,20 @@ import type { POIFetchedSource, RoutePoint } from "@/types";
 import { poiDiscoveryCategoriesForSource } from "@/constants";
 import { usePoiStore, DEFAULT_SOURCE_INFO, type SourceInfo } from "@/store/poiStore";
 import { useOfflineStore } from "@/store/offlineStore";
+import { useEtaStore } from "@/store/etaStore";
 import { formatFileSize } from "@/utils/formatters";
 import { estimateDownloadSize } from "@/services/offlineTiles";
+import {
+  buildRelativeETACacheDescriptor,
+  type RelativeETAInput,
+} from "@/services/relativeEtaCache";
 
 interface DataSectionProps {
   routeId: string;
   points: RoutePoint[];
+  totalDistanceMeters: number;
+  totalAscentMeters: number;
+  totalDescentMeters: number;
 }
 
 function formatDate(iso: string): string {
@@ -27,7 +35,28 @@ function isSourceReady(info: SourceInfo): boolean {
   return info.status === "done" || info.count > 0;
 }
 
-export default function DataSection({ routeId, points }: DataSectionProps) {
+function etaSubtitle(
+  status: string,
+  progress?: { computedPoints: number; totalPoints: number } | null,
+) {
+  if (status === "ready") return "Ready";
+  if (status === "loading") return "Loading...";
+  if (status === "computing") {
+    if (!progress) return "Calculating...";
+    const pct = Math.round((progress.computedPoints / Math.max(1, progress.totalPoints)) * 100);
+    return `Calculating... ${pct}%`;
+  }
+  if (status === "error") return "Failed";
+  return "Not cached";
+}
+
+export default function DataSection({
+  routeId,
+  points,
+  totalDistanceMeters,
+  totalAscentMeters,
+  totalDescentMeters,
+}: DataSectionProps) {
   const [isPreparingOffline, setIsPreparingOffline] = useState(false);
 
   // Map tiles state
@@ -39,6 +68,48 @@ export default function DataSection({ routeId, points }: DataSectionProps) {
   const deleteTiles = useOfflineStore((s) => s.deleteOfflineData);
   const tilesReady = tileInfo.status === "complete";
   const tilesDownloading = tileInfo.status === "downloading";
+
+  // ETA derived-data state
+  const powerConfig = useEtaStore((s) => s.powerConfig);
+  const activeCacheKey = useEtaStore((s) => s.activeCacheKey);
+  const activeETAStatus = useEtaStore((s) => s.etaStatus);
+  const activeETAProgress = useEtaStore((s) => s.etaProgress);
+  const activeETAError = useEtaStore((s) => s.etaError);
+  const cacheStates = useEtaStore((s) => s.cacheStates);
+  const prewarmRelativeETA = useEtaStore((s) => s.prewarmRelativeETA);
+  const ensureRelativeETA = useEtaStore((s) => s.ensureRelativeETA);
+
+  const etaInput = useMemo<RelativeETAInput>(
+    () => ({
+      scope: "route",
+      scopeId: routeId,
+      points,
+      totalDistanceMeters,
+      totalAscentMeters,
+      totalDescentMeters,
+    }),
+    [points, routeId, totalAscentMeters, totalDescentMeters, totalDistanceMeters],
+  );
+  const etaDescriptor = useMemo(
+    () => buildRelativeETACacheDescriptor(etaInput, powerConfig),
+    [etaInput, powerConfig],
+  );
+  const etaCacheState = cacheStates[etaDescriptor.cacheKey];
+  const etaStatus =
+    etaDescriptor.cacheKey === activeCacheKey ? activeETAStatus : (etaCacheState?.status ?? "idle");
+  const etaProgress =
+    etaDescriptor.cacheKey === activeCacheKey
+      ? activeETAProgress
+      : (etaCacheState?.progress ?? null);
+  const etaError =
+    etaDescriptor.cacheKey === activeCacheKey ? activeETAError : (etaCacheState?.error ?? null);
+  const etaReady = etaStatus === "ready";
+
+  useEffect(() => {
+    if (points.length === 0) return;
+    if (etaStatus === "ready" || etaStatus === "loading" || etaStatus === "computing") return;
+    prewarmRelativeETA(etaInput);
+  }, [etaInput, etaStatus, points.length, prewarmRelativeETA]);
 
   // POI state — subscribe to raw state so Zustand re-renders on changes
   const osmInfo = usePoiStore((s) => s.sourceInfo[routeId]?.osm) ?? DEFAULT_SOURCE_INFO;
@@ -58,7 +129,7 @@ export default function DataSection({ routeId, points }: DataSectionProps) {
   const googleFetching = googleInfo.status === "fetching";
   const osmReady = !osmDiscoveryEnabled || isSourceReady(osmInfo);
   const googleReady = !googleDiscoveryEnabled || isSourceReady(googleInfo);
-  const routeOfflineReady = tilesReady && osmReady && googleReady;
+  const routeOfflineReady = etaReady && tilesReady && osmReady && googleReady;
   const hasBusySource = osmFetching || googleFetching;
   const prepBusy = isPreparingOffline || tilesDownloading || hasBusySource;
 
@@ -76,6 +147,10 @@ export default function DataSection({ routeId, points }: DataSectionProps) {
       { text: "Keep", style: "cancel" },
       { text: "Delete", style: "destructive", onPress: () => deleteTiles(routeId) },
     ]);
+  };
+
+  const handleRetryETA = () => {
+    void ensureRelativeETA(etaInput);
   };
 
   const handleCancelTiles = () => {
@@ -103,8 +178,8 @@ export default function DataSection({ routeId, points }: DataSectionProps) {
           </Text>
           <Text className="text-[13px] text-muted-foreground font-barlow mt-1">
             {routeOfflineReady
-              ? "Map tiles and enabled POI sources ready"
-              : "Map tiles + missing enabled POI sources"}
+              ? "ETA, map tiles, and enabled POI sources ready"
+              : "ETA model + map tiles + missing enabled POI sources"}
           </Text>
         </View>
         <Button
@@ -120,6 +195,26 @@ export default function DataSection({ routeId, points }: DataSectionProps) {
           }
         />
       </View>
+
+      {/* Relative ETA */}
+      <DataRow
+        title="ETA model"
+        subtitle={etaSubtitle(etaStatus, etaProgress)}
+        timestamp={null}
+        error={etaStatus === "error" ? etaError : null}
+        progress={
+          etaStatus === "computing" && etaProgress
+            ? (etaProgress.computedPoints / Math.max(1, etaProgress.totalPoints)) * 100
+            : undefined
+        }
+      />
+      {etaStatus === "error" && (
+        <View className="flex-row px-4 mb-4 gap-3">
+          <View className="flex-1">
+            <Button size="sm" variant="secondary" onPress={handleRetryETA} label="Retry ETA" />
+          </View>
+        </View>
+      )}
 
       {/* Map Tiles */}
       <DataRow

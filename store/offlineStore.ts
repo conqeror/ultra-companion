@@ -3,7 +3,7 @@ import { addNetworkStateListener, getNetworkStateAsync } from "expo-network";
 import { createKeyValueStorage, type KeyValueStorage } from "@/lib/keyValueStorage";
 import type { OfflineRouteInfo, RoutePoint } from "@/types";
 import { poiDiscoveryCategoriesForSource } from "@/constants";
-import { getPOICountsBySource } from "@/db/database";
+import { getPOICountsBySource, getRoute } from "@/db/database";
 import {
   downloadRouteTiles,
   deleteRoutePacks,
@@ -71,6 +71,31 @@ function nextDownloadGeneration(routeId: string): number {
 
 function isCurrentDownload(routeId: string, generation: number): boolean {
   return downloadGenerations.get(routeId) === generation;
+}
+
+async function ensureRouteETAForOffline(routeId: string, points: RoutePoint[]): Promise<void> {
+  if (points.length === 0) return;
+
+  try {
+    const [{ useEtaStore }, route] = await Promise.all([
+      import("@/store/etaStore"),
+      getRoute(routeId).catch((error) => {
+        console.warn(`Failed to read route metadata before ETA prep for ${routeId}:`, error);
+        return null;
+      }),
+    ]);
+    const lastPoint = points[points.length - 1];
+    await useEtaStore.getState().ensureRelativeETA({
+      scope: "route",
+      scopeId: routeId,
+      points,
+      totalDistanceMeters: route?.totalDistanceMeters ?? lastPoint.distanceFromStartMeters,
+      totalAscentMeters: route?.totalAscentMeters ?? null,
+      totalDescentMeters: route?.totalDescentMeters ?? null,
+    });
+  } catch (error) {
+    console.warn(`Failed to prepare ETA cache for route ${routeId}:`, error);
+  }
 }
 
 export const useOfflineStore = create<OfflineState>((set, get) => ({
@@ -167,6 +192,8 @@ export const useOfflineStore = create<OfflineState>((set, get) => ({
     const { usePoiStore } = await import("@/store/poiStore");
     const poiStore = usePoiStore.getState();
     let counts = { osm: 0, google: 0 };
+
+    await ensureRouteETAForOffline(routeId, points);
 
     try {
       counts = await getPOICountsBySource(routeId);

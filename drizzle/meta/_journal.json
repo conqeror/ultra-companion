@@ -43,6 +43,13 @@
       "when": 1777986759000,
       "tag": "0005_add_planning_metadata",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1777986760000,
+      "tag": "0006_add_relative_eta_cache",
+      "breakpoints": true
     }
   ]
 }

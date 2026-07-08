@@ -17,10 +17,12 @@ import type {
   getRouteEndpoints,
   getRoutePoints,
   getRouteWithPoints,
+  getRelativeETACache,
   insertCollectionSegment,
   insertCollection,
   insertPOIs,
   insertRoute,
+  upsertRelativeETACache,
   setActiveRoute,
   setRoutesVisible,
   setActiveCollection,
@@ -36,6 +38,8 @@ import type {
   getMaxSegmentPosition,
   selectVariant,
   deleteCollectionSegment,
+  deleteRelativeETACache,
+  clearRelativeETACaches,
 } from "@/db/database";
 
 export const databaseMocks = {
@@ -58,11 +62,13 @@ export const databaseMocks = {
   getRouteEndpoints: vi.fn<typeof getRouteEndpoints>(),
   getRoutePoints: vi.fn<typeof getRoutePoints>(),
   getRouteWithPoints: vi.fn<typeof getRouteWithPoints>(),
+  getRelativeETACache: vi.fn<typeof getRelativeETACache>(),
   getMaxSegmentPosition: vi.fn<typeof getMaxSegmentPosition>(),
   insertCollection: vi.fn<typeof insertCollection>(),
   insertCollectionSegment: vi.fn<typeof insertCollectionSegment>(),
   insertPOIs: vi.fn<typeof insertPOIs>(),
   insertRoute: vi.fn<typeof insertRoute>(),
+  upsertRelativeETACache: vi.fn<typeof upsertRelativeETACache>(),
   setActiveRoute: vi.fn<typeof setActiveRoute>(),
   setActiveCollection: vi.fn<typeof setActiveCollection>(),
   setRoutesVisible: vi.fn<typeof setRoutesVisible>(),
@@ -75,6 +81,8 @@ export const databaseMocks = {
   updateCollectionPlannedStart: vi.fn<typeof updateCollectionPlannedStart>(),
   renameCollection: vi.fn<typeof renameCollection>(),
   selectVariant: vi.fn<typeof selectVariant>(),
+  deleteRelativeETACache: vi.fn<typeof deleteRelativeETACache>(),
+  clearRelativeETACaches: vi.fn<typeof clearRelativeETACaches>(),
 };
 
 export function resetDatabaseMocks(): void {
@@ -97,11 +105,13 @@ export function resetDatabaseMocks(): void {
   databaseMocks.getRouteEndpoints.mockResolvedValue(null);
   databaseMocks.getRoutePoints.mockResolvedValue([]);
   databaseMocks.getRouteWithPoints.mockResolvedValue(null);
+  databaseMocks.getRelativeETACache.mockResolvedValue(null);
   databaseMocks.getMaxSegmentPosition.mockResolvedValue(-1);
   databaseMocks.insertCollection.mockResolvedValue(undefined);
   databaseMocks.insertCollectionSegment.mockResolvedValue(undefined);
   databaseMocks.insertPOIs.mockResolvedValue(undefined);
   databaseMocks.insertRoute.mockResolvedValue(undefined);
+  databaseMocks.upsertRelativeETACache.mockResolvedValue(undefined);
   databaseMocks.setActiveRoute.mockResolvedValue(undefined);
   databaseMocks.setActiveCollection.mockResolvedValue(undefined);
   databaseMocks.setRoutesVisible.mockResolvedValue(undefined);
@@ -114,4 +124,6 @@ export function resetDatabaseMocks(): void {
   databaseMocks.updateCollectionPlannedStart.mockResolvedValue(undefined);
   databaseMocks.renameCollection.mockResolvedValue(undefined);
   databaseMocks.selectVariant.mockResolvedValue(undefined);
+  databaseMocks.deleteRelativeETACache.mockResolvedValue(undefined);
+  databaseMocks.clearRelativeETACaches.mockResolvedValue(undefined);
 }

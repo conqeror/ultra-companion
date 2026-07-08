@@ -23,6 +23,7 @@ import TabbedBottomPanel from "./TabbedBottomPanel";
 import { getWebMapCameraPadding } from "./webPanelLayout";
 import { displayPOIsForActiveRoute } from "@/services/activePOIs";
 import { computeCachedRouteTotalETA } from "@/services/etaCalculator";
+import { stitchedSegmentsCacheSignature } from "@/services/relativeEtaCache";
 import { resolveActiveRouteProgress } from "@/utils/routeProgress";
 import { plannedStopsFromPOIs } from "@/services/plannedStops";
 import { distanceBucketKey, WEATHER_PROGRESS_BUCKET_METERS } from "@/utils/distanceBuckets";
@@ -54,13 +55,7 @@ import {
 import { formatDistance, formatDuration, formatElevation, formatETA } from "@/utils/formatters";
 import { measureSync } from "@/utils/perfMarks";
 import { pickRouteRecords } from "@/utils/routeScopedRecords";
-import type {
-  CollectionSegmentWithRoute,
-  RoutePoint,
-  StitchedSegmentInfo,
-  UnitSystem,
-  UserPosition,
-} from "@/types";
+import type { CollectionSegmentWithRoute, RoutePoint, UnitSystem, UserPosition } from "@/types";
 
 interface VariantMetric {
   distanceMeters: number;
@@ -400,24 +395,6 @@ function plannedStopsSignature(
     .join(",");
 }
 
-function stitchedSegmentsSignature(segments: readonly StitchedSegmentInfo[] | null | undefined) {
-  if (!segments?.length) return "none";
-  return segments
-    .map((segment) =>
-      [
-        segment.position,
-        segment.routeId,
-        segment.variantKind,
-        segment.baseRouteId ?? "base:none",
-        segment.replaceStartDistanceMeters ?? "start:none",
-        segment.replaceEndDistanceMeters ?? "end:none",
-        Math.round(segment.distanceOffsetMeters),
-        Math.round(segment.segmentDistanceMeters),
-      ].join(":"),
-    )
-    .join("|");
-}
-
 export default function MapScreen() {
   const themeColors = useThemeColors();
   const mapStyle = useMapStyle();
@@ -471,7 +448,7 @@ export default function MapScreen() {
     (s) => s.getCollectionSegmentsWithRoutes,
   );
   const loadPOIs = usePoiStore((s) => s.loadPOIs);
-  const computeETAForRoute = useEtaStore((s) => s.computeETAForRoute);
+  const ensureRelativeETA = useEtaStore((s) => s.ensureRelativeETA);
   const cumulativeTime = useEtaStore((s) => s.cumulativeTime);
   const powerConfig = useEtaStore((s) => s.powerConfig);
   const fetchWeather = useWeatherStore((s) => s.fetchWeather);
@@ -508,7 +485,7 @@ export default function MapScreen() {
   const plannedStopsKey = useMemo(() => plannedStopsSignature(plannedStops), [plannedStops]);
   const activeRouteIdsKey = useMemo(() => activeRouteIds.join(","), [activeRouteIds]);
   const activeSegmentsKey = useMemo(
-    () => stitchedSegmentsSignature(activeData?.segments),
+    () => stitchedSegmentsCacheSignature(activeData?.segments),
     [activeData?.segments],
   );
   const activeRouteProgress = useMemo(
@@ -691,14 +668,28 @@ export default function MapScreen() {
   }, [activeRouteIds, activeRouteIdsKey, loadPOIs, loadClimbs]);
 
   useEffect(() => {
-    if (activeData && activeRoutePoints?.length) {
-      measureSync("map.activeETAEffect", () =>
-        computeETAForRoute(activeData.id, activeRoutePoints),
-      );
-    }
-    // Intentional: fire only when id/points change; full activeData reference not needed
+    if (!activeData || !activeRoutePoints?.length) return;
+    void ensureRelativeETA({
+      scope: activeData.type,
+      scopeId: activeData.id,
+      points: activeRoutePoints,
+      totalDistanceMeters: activeData.totalDistanceMeters,
+      totalAscentMeters: activeData.totalAscentMeters,
+      totalDescentMeters: activeData.totalDescentMeters,
+      segmentsSignature: activeSegmentsKey,
+    });
+    // Intentional: depend on scalar active route fields; the full activeData object churns.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeData?.id, activeRoutePoints, computeETAForRoute]);
+  }, [
+    activeData?.id,
+    activeData?.type,
+    activeRoutePoints,
+    activeData?.totalDistanceMeters,
+    activeData?.totalAscentMeters,
+    activeData?.totalDescentMeters,
+    activeSegmentsKey,
+    ensureRelativeETA,
+  ]);
 
   // Fetch weather when active context + snapped position + ETA are available (and online)
   useEffect(() => {

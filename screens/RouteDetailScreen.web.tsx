@@ -10,6 +10,7 @@ import { useSettingsStore } from "@/store/settingsStore";
 import { formatDistance, formatElevation } from "@/utils/formatters";
 import type { RouteWithPoints } from "@/types";
 import RoutePreviewMap, { type RoutePreviewMapLayer } from "@/components/map/RoutePreviewMap";
+import DataSection from "@/components/route/DataSection";
 
 export default function RouteDetailWebScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -99,6 +100,14 @@ export default function RouteDetailWebScreen() {
         <Button className="min-h-[52px]" onPress={handleOpenOnMap}>
           <Text className="font-barlow-semibold text-primary-foreground">Open on map</Text>
         </Button>
+
+        <DataSection
+          routeId={route.id}
+          points={route.points}
+          totalDistanceMeters={route.totalDistanceMeters}
+          totalAscentMeters={route.totalAscentMeters}
+          totalDescentMeters={route.totalDescentMeters}
+        />
       </ScrollView>
     </>
   );

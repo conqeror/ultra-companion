@@ -219,6 +219,15 @@ export interface ETAResult {
   eta: Date;
 }
 
+export type RelativeETAScope = "route" | "collection";
+
+export type RelativeETAStatus = "idle" | "loading" | "computing" | "ready" | "error";
+
+export interface RelativeETAProgress {
+  computedPoints: number;
+  totalPoints: number;
+}
+
 export interface ParsedRoute {
   name: string;
   points: RoutePoint[];

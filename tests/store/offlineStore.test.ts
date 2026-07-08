@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildRoutePoint } from "@/tests/fixtures/route";
 import { databaseMocks } from "@/tests/mocks/database";
 import { offlineTilesMocks } from "@/tests/mocks/offlineTiles";
+import { DEFAULT_POWER_CONFIG } from "@/constants";
 
 const mocks = vi.hoisted(() => ({
   fetchSource: vi.fn(),
@@ -13,17 +14,48 @@ vi.mock("@/store/poiStore", () => ({
     getState: () => ({
       fetchSource: mocks.fetchSource,
       discoveryCategories: mocks.discoveryCategories,
+      pois: {},
+    }),
+  },
+}));
+
+vi.mock("@/store/routeStore", () => ({
+  useRouteStore: {
+    getState: () => ({
+      snappedPosition: null,
+      visibleRoutePoints: {},
+    }),
+  },
+}));
+
+vi.mock("@/store/collectionStore", () => ({
+  useCollectionStore: {
+    getState: () => ({
+      activeStitchedCollection: null,
+      collections: [],
     }),
   },
 }));
 
 import { useOfflineStore } from "@/store/offlineStore";
+import { useEtaStore } from "@/store/etaStore";
 
 const points = [buildRoutePoint(0, 0), buildRoutePoint(1_000, 1)];
 
 describe("offlineStore offline preparation", () => {
   beforeEach(() => {
     useOfflineStore.setState({ routeInfo: {}, isConnected: true });
+    useEtaStore.setState({
+      powerConfig: DEFAULT_POWER_CONFIG,
+      cumulativeTime: null,
+      routeId: null,
+      cachedPoints: null,
+      activeCacheKey: null,
+      etaStatus: "idle",
+      etaProgress: null,
+      etaError: null,
+      cacheStates: {},
+    });
     mocks.fetchSource.mockResolvedValue(undefined);
     mocks.discoveryCategories = ["gas_station", "water"];
     offlineTilesMocks.estimateDownloadSize.mockReturnValue(1234);
@@ -69,6 +101,23 @@ describe("offlineStore offline preparation", () => {
     expect(offlineTilesMocks.downloadRouteTiles).toHaveBeenCalledOnce();
     expect(useOfflineStore.getState().getRouteInfo("r1").status).toBe("complete");
     warn.mockRestore();
+  });
+
+  it("prepares missing ETA cache before POIs and tiles", async () => {
+    databaseMocks.getPOICountsBySource.mockImplementation(async () => {
+      expect(databaseMocks.upsertRelativeETACache).toHaveBeenCalledOnce();
+      return { google: 1, osm: 1 };
+    });
+    offlineTilesMocks.downloadRouteTiles.mockImplementation(
+      async (_routeId, _points, _onProgress, onComplete) => {
+        onComplete();
+      },
+    );
+
+    await useOfflineStore.getState().prepareRouteOffline("r1", points);
+
+    expect(databaseMocks.upsertRelativeETACache).toHaveBeenCalledOnce();
+    expect(offlineTilesMocks.downloadRouteTiles).toHaveBeenCalledOnce();
   });
 
   it("does not restart a tile download that starts while POIs are fetching", async () => {

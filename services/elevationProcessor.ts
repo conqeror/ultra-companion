@@ -37,13 +37,16 @@ export async function reprocessElevationsIfNeeded(): Promise<number> {
   storage.set("version", ELEVATION_PROCESSOR_VERSION);
 
   if (updatedCount > 0) {
-    const [{ clearRouteEtaCaches }, { useRouteStore }, { useClimbStore }] = await Promise.all([
-      import("@/services/etaCalculator"),
-      import("@/store/routeStore"),
-      import("@/store/climbStore"),
-    ]);
+    const [{ clearRouteEtaCaches }, { useEtaStore }, { useRouteStore }, { useClimbStore }] =
+      await Promise.all([
+        import("@/services/etaCalculator"),
+        import("@/store/etaStore"),
+        import("@/store/routeStore"),
+        import("@/store/climbStore"),
+      ]);
 
     clearRouteEtaCaches();
+    await useEtaStore.getState().clearRelativeETACache();
     useRouteStore.setState({ visibleRoutePoints: {} });
     useClimbStore.getState().clearClimbCache();
     await useRouteStore.getState().loadRouteMetadata();
