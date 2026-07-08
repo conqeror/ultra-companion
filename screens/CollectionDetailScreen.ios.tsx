@@ -46,6 +46,7 @@ import AddSavedPOISheet from "@/components/poi/AddSavedPOISheet";
 import type { SavedPOITarget } from "@/services/savedPOIService";
 import { serializeCollectionToGPX } from "@/services/gpxSerializer";
 import { shareGPXFile } from "@/utils/gpxExportShare";
+import { buildCollectionSegmentProfileBoundaries } from "@/utils/collectionSegmentDisplay";
 
 function formatPlannedStart(plannedStartMs: number | null): string {
   if (plannedStartMs == null) return "Not set";
@@ -524,14 +525,9 @@ export default function CollectionDetailScreen() {
       .filter((target) => target.points.length > 0);
   }, [stitched]);
 
-  // Segment boundaries for elevation profile
   const segmentBoundaries = useMemo(() => {
-    if (!stitched?.segments || stitched.segments.length <= 1) return undefined;
-    return stitched.segments.slice(1).map((seg) => ({
-      distanceMeters: seg.distanceOffsetMeters,
-      label: seg.routeName,
-    }));
-  }, [stitched]);
+    return buildCollectionSegmentProfileBoundaries(stitched?.segments);
+  }, [stitched?.segments]);
 
   if (loading) {
     return (

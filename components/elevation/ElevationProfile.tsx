@@ -26,13 +26,9 @@ import { climbDifficultyColor } from "@/constants/climbHelpers";
 import { POI_ICON_MAP } from "@/constants/poiIcons";
 import { measureSync } from "@/utils/perfMarks";
 import { buildClimbTickBoundaries, buildClimbTickDistances } from "@/utils/climbProfile";
+import type { CollectionSegmentProfileBoundary } from "@/utils/collectionSegmentDisplay";
 import type { RoutePoint, UnitSystem, DisplayPOI, DisplayClimb } from "@/types";
 import type { ClimbProfileSegment } from "@/utils/climbProfile";
-
-interface SegmentBoundary {
-  distanceMeters: number;
-  label?: string;
-}
 
 interface ElevationProfileProps {
   points: RoutePoint[];
@@ -56,7 +52,7 @@ interface ElevationProfileProps {
   pois?: DisplayPOI[];
   onPOIPress?: (poi: DisplayPOI) => void;
   /** Vertical boundary lines at segment junctions (for stitched collections) */
-  segmentBoundaries?: SegmentBoundary[];
+  segmentBoundaries?: CollectionSegmentProfileBoundary[];
   climbs?: DisplayClimb[];
   /** Force fit-to-width — disables horizontal scrolling and the overview minimap */
   fitToWidth?: boolean;
@@ -941,18 +937,31 @@ export default function ElevationProfile({
           const localDist = b.distanceMeters - distanceOffsetMeters;
           if (localDist <= 0 || localDist >= totalMeters) return null;
           const bx = xScale(localDist);
+          const labelX = Math.max(4, Math.min(innerWidth - 4, bx));
+          const textAnchor = bx < 18 ? "start" : bx > innerWidth - 18 ? "end" : "middle";
           return (
-            <Line
-              key={`seg-boundary-${b.distanceMeters}`}
-              x1={bx}
-              y1={PADDING.top}
-              x2={bx}
-              y2={axisY}
-              stroke={colors.border}
-              strokeWidth={1}
-              strokeDasharray="3,3"
-              opacity={0.6}
-            />
+            <G key={`seg-boundary-${b.distanceMeters}-${b.label}`}>
+              <Line
+                x1={bx}
+                y1={PADDING.top}
+                x2={bx}
+                y2={axisY}
+                stroke={colors.info}
+                strokeWidth={1.4}
+                strokeDasharray="4,3"
+                opacity={0.78}
+              />
+              <SvgText
+                x={labelX}
+                y={PADDING.top + 10}
+                fill={colors.info}
+                fontSize={10}
+                fontFamily="BarlowSemiCondensed-SemiBold"
+                textAnchor={textAnchor}
+              >
+                {b.label}
+              </SvgText>
+            </G>
           );
         })}
 

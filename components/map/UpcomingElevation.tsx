@@ -7,8 +7,10 @@ import {
   findFirstPointAtOrAfterDistance,
   findNearestPointIndexAtDistance,
 } from "@/utils/geo";
+import { filterCollectionSegmentProfileBoundariesForRange } from "@/utils/collectionSegmentDisplay";
 import { LOOK_BACK_RATIO } from "@/constants";
 import type { RoutePoint, UnitSystem, DisplayPOI, DisplayClimb } from "@/types";
+import type { CollectionSegmentProfileBoundary } from "@/utils/collectionSegmentDisplay";
 
 interface UpcomingElevationProps {
   points: RoutePoint[];
@@ -24,6 +26,8 @@ interface UpcomingElevationProps {
   onPOIPress?: (poi: DisplayPOI) => void;
   /** Climbs to render as shading */
   climbs?: DisplayClimb[];
+  /** Absolute-distance collection segment boundaries to render on the chart */
+  segmentBoundaries?: CollectionSegmentProfileBoundary[];
   /** Force fit-to-width — disables horizontal scrolling and the overview minimap */
   fitToWidth?: boolean;
 }
@@ -38,6 +42,7 @@ export default function UpcomingElevation({
   pois,
   onPOIPress,
   climbs,
+  segmentBoundaries,
   fitToWidth,
 }: UpcomingElevationProps) {
   const {
@@ -111,6 +116,16 @@ export default function UpcomingElevation({
     );
   }, [climbs, offsetMeters, sliceEndDist]);
 
+  const visibleSegmentBoundaries = useMemo(
+    () =>
+      filterCollectionSegmentProfileBoundariesForRange(
+        segmentBoundaries,
+        offsetMeters,
+        sliceEndDist,
+      ),
+    [segmentBoundaries, offsetMeters, sliceEndDist],
+  );
+
   if (slicedPoints.length <= 1) {
     return (
       <View className="flex-1 items-center justify-center">
@@ -132,6 +147,7 @@ export default function UpcomingElevation({
       pois={visiblePOIs}
       onPOIPress={onPOIPress}
       climbs={visibleClimbs}
+      segmentBoundaries={visibleSegmentBoundaries}
       fitToWidth={fitToWidth}
     />
   );

@@ -16,7 +16,7 @@ import {
 import { bucketDistanceForDerivedWork } from "@/utils/distanceBuckets";
 import { getClimbMapBounds, getZoomLevelToFitBounds } from "@/utils/climbGeometry";
 import { resolveActiveClimb } from "@/utils/climbSelect";
-import { MAP_LAYER_ANCHOR_IDS } from "@/constants/mapLayers";
+import { MAP_LAYER_ANCHOR_IDS, MAP_LAYER_IDS } from "@/constants/mapLayers";
 import { pickRouteRecords } from "@/utils/routeScopedRecords";
 import type { DistanceMarkerDistanceRange, DistanceMarkerInterval } from "@/utils/routeMarkers";
 import MapLayerAnchors from "./MapLayerAnchors";
@@ -27,6 +27,7 @@ import ClimbHighlightLayer, { CLIMB_HIGHLIGHT_LINE_LAYER_ID } from "./ClimbHighl
 import ClimbDistanceMarkerLayer from "./ClimbDistanceMarkerLayer";
 import TemperatureRouteOverlay from "./TemperatureRouteOverlay";
 import VariantOverlayLayer, { type VariantOverlay } from "./VariantOverlayLayer";
+import CollectionSegmentLayer from "./CollectionSegmentLayer";
 import type {
   POIMapVisibility,
   DistanceMarkerMode,
@@ -180,6 +181,15 @@ function MapCanvas({
   const overlayStackKey = `${mapStyle.styleKey}-${highlightedClimb?.id ?? "none"}-${
     activeContextKey ?? "none"
   }-markers:${distanceMarkerMode}-${weatherStackKey}-pois:${poiVisibility}`;
+  const hasSegmentedCollectionRoute =
+    activeRoutePoints != null && activeSegments != null && activeSegments.length > 1;
+  const renderedRouteLayers = useMemo(
+    () =>
+      hasSegmentedCollectionRoute
+        ? routeLayers.filter((route) => route.id !== activeDataId)
+        : routeLayers,
+    [activeDataId, hasSegmentedCollectionRoute, routeLayers],
+  );
 
   return (
     <MapboxMapView
@@ -203,7 +213,7 @@ function MapCanvas({
         padding={cameraPadding}
       />
       <MapLayerAnchors key={`map-layer-anchors-${mapStyle.styleKey}`} />
-      {routeLayers.map((route) => (
+      {renderedRouteLayers.map((route) => (
         <RouteLayer
           key={route.key}
           routeId={route.id}
@@ -255,6 +265,16 @@ function MapCanvas({
         aboveLayerID={MAP_LAYER_ANCHOR_IDS.routeMarkerSymbol}
         hiddenDistanceRange={highlightedClimb}
       />
+      {activeRoutePoints && (
+        <CollectionSegmentLayer
+          key={`collection-segments-${overlayStackKey}`}
+          points={activeRoutePoints}
+          segments={activeSegments}
+          lineAboveLayerID={MAP_LAYER_ANCHOR_IDS.routeLine}
+          symbolAboveLayerID={MAP_LAYER_IDS.routeEndpointLabel}
+          dimmed={hasClimbHighlight}
+        />
+      )}
       {(poiVisibility !== "none" || selectedPOI) && activeRouteIds.length > 0 && (
         <POILayer
           key={`pois-${overlayStackKey}`}

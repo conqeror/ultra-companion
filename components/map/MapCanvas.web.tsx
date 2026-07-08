@@ -8,6 +8,7 @@ import * as LucideIcons from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import {
   ACTIVE_ROUTE_COLOR,
+  COLLECTION_SEGMENT_ALTERNATE_ROUTE_COLOR,
   INACTIVE_ROUTE_COLOR,
   POI_BEHIND_THRESHOLD_M,
   POI_CATEGORIES,
@@ -32,8 +33,9 @@ import {
   type DistanceMarkerDistanceRange,
   type DistanceMarkerInterval,
 } from "@/utils/routeMarkers";
-import { routeDistanceMarkerLayerId } from "@/constants/mapLayers";
+import { MAP_LAYER_IDS, routeDistanceMarkerLayerId } from "@/constants/mapLayers";
 import { buildPOIClusterProperties, buildPOIMapFeatureCollections } from "@/utils/poiMapFeatures";
+import { buildCollectionSegmentMapFeatureCollections } from "@/utils/collectionSegmentDisplay";
 import { toDisplayPOIs } from "@/services/displayDistance";
 import { stitchPOIs } from "@/services/stitchingService";
 import {
@@ -658,6 +660,92 @@ function addRouteMarkerLayers(
   });
 }
 
+function addCollectionSegmentLineLayers(
+  map: mapboxgl.Map,
+  lines: GeoJSON.FeatureCollection<GeoJSON.LineString>,
+  colors: ReturnType<typeof useThemeColors>,
+  dimmed: boolean,
+): void {
+  if (lines.features.length === 0) return;
+
+  const isDark = colors.background === "#0E0E0C";
+  upsertSource(map, "collection-segment-line-source", lines);
+  addLayer(map, {
+    id: MAP_LAYER_IDS.collectionSegmentRouteOutline,
+    type: "line",
+    source: "collection-segment-line-source",
+    layout: { "line-cap": "round", "line-join": "round" },
+    paint: {
+      "line-color": isDark ? colors.background : colors.surface,
+      "line-width": isDark ? 9 : 7,
+      "line-opacity": isDark ? 0.95 : 0.85,
+    },
+  });
+  addLayer(map, {
+    id: MAP_LAYER_IDS.collectionSegmentRouteLine,
+    type: "line",
+    source: "collection-segment-line-source",
+    layout: { "line-cap": "round", "line-join": "round" },
+    paint: {
+      "line-color": [
+        "match",
+        ["get", "colorRole"],
+        "primary",
+        ACTIVE_ROUTE_COLOR,
+        "alternate",
+        COLLECTION_SEGMENT_ALTERNATE_ROUTE_COLOR,
+        ACTIVE_ROUTE_COLOR,
+      ],
+      "line-width": isDark ? 5.5 : 4.5,
+      "line-opacity": dimmed ? 0.6 : 1,
+    },
+  });
+}
+
+function addCollectionSegmentBoundaryLayers(
+  map: mapboxgl.Map,
+  boundaries: GeoJSON.FeatureCollection<GeoJSON.Point>,
+  colors: ReturnType<typeof useThemeColors>,
+  dimmed: boolean,
+): void {
+  if (boundaries.features.length === 0) return;
+
+  upsertSource(map, "collection-segment-boundary-source", boundaries);
+  addLayer(map, {
+    id: MAP_LAYER_IDS.collectionSegmentBoundaryOutline,
+    type: "circle",
+    source: "collection-segment-boundary-source",
+    paint: {
+      "circle-radius": 13,
+      "circle-color": colors.surface,
+      "circle-opacity": 0.94,
+    },
+  });
+  addLayer(map, {
+    id: MAP_LAYER_IDS.collectionSegmentBoundaryFill,
+    type: "circle",
+    source: "collection-segment-boundary-source",
+    paint: {
+      "circle-radius": 10,
+      "circle-color": colors.info,
+      "circle-opacity": dimmed ? 0.58 : 0.92,
+    },
+  });
+  addLayer(map, {
+    id: MAP_LAYER_IDS.collectionSegmentBoundaryLabel,
+    type: "symbol",
+    source: "collection-segment-boundary-source",
+    layout: {
+      "text-field": ["get", "label"],
+      "text-size": 10.5,
+      "text-allow-overlap": true,
+      "text-ignore-placement": true,
+      "symbol-sort-key": SORT_KEY_FIELD,
+    },
+    paint: { "text-color": colors.surface },
+  });
+}
+
 function MapCanvas({
   mapRef,
   cameraRef,
@@ -830,6 +918,19 @@ function MapCanvas({
       weatherTemperatureMode,
     ],
   );
+  const collectionSegmentFeatures = useMemo(
+    () => buildCollectionSegmentMapFeatureCollections(activeRoutePoints, activeSegments),
+    [activeRoutePoints, activeSegments],
+  );
+  const hasSegmentedCollectionRoute =
+    activeRoutePoints != null && activeSegments != null && activeSegments.length > 1;
+  const renderedRouteLayers = useMemo(
+    () =>
+      hasSegmentedCollectionRoute
+        ? routeLayers.filter((route) => route.id !== activeDataId)
+        : routeLayers,
+    [activeDataId, hasSegmentedCollectionRoute, routeLayers],
+  );
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -958,6 +1059,11 @@ function MapCanvas({
 
     const removableLayers = [
       ...routeLayers.flatMap((route) => [`route-outline-${route.id}`, `route-line-${route.id}`]),
+      MAP_LAYER_IDS.collectionSegmentBoundaryLabel,
+      MAP_LAYER_IDS.collectionSegmentBoundaryFill,
+      MAP_LAYER_IDS.collectionSegmentBoundaryOutline,
+      MAP_LAYER_IDS.collectionSegmentRouteLine,
+      MAP_LAYER_IDS.collectionSegmentRouteOutline,
       "collection-variant-overlay-outline",
       "collection-variant-overlay-line",
       "collection-variant-overlay-labels",
@@ -990,6 +1096,8 @@ function MapCanvas({
     for (const sourceId of [
       "collection-variant-overlay-source",
       "collection-variant-overlay-label-source",
+      "collection-segment-line-source",
+      "collection-segment-boundary-source",
       "weather-temperature-route-source",
       "weather-temperature-label-source",
       "climb-highlight-source",
@@ -1005,7 +1113,7 @@ function MapCanvas({
     const isDark = colors.background === "#0E0E0C";
     const hasClimbHighlight = climbHighlight.hiddenRange != null;
 
-    for (const route of routeLayers) {
+    for (const route of renderedRouteLayers) {
       if (route.geoJSON.geometry.coordinates.length < 2) continue;
       const sourceId = `route-source-${route.id}`;
       upsertSource(map, sourceId, route.geoJSON);
@@ -1033,6 +1141,8 @@ function MapCanvas({
         },
       });
     }
+
+    addCollectionSegmentLineLayers(map, collectionSegmentFeatures.lines, colors, hasClimbHighlight);
 
     const variantLines: GeoJSON.Feature<GeoJSON.LineString>[] = [];
     const variantLabels: GeoJSON.Feature<GeoJSON.Point>[] = [];
@@ -1207,6 +1317,13 @@ function MapCanvas({
       );
     }
 
+    addCollectionSegmentBoundaryLayers(
+      map,
+      collectionSegmentFeatures.boundaries,
+      colors,
+      hasClimbHighlight,
+    );
+
     if (poiFeatureCollections.clustered.features.length > 0) {
       upsertSource(map, "poi-clustered-source", poiFeatureCollections.clustered, {
         cluster: true,
@@ -1373,9 +1490,11 @@ function MapCanvas({
     activeVariantOverlays,
     climbHighlight,
     colors,
+    collectionSegmentFeatures,
     mapReady,
     poiFeatureCollections,
     pulsingConfig,
+    renderedRouteLayers,
     routeLayers,
     distanceMarkerMode,
     markerIntervalKm,

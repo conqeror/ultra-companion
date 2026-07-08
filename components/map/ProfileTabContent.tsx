@@ -21,6 +21,7 @@ import { toDisplayPOIs } from "@/services/displayDistance";
 import { ridingHorizonMetersForMode, ridingHorizonScopeLabelForMode } from "@/utils/ridingHorizon";
 import { measureSync } from "@/utils/perfMarks";
 import { pickRouteRecords } from "@/utils/routeScopedRecords";
+import { buildCollectionSegmentProfileBoundaries } from "@/utils/collectionSegmentDisplay";
 import UpcomingElevation from "./UpcomingElevation";
 import ElevationProfile from "@/components/elevation/ElevationProfile";
 import type { POI, ActiveRouteData, DisplayClimb } from "@/types";
@@ -128,6 +129,10 @@ export default function ProfileTabContent({
       .sort((a, b) => a.effectiveStartDistanceMeters - b.effectiveStartDistanceMeters)
       .slice(0, MAX_CLIMBS_AHEAD);
   }, [climbsForChart, windowStartDist, windowEndDist]);
+  const segmentBoundaries = useMemo(
+    () => buildCollectionSegmentProfileBoundaries(activeSegments),
+    [activeSegments],
+  );
 
   if (!activeId || !activeRoutePoints?.length) {
     return (
@@ -155,10 +160,6 @@ export default function ProfileTabContent({
     currentDistanceMeters != null
       ? findNearestPointIndexAtDistance(activeRoutePoints, currentDistanceMeters)
       : undefined;
-  const segmentBoundaries = activeSegments?.slice(1).map((segment) => ({
-    distanceMeters: segment.distanceOffsetMeters,
-    label: segment.routeName,
-  }));
 
   return (
     <View style={{ height }}>
@@ -220,6 +221,7 @@ export default function ProfileTabContent({
             height={chartHeight}
             pois={poisForChart}
             climbs={climbsForChart}
+            segmentBoundaries={segmentBoundaries}
             fitToWidth
             onPOIPress={(poi) => {
               setSelectedPOI(poi);

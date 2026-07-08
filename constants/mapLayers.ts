@@ -15,6 +15,11 @@ export const MAP_LAYER_ANCHOR_IDS = {
 } as const;
 
 export const MAP_LAYER_IDS = {
+  collectionSegmentBoundaryFill: "collection-segment-boundary-fill",
+  collectionSegmentBoundaryLabel: "collection-segment-boundary-label",
+  collectionSegmentBoundaryOutline: "collection-segment-boundary-outline",
+  collectionSegmentRouteLine: "collection-segment-route-line",
+  collectionSegmentRouteOutline: "collection-segment-route-outline",
   routeEndpointLabel: "route-endpoint-label",
   weatherTemperatureLabels: "weather-temperature-labels",
   poiIcons: "poi-icons",

@@ -10,6 +10,7 @@ export const MIN_TOUCH_TARGET = 48;
 // Route colors: active stands out, inactive fades back
 export const ACTIVE_ROUTE_COLOR = "#E63946";
 export const INACTIVE_ROUTE_COLOR = "#94A3B8";
+export const COLLECTION_SEGMENT_ALTERNATE_ROUTE_COLOR = "#6A4C93";
 
 // Max points before downsampling elevation chart
 export const ELEVATION_CHART_MAX_POINTS = 500;
