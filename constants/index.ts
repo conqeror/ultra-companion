@@ -223,12 +223,12 @@ export const DEFAULT_POI_CATEGORY_CORRIDOR_WIDTH_M: Record<POICategory, number> 
   gas_station: 1500,
   bakery: 1000,
   toilet_shower: 1000,
-  shelter: 300,
-  camp_site: 5000,
+  shelter: 1000,
+  camp_site: 1000,
   pharmacy: 3000,
   bike_shop: 5000,
-  repair_station: 500,
-  pump_air: 500,
+  repair_station: 1000,
+  pump_air: 1000,
   other: DEFAULT_CORRIDOR_WIDTH_M,
 };
 
