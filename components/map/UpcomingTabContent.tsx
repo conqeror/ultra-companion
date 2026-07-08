@@ -37,9 +37,11 @@ import {
 import { measureSync } from "@/utils/perfMarks";
 import { pickRouteRecords } from "@/utils/routeScopedRecords";
 import {
+  buildUpcomingListItems,
   buildUpcomingRowModels,
-  getUpcomingRowItemType,
+  getUpcomingListItemType,
   resolveUpcomingRowColor,
+  type UpcomingListItemModel,
   type UpcomingRowIcon,
   type UpcomingRowModel,
 } from "@/utils/upcomingRowModels";
@@ -49,12 +51,12 @@ interface UpcomingTabContentProps {
   activeData: ActiveRouteData | null;
 }
 
-function eventKeyExtractor(event: UpcomingRowModel): string {
-  return event.id;
+function upcomingItemKeyExtractor(item: UpcomingListItemModel): string {
+  return item.id;
 }
 
 export default function UpcomingTabContent({ activeData }: UpcomingTabContentProps) {
-  const listRef = useRef<FlashListRef<UpcomingRowModel>>(null);
+  const listRef = useRef<FlashListRef<UpcomingListItemModel>>(null);
   const restoredScrollKeyRef = useRef<string | null>(null);
   const colors = useThemeColors();
   const units = useSettingsStore((s) => s.units);
@@ -154,6 +156,17 @@ export default function UpcomingTabContent({ activeData }: UpcomingTabContentPro
       ),
     [events, derivedCurrentDistanceMeters, units],
   );
+  const upcomingEtaBaseTimeMs = timing.futureStartMs ?? Date.now();
+  const listItems = useMemo(
+    () =>
+      measureSync("upcoming.listItems", () =>
+        buildUpcomingListItems({
+          rows: rowModels,
+          etaBaseTimeMs: upcomingEtaBaseTimeMs,
+        }),
+      ),
+    [rowModels, upcomingEtaBaseTimeMs],
+  );
 
   const horizonETA = useMemo(
     () =>
@@ -178,14 +191,14 @@ export default function UpcomingTabContent({ activeData }: UpcomingTabContentPro
   );
 
   useEffect(() => {
-    if (restoredScrollKeyRef.current === scrollKey || rowModels.length === 0) return;
+    if (restoredScrollKeyRef.current === scrollKey || listItems.length === 0) return;
 
     const offset = usePanelStore.getState().getPanelScrollOffset("upcoming", scrollKey);
     restoredScrollKeyRef.current = scrollKey;
     requestAnimationFrame(() => {
       listRef.current?.scrollToOffset({ offset, animated: false });
     });
-  }, [rowModels.length, scrollKey]);
+  }, [listItems.length, scrollKey]);
 
   const handleScroll = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -206,8 +219,13 @@ export default function UpcomingTabContent({ activeData }: UpcomingTabContentPro
     [setPanelTab, setSelectedClimb, setSelectedPOI],
   );
 
-  const renderEvent = useCallback<ListRenderItem<UpcomingRowModel>>(
-    ({ item }) => <UpcomingEventRow model={item} onPress={handleEventPress} />,
+  const renderItem = useCallback<ListRenderItem<UpcomingListItemModel>>(
+    ({ item }) =>
+      item.itemType === "day-header" ? (
+        <UpcomingDayHeader label={item.label} accessibilityLabel={item.accessibilityLabel} />
+      ) : (
+        <UpcomingEventRow model={item} onPress={handleEventPress} />
+      ),
     [handleEventPress],
   );
 
@@ -223,10 +241,10 @@ export default function UpcomingTabContent({ activeData }: UpcomingTabContentPro
 
       <FlashList
         ref={listRef}
-        data={rowModels}
-        keyExtractor={eventKeyExtractor}
-        renderItem={renderEvent}
-        getItemType={getUpcomingRowItemType}
+        data={listItems}
+        keyExtractor={upcomingItemKeyExtractor}
+        renderItem={renderItem}
+        getItemType={getUpcomingListItemType}
         showsVerticalScrollIndicator={false}
         onScroll={handleScroll}
         scrollEventThrottle={250}
@@ -243,6 +261,26 @@ export default function UpcomingTabContent({ activeData }: UpcomingTabContentPro
           </View>
         }
       />
+    </View>
+  );
+}
+
+function UpcomingDayHeader({
+  label,
+  accessibilityLabel,
+}: {
+  label: string;
+  accessibilityLabel: string;
+}) {
+  return (
+    <View
+      className="items-center bg-surface px-3 pt-2 pb-0.5 border-b border-border-subtle"
+      accessibilityRole="header"
+      accessibilityLabel={accessibilityLabel}
+    >
+      <Text className="text-[11px] font-barlow-semibold text-muted-foreground" numberOfLines={1}>
+        {label}
+      </Text>
     </View>
   );
 }

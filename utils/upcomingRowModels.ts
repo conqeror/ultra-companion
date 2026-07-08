@@ -6,7 +6,14 @@ import {
 } from "@/services/plannedStops";
 import type { UpcomingEvent, UpcomingEventKind } from "@/services/upcomingTimeline";
 import { isOpenAt } from "@/services/openingHoursParser";
-import { formatDistance, formatDuration, formatElevation, formatETA } from "@/utils/formatters";
+import {
+  formatDistance,
+  formatDuration,
+  formatElevation,
+  formatETA,
+  formatUpcomingDayHeaderLabel,
+  localCalendarDayOrdinal,
+} from "@/utils/formatters";
 import type { ThemeColors } from "@/theme";
 import type { UnitSystem } from "@/types";
 
@@ -43,10 +50,25 @@ export interface UpcomingRowModel {
   accessibilityLabel: string;
 }
 
+export interface UpcomingDayHeaderModel {
+  id: string;
+  itemType: "day-header";
+  label: string;
+  accessibilityLabel: string;
+}
+
+export type UpcomingListItemModel = UpcomingRowModel | UpcomingDayHeaderModel;
+export type UpcomingListItemType = UpcomingEventKind | "day-header";
+
 export interface BuildUpcomingRowModelsInput {
   events: readonly UpcomingEvent[];
   currentDistanceMeters: number | null;
   units: UnitSystem;
+}
+
+export interface BuildUpcomingListItemsInput {
+  rows: readonly UpcomingRowModel[];
+  etaBaseTimeMs: number;
 }
 
 interface BuildUpcomingRowModelInput {
@@ -63,12 +85,53 @@ export function buildUpcomingRowModels({
   return events.map((event) => buildUpcomingRowModel({ event, currentDistanceMeters, units }));
 }
 
+export function buildUpcomingListItems({
+  rows,
+  etaBaseTimeMs,
+}: BuildUpcomingListItemsInput): UpcomingListItemModel[] {
+  const items: UpcomingListItemModel[] = [];
+  let currentDayKey: string | null = null;
+
+  for (const row of rows) {
+    const etaDate = row.event.eta?.eta;
+    const dayKey = etaDate ? upcomingDayKey(etaDate) : null;
+
+    if (etaDate && dayKey && dayKey !== currentDayKey) {
+      const dayOrdinal = localCalendarDayOrdinal(etaDate, etaBaseTimeMs);
+      const label = formatUpcomingDayHeaderLabel(etaDate, etaBaseTimeMs);
+      items.push({
+        id: `day:${dayOrdinal}:${dayKey}`,
+        itemType: "day-header",
+        label,
+        accessibilityLabel: label,
+      });
+      currentDayKey = dayKey;
+    }
+
+    items.push(row);
+  }
+
+  return items;
+}
+
 export function getUpcomingRowItemType(item: UpcomingRowModel): UpcomingEventKind {
+  return item.itemType;
+}
+
+export function getUpcomingListItemType(item: UpcomingListItemModel): UpcomingListItemType {
   return item.itemType;
 }
 
 export function resolveUpcomingRowColor(color: UpcomingRowColor, colors: ThemeColorValues): string {
   return color.kind === "theme" ? colors[color.key] : color.value;
+}
+
+function upcomingDayKey(date: Date): string | null {
+  if (Number.isNaN(date.getTime())) return null;
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function buildUpcomingRowModel({

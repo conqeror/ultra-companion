@@ -1,5 +1,22 @@
 import type { UnitSystem } from "@/types";
 
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+const WEEKDAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
+const MONTH_SHORT = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+] as const;
+
 export function formatDistance(meters: number, units: UnitSystem): string {
   if (units === "imperial") {
     const miles = meters / 1609.344;
@@ -28,6 +45,30 @@ export function formatETA(date: Date): string {
   const h = date.getHours().toString().padStart(2, "0");
   const m = date.getMinutes().toString().padStart(2, "0");
   return h + ":" + m;
+}
+
+export function localCalendarDayOrdinal(date: Date, baseDateMs: number): number {
+  if (Number.isNaN(date.getTime()) || Number.isNaN(baseDateMs)) return 1;
+
+  const baseDate = new Date(baseDateMs);
+  if (Number.isNaN(baseDate.getTime())) return 1;
+
+  const dateDay = Date.UTC(date.getFullYear(), date.getMonth(), date.getDate());
+  const baseDay = Date.UTC(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate());
+  return Math.max(1, Math.round((dateDay - baseDay) / MS_PER_DAY) + 1);
+}
+
+export function formatDayAwareETAMarkerLabel(date: Date, baseDateMs: number): string {
+  const time = formatETA(date);
+  const dayOrdinal = localCalendarDayOrdinal(date, baseDateMs);
+  return dayOrdinal === 1 ? time : `${dayOrdinal}/${time}`;
+}
+
+export function formatUpcomingDayHeaderLabel(date: Date, baseDateMs: number): string {
+  const dayOrdinal = localCalendarDayOrdinal(date, baseDateMs);
+  const relativeLabel = dayOrdinal === 1 ? "Today" : dayOrdinal === 2 ? "Tomorrow" : null;
+  const dateLabel = `${WEEKDAY_SHORT[date.getDay()]} ${MONTH_SHORT[date.getMonth()]} ${date.getDate()}`;
+  return [`Day ${dayOrdinal}`, relativeLabel, dateLabel].filter(Boolean).join(" · ");
 }
 
 export function formatTimeDelta(ms: number): string {

@@ -6,6 +6,7 @@ import {
   buildStartFinishMarkerFeatures,
   getDistanceMarkerIntervalForZoom,
 } from "@/utils/routeMarkers";
+import { formatDayAwareETAMarkerLabel } from "@/utils/formatters";
 import type { RoutePoint } from "@/types";
 
 function point(idx: number, distanceFromStartMeters: number): RoutePoint {
@@ -84,6 +85,31 @@ describe("routeMarkers", () => {
     expect(distanceMarkers.map((feature) => feature.properties.markerLabel)).toEqual([
       "08:30",
       "09:00",
+    ]);
+  });
+
+  it("can label ETA markers with day-aware compact times", () => {
+    const etaBase = new Date(2026, 6, 8, 8, 0, 0);
+    const shape = buildRouteMarkerFeatureCollection({
+      points: [point(0, 0), point(1, 40_000)],
+      distanceMarkerMode: "eta",
+      markerIntervalKm: 10,
+      etaLabelForDistanceMeters: (distanceMeters) => {
+        const hoursAhead = distanceMeters === 10_000 ? 8 : distanceMeters === 20_000 ? 32 : 56;
+        return formatDayAwareETAMarkerLabel(
+          new Date(etaBase.getTime() + hoursAhead * 60 * 60 * 1000),
+          etaBase.getTime(),
+        );
+      },
+    });
+
+    const distanceMarkers = shape.features.filter(
+      (feature) => feature.properties.kind === "distance",
+    );
+    expect(distanceMarkers.map((feature) => feature.properties.markerLabel)).toEqual([
+      "16:00",
+      "2/16:00",
+      "3/16:00",
     ]);
   });
 

@@ -52,7 +52,12 @@ import {
   type DistanceMarkerDistanceRange,
   type DistanceMarkerInterval,
 } from "@/utils/routeMarkers";
-import { formatDistance, formatDuration, formatElevation, formatETA } from "@/utils/formatters";
+import {
+  formatDayAwareETAMarkerLabel,
+  formatDistance,
+  formatDuration,
+  formatElevation,
+} from "@/utils/formatters";
 import { measureSync } from "@/utils/perfMarks";
 import { pickRouteRecords } from "@/utils/routeScopedRecords";
 import type { CollectionSegmentWithRoute, RoutePoint, UnitSystem, UserPosition } from "@/types";
@@ -270,7 +275,13 @@ function buildEtaMarkerLabelMap(input: {
 
     const ridingTimeSeconds = target.timeSeconds - from.timeSeconds + stopOffsetSeconds;
     if (ridingTimeSeconds <= 0) continue;
-    labels.set(distanceMeters, formatETA(new Date(input.etaBaseTimeMs + ridingTimeSeconds * 1000)));
+    labels.set(
+      distanceMeters,
+      formatDayAwareETAMarkerLabel(
+        new Date(input.etaBaseTimeMs + ridingTimeSeconds * 1000),
+        input.etaBaseTimeMs,
+      ),
+    );
   }
 
   return labels;

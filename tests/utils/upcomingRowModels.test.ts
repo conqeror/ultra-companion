@@ -6,13 +6,39 @@ import { stitchedSegmentsFixture } from "@/tests/fixtures/collection";
 import { buildPoi } from "@/tests/fixtures/poi";
 import { buildRoutePoint } from "@/tests/fixtures/route";
 import { bucketDistanceForDerivedWork } from "@/utils/distanceBuckets";
-import { buildUpcomingRowModels, getUpcomingRowItemType } from "@/utils/upcomingRowModels";
+import {
+  buildUpcomingListItems,
+  buildUpcomingRowModels,
+  getUpcomingListItemType,
+  getUpcomingRowItemType,
+  type UpcomingListItemModel,
+} from "@/utils/upcomingRowModels";
+
+function dayHeaderLabels(items: UpcomingListItemModel[]): string[] {
+  return items.filter((item) => item.itemType === "day-header").map((item) => item.label);
+}
 
 describe("upcomingRowModels", () => {
   const mondayNoon = new Date(2026, 0, 5, 12, 0, 0);
   const mondayEveningOnly = JSON.stringify([
     { open: { day: 1, hour: 18, minute: 0 }, close: { day: 1, hour: 19, minute: 0 } },
   ]);
+
+  function poiEvent(id: string, distanceMeters: number, eta: Date | null): UpcomingEvent {
+    return {
+      id: `poi:${id}`,
+      kind: "poi",
+      distanceMeters: toDisplayDistanceMeters(distanceMeters),
+      eta: eta
+        ? {
+            distanceMeters,
+            ridingTimeSeconds: 60,
+            eta,
+          }
+        : null,
+      poi: toDisplayPOI(buildPoi(id, "r1", distanceMeters, { name: id })),
+    };
+  }
 
   it("builds stable item types and labels for mixed upcoming events", () => {
     const events = buildUpcomingTimeline({
@@ -123,5 +149,61 @@ describe("upcomingRowModels", () => {
     expect(row.subtitle).toBe("Open @ ETA");
     expect(row.subtitleColor).toEqual({ kind: "theme", key: "positive" });
     expect(row.accessibilityLabel).toContain("Open @ ETA");
+  });
+
+  it("inserts day headers for ETA-backed rows without duplicating same-day headers", () => {
+    const base = new Date(2026, 6, 8, 8, 0, 0);
+    const rows = buildUpcomingRowModels({
+      events: [
+        poiEvent("morning", 1_000, new Date(2026, 6, 8, 10, 0, 0)),
+        poiEvent("evening", 2_000, new Date(2026, 6, 8, 18, 0, 0)),
+        poiEvent("tomorrow", 3_000, new Date(2026, 6, 9, 16, 0, 0)),
+      ],
+      currentDistanceMeters: 0,
+      units: "metric",
+    });
+
+    const items = buildUpcomingListItems({ rows, etaBaseTimeMs: base.getTime() });
+
+    expect(items.map(getUpcomingListItemType)).toEqual([
+      "day-header",
+      "poi",
+      "poi",
+      "day-header",
+      "poi",
+    ]);
+    expect(dayHeaderLabels(items)).toEqual([
+      "Day 1 · Today · Wed Jul 8",
+      "Day 2 · Tomorrow · Thu Jul 9",
+    ]);
+  });
+
+  it("keeps no-ETA rows in route order without creating day headers for them", () => {
+    const base = new Date(2026, 6, 8, 8, 0, 0);
+    const rows = buildUpcomingRowModels({
+      events: [
+        poiEvent("no-eta-before", 500, null),
+        poiEvent("today", 1_000, new Date(2026, 6, 8, 10, 0, 0)),
+        poiEvent("no-eta-between", 1_500, null),
+        poiEvent("tomorrow", 2_000, new Date(2026, 6, 9, 16, 0, 0)),
+      ],
+      currentDistanceMeters: 0,
+      units: "metric",
+    });
+
+    const items = buildUpcomingListItems({ rows, etaBaseTimeMs: base.getTime() });
+
+    expect(items.map(getUpcomingListItemType)).toEqual([
+      "poi",
+      "day-header",
+      "poi",
+      "poi",
+      "day-header",
+      "poi",
+    ]);
+    expect(dayHeaderLabels(items)).toEqual([
+      "Day 1 · Today · Wed Jul 8",
+      "Day 2 · Tomorrow · Thu Jul 9",
+    ]);
   });
 });
