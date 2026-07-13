@@ -14,9 +14,9 @@ import { useOfflineStore } from "@/store/offlineStore";
 import { useRouteStore } from "@/store/routeStore";
 import { useCollectionStore } from "@/store/collectionStore";
 import { usePoiStore } from "@/store/poiStore";
-import { useClimbStore } from "@/store/climbStore";
 import { COLORS } from "@/theme";
 import { IncomingUrlImportGate } from "@/utils/incomingUrlImport";
+import { refreshPlanningDataAfterImport } from "@/services/planningDataRefresh";
 
 export { ErrorBoundary } from "expo-router";
 
@@ -115,18 +115,7 @@ export default function RootLayout() {
         if (isPlanningDb) {
           const { importPlanningDatabaseFromUri } = await import("@/services/planningTransport");
           const summary = await importPlanningDatabaseFromUri(url);
-          useRouteStore.setState({
-            visibleRoutePoints: {},
-            snappedPosition: null,
-            snapHistory: [],
-          });
-          usePoiStore.setState({ pois: {}, selectedPOI: null });
-          useClimbStore.getState().clearClimbCache();
-          await Promise.all([
-            useRouteStore.getState().loadRoutesAndPoints(),
-            useCollectionStore.getState().loadCollections(),
-            usePoiStore.getState().loadStarredItems(),
-          ]);
+          await refreshPlanningDataAfterImport();
           Alert.alert(
             "Planner Import Complete",
             `Merged ${summary.routes} routes, ${summary.collections} collections, and ${summary.pois} POIs.`,

@@ -1,6 +1,6 @@
 # Performance Notes
 
-Issue 18 focused on long ultra-distance routes and active collections. This document describes the intended memory model and calls out current regressions explicitly.
+Issue 18 focused on long ultra-distance routes and active collections. This document describes the implemented memory ownership and loading contract.
 
 ## Route Point Loading
 
@@ -8,7 +8,7 @@ Before: app startup and the map tab called `loadRoutesAndPoints()`, which loaded
 
 After: normal startup loads route metadata only. The map tab lazy-loads full points only for the active standalone route, while active collections are loaded through the collection stitching path. Route and collection detail screens still load full geometry when opened explicitly.
 
-Current exception: importing a planner database refreshes through `loadRoutesAndPoints()`, temporarily loading points for every visible route. This is a regression from the intended metadata-first startup model and is tracked in [#43](https://github.com/conqeror/ultra-companion/issues/43).
+Planner import follows the same contract: it clears stale view state, reloads route metadata, and loads points only for an active standalone route. An active collection loads its selected stitched geometry through the collection store; no unrelated visible route points are populated.
 
 Representative memory shape:
 
@@ -22,7 +22,7 @@ Before: collection activation stored both a stitched full-resolution point array
 
 After: active collection stitching omits `pointsByRouteId`, loads selected segments sequentially, and keeps only the stitched points plus segment offsets in the active collection view model. Collection detail still requests raw per-segment points because the planning screen needs mini-map routes and per-segment ETA rows.
 
-Current exception: the active map also loads raw geometry for collection positions that have variants so it can draw base and alternative overlays. The implementation currently fetches more raw routes than the overlay requires; this long-route memory regression is tracked in [#43](https://github.com/conqeror/ultra-companion/issues/43).
+The active map queries geometry only for collection positions that have alternatives, plus a patch variant's base route when it is needed to calculate its effective metric. It loads those routes sequentially, computes metric labels, and retains only the alternative line geometry that Mapbox renders. Raw selected/base arrays are released after preparation; positions without variants issue no route-point queries.
 
 Representative 3 × 100k-point collection:
 

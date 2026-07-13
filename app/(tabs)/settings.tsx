@@ -8,11 +8,9 @@ import { useThemeColors } from "@/theme";
 import { useSettingsStore } from "@/store/settingsStore";
 import { useEtaStore } from "@/store/etaStore";
 import { usePoiStore } from "@/store/poiStore";
-import { useRouteStore } from "@/store/routeStore";
-import { useCollectionStore } from "@/store/collectionStore";
-import { useClimbStore } from "@/store/climbStore";
 import { solveVelocity } from "@/services/powerModel";
 import { pickAndImportPlanningDatabase, sharePlanningDatabase } from "@/services/planningTransport";
+import { refreshPlanningDataAfterImport } from "@/services/planningDataRefresh";
 import { POI_DISCOVERY_GROUPS } from "@/constants";
 import type { UnitSystem } from "@/types";
 import StorageSection from "@/components/offline/StorageSection";
@@ -174,14 +172,7 @@ export default function SettingsScreen() {
   }, [powerConfig]);
 
   const refreshPlanningData = useCallback(async () => {
-    useRouteStore.setState({ visibleRoutePoints: {}, snappedPosition: null, snapHistory: [] });
-    usePoiStore.setState({ pois: {}, selectedPOI: null });
-    useClimbStore.getState().clearClimbCache();
-    await Promise.all([
-      useRouteStore.getState().loadRoutesAndPoints(),
-      useCollectionStore.getState().loadCollections(),
-      usePoiStore.getState().loadStarredItems(),
-    ]);
+    await refreshPlanningDataAfterImport();
   }, []);
 
   const handleExportPlanningDatabase = useCallback(async () => {

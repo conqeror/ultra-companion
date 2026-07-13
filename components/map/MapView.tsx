@@ -22,7 +22,6 @@ import type { VariantOverlay } from "./VariantOverlayLayer";
 import TabbedBottomPanel from "./TabbedBottomPanel";
 import { getWebMapCameraPadding } from "./webPanelLayout";
 import { displayPOIsForActiveRoute } from "@/services/activePOIs";
-import { computeCachedRouteTotalETA } from "@/services/etaCalculator";
 import { stitchedSegmentsCacheSignature } from "@/services/relativeEtaCache";
 import { resolveActiveRouteProgress } from "@/utils/routeProgress";
 import { plannedStopsFromPOIs } from "@/services/plannedStops";
@@ -36,12 +35,12 @@ import { useWeatherStore } from "@/store/weatherStore";
 import { useOfflineStore } from "@/store/offlineStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import {
-  buildPatchVariantRoutePoints,
-  routeEndDistance,
-  sliceRoutePointsByDistance,
-} from "@/services/stitchingService";
+  collectionVariantKey,
+  loadCollectionVariantDisplayData,
+  type CollectionVariantMetric,
+} from "@/services/collectionVariantGeometry";
+import { routeEndDistance } from "@/services/stitchingService";
 import {
-  computeSliceAscentFromDistance,
   estimateMapVisibleSpanMeters,
   findFirstPointAtOrAfterDistance,
   haversineDistance,
@@ -61,12 +60,6 @@ import {
 import { measureSync } from "@/utils/perfMarks";
 import { pickRouteRecords } from "@/utils/routeScopedRecords";
 import type { CollectionSegmentWithRoute, RoutePoint, UnitSystem, UserPosition } from "@/types";
-
-interface VariantMetric {
-  distanceMeters: number;
-  ascentMeters: number;
-  ridingTime: number | null;
-}
 
 interface MapCameraHandle {
   setCamera(options: {
@@ -298,73 +291,6 @@ function groupCollectionSegments(
   return [...grouped.entries()].sort(([a], [b]) => a - b).map(([, variants]) => variants);
 }
 
-function effectiveVariantPoints(
-  sw: CollectionSegmentWithRoute,
-  pointsByRouteId: Record<string, RoutePoint[]>,
-): RoutePoint[] | null {
-  const routePoints = pointsByRouteId[sw.route.id];
-  if (sw.segment.variantKind !== "patch") return routePoints ?? null;
-
-  const { baseRouteId, replaceStartDistanceMeters, replaceEndDistanceMeters } = sw.segment;
-  if (
-    !baseRouteId ||
-    replaceStartDistanceMeters == null ||
-    replaceEndDistanceMeters == null ||
-    !routePoints
-  ) {
-    return routePoints ?? null;
-  }
-
-  const basePoints = pointsByRouteId[baseRouteId];
-  if (!basePoints) return routePoints;
-  const stitched = buildPatchVariantRoutePoints(
-    basePoints,
-    routePoints,
-    replaceStartDistanceMeters,
-    replaceEndDistanceMeters,
-  );
-  return stitched.length >= 2 ? stitched : routePoints;
-}
-
-function effectiveVariantAscentMeters(
-  sw: CollectionSegmentWithRoute,
-  pointsByRouteId: Record<string, RoutePoint[]>,
-): number {
-  const { baseRouteId, replaceStartDistanceMeters, replaceEndDistanceMeters } = sw.segment;
-  if (
-    sw.segment.variantKind === "patch" &&
-    baseRouteId &&
-    replaceStartDistanceMeters != null &&
-    replaceEndDistanceMeters != null
-  ) {
-    const basePoints = pointsByRouteId[baseRouteId];
-    if (basePoints?.length) {
-      const baseEnd = routeEndDistance(basePoints);
-      return (
-        computeSliceAscentFromDistance(basePoints, 0, replaceStartDistanceMeters) +
-        sw.route.totalAscentMeters +
-        computeSliceAscentFromDistance(basePoints, replaceEndDistanceMeters, baseEnd)
-      );
-    }
-  }
-  return sw.route.totalAscentMeters;
-}
-
-function variantMetric(
-  sw: CollectionSegmentWithRoute,
-  pointsByRouteId: Record<string, RoutePoint[]>,
-  powerConfig: ReturnType<typeof useEtaStore.getState>["powerConfig"],
-  metricKey: string,
-): VariantMetric | null {
-  const points = effectiveVariantPoints(sw, pointsByRouteId);
-  if (!points || points.length < 2) return null;
-  return {
-    distanceMeters: routeEndDistance(points),
-    ascentMeters: effectiveVariantAscentMeters(sw, pointsByRouteId),
-    ridingTime: computeCachedRouteTotalETA(metricKey, points, powerConfig),
-  };
-}
-
 function signedDistance(deltaMeters: number, units: UnitSystem): string {
   if (Math.abs(deltaMeters) < 1) return "±0 m";
   return `${deltaMeters > 0 ? "+" : "-"}${formatDistance(Math.abs(deltaMeters), units)}`;
@@ -381,7 +307,11 @@ function signedDuration(deltaSeconds: number | null): string {
   return `ETA ${deltaSeconds > 0 ? "+" : "-"}${formatDuration(Math.abs(deltaSeconds))}`;
 }
 
-function variantDiffLabel(metric: VariantMetric, reference: VariantMetric, units: UnitSystem) {
+function variantDiffLabel(
+  metric: CollectionVariantMetric,
+  reference: CollectionVariantMetric,
+  units: UnitSystem,
+) {
   const timeDelta =
     metric.ridingTime != null && reference.ridingTime != null
       ? metric.ridingTime - reference.ridingTime
@@ -391,10 +321,6 @@ function variantDiffLabel(metric: VariantMetric, reference: VariantMetric, units
     signedDistance(metric.distanceMeters - reference.distanceMeters, units),
     `↑ ${signedElevation(metric.ascentMeters - reference.ascentMeters, units)}`,
   ].join("\n");
-}
-
-function variantMetricKey(sw: CollectionSegmentWithRoute): string {
-  return `${sw.segment.collectionId}:${sw.segment.position}:${sw.route.id}:${sw.segment.variantKind}`;
 }
 
 function plannedStopsSignature(
@@ -471,11 +397,11 @@ export default function MapScreen() {
   const [activeCollectionSegments, setActiveCollectionSegments] = useState<
     CollectionSegmentWithRoute[]
   >([]);
-  const [activeVariantPointsByRouteId, setActiveVariantPointsByRouteId] = useState<
+  const [activeVariantOverlayPointsByKey, setActiveVariantOverlayPointsByKey] = useState<
     Record<string, RoutePoint[]>
   >({});
   const [activeVariantMetricsByKey, setActiveVariantMetricsByKey] = useState<
-    Record<string, VariantMetric>
+    Record<string, CollectionVariantMetric>
   >({});
 
   // Unified active context — works for both standalone routes and collections
@@ -610,42 +536,43 @@ export default function MapScreen() {
     async function loadActiveCollectionVariants() {
       if (activeData?.type !== "collection") {
         setActiveCollectionSegments([]);
-        setActiveVariantPointsByRouteId({});
+        setActiveVariantOverlayPointsByKey({});
         setActiveVariantMetricsByKey({});
         return;
       }
 
       const segments = await getCollectionSegmentsWithRoutes(activeData.id);
-      const routeIds = new Set<string>();
-      for (const sw of segments) {
-        routeIds.add(sw.route.id);
-        if (sw.segment.baseRouteId) routeIds.add(sw.segment.baseRouteId);
-      }
-
       const { getRoutePoints } = await import("@/db/database");
-      const ids = [...routeIds];
-      const points = await Promise.all(ids.map((routeId) => getRoutePoints(routeId)));
+      const displayData = await loadCollectionVariantDisplayData(
+        segments,
+        powerConfig,
+        getRoutePoints,
+      );
       if (cancelled) return;
 
-      const pointsByRouteId: Record<string, RoutePoint[]> = {};
-      for (let i = 0; i < ids.length; i++) {
-        pointsByRouteId[ids[i]] = points[i];
-      }
       setActiveCollectionSegments(segments);
-      setActiveVariantPointsByRouteId(pointsByRouteId);
+      setActiveVariantOverlayPointsByKey(displayData.overlayPointsByKey);
+      setActiveVariantMetricsByKey(displayData.metricsByKey);
     }
 
     loadActiveCollectionVariants().catch((e) => {
       if (cancelled) return;
       console.warn("Failed to load active collection variants:", e);
       setActiveCollectionSegments([]);
-      setActiveVariantPointsByRouteId({});
+      setActiveVariantOverlayPointsByKey({});
+      setActiveVariantMetricsByKey({});
     });
 
     return () => {
       cancelled = true;
     };
-  }, [activeData?.id, activeData?.type, activeSegmentsKey, getCollectionSegmentsWithRoutes]);
+  }, [
+    activeData?.id,
+    activeData?.type,
+    activeSegmentsKey,
+    getCollectionSegmentsWithRoutes,
+    powerConfig,
+  ]);
 
   const loadClimbs = useClimbStore((s) => s.loadClimbs);
   const updateCurrentClimb = useClimbStore((s) => s.updateCurrentClimb);
@@ -985,55 +912,20 @@ export default function MapScreen() {
     return layers;
   }, [renderedRoutes, preparedRouteGeometries, activeCollectionRouteId, mapStyle.styleKey]);
 
-  useEffect(() => {
-    if (activeData?.type !== "collection" || activeCollectionSegments.length === 0) {
-      setActiveVariantMetricsByKey({});
-      return;
-    }
-    const metrics: Record<string, VariantMetric> = {};
-    measureSync("map.variantMetrics", () => {
-      for (const variants of groupCollectionSegments(activeCollectionSegments)) {
-        for (const sw of variants) {
-          const metric = variantMetric(
-            sw,
-            activeVariantPointsByRouteId,
-            powerConfig,
-            variantMetricKey(sw),
-          );
-          if (metric) metrics[variantMetricKey(sw)] = metric;
-        }
-      }
-    });
-    setActiveVariantMetricsByKey(metrics);
-  }, [activeData?.type, activeCollectionSegments, activeVariantPointsByRouteId, powerConfig]);
-
   const activeVariantOverlays = useMemo<VariantOverlay[]>(() => {
     if (activeData?.type !== "collection" || activeCollectionSegments.length === 0) return [];
     const overlays: VariantOverlay[] = [];
     for (const variants of groupCollectionSegments(activeCollectionSegments)) {
       if (variants.length <= 1) continue;
       const reference = variants.find((sw) => sw.segment.isSelected) ?? variants[0];
-      const referenceMetric = activeVariantMetricsByKey[variantMetricKey(reference)];
+      const referenceMetric = activeVariantMetricsByKey[collectionVariantKey(reference)];
       if (!referenceMetric) continue;
 
       for (const sw of variants) {
         if (sw.segment.isSelected) continue;
-        const rawPoints = activeVariantPointsByRouteId[sw.route.id];
-        const points =
-          rawPoints &&
-          sw.segment.variantKind === "full" &&
-          reference.segment.variantKind === "patch" &&
-          reference.segment.baseRouteId === sw.route.id &&
-          reference.segment.replaceStartDistanceMeters != null &&
-          reference.segment.replaceEndDistanceMeters != null
-            ? sliceRoutePointsByDistance(
-                rawPoints,
-                reference.segment.replaceStartDistanceMeters,
-                reference.segment.replaceEndDistanceMeters,
-              )
-            : rawPoints;
+        const points = activeVariantOverlayPointsByKey[collectionVariantKey(sw)];
         if (!points || points.length < 2) continue;
-        const metric = activeVariantMetricsByKey[variantMetricKey(sw)];
+        const metric = activeVariantMetricsByKey[collectionVariantKey(sw)];
         if (!metric) continue;
         overlays.push({
           id: sw.route.id,
@@ -1046,7 +938,7 @@ export default function MapScreen() {
   }, [
     activeData?.type,
     activeCollectionSegments,
-    activeVariantPointsByRouteId,
+    activeVariantOverlayPointsByKey,
     activeVariantMetricsByKey,
     units,
   ]);
