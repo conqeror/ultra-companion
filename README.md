@@ -1,6 +1,6 @@
 # Ultra Companion
 
-Logistics companion app for ultra-distance cycling races. iOS only, personal use.
+Personal logistics companion for ultra-distance cycling races. The mounted riding app targets iOS; the repository also ships a browser-based planning companion. Android project files exist for build compatibility, but Android is not a supported runtime.
 
 Not a navigation device or GPS tracker — those are handled by dedicated bike computer and race tracker. This app answers: **where to stop, what's available, when does it close, what's the terrain, what's the weather.**
 
@@ -13,6 +13,7 @@ Not a navigation device or GPS tracker — those are handled by dedicated bike c
 - Offline maps and data (tile download, SQLite storage)
 - Route collections and stitching
 - Climb detection and highlights
+- Browser planning workspace with transferable `.ultra-plan.db` files
 - Dark outdoor map style
 - Fatigue-friendly UI with large touch targets and high contrast
 

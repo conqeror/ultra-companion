@@ -210,7 +210,7 @@ const colors = useThemeColors();
 
 **RNR components used in this project:**
 
-- Button, Card, Badge, Separator, Text
+- Button, Card, Badge, Text
 
 **Key dependencies added:**
 

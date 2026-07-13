@@ -2,6 +2,12 @@
 
 What's implemented. For the "why" behind these, see `usage-context.md`.
 
+## Supported Surfaces
+
+- iOS is the supported mounted riding app and native planning surface
+- Web is a supported browser planning companion for importing, reviewing, editing, and exporting planning data
+- Android project files support shared Expo/native build plumbing, but Android is not currently a supported runtime
+
 ## Map & GPS
 
 - Full-screen Mapbox vector map with dark outdoor style for night riding
@@ -83,7 +89,7 @@ What's implemented. For the "why" behind these, see `usage-context.md`.
 ## Weather
 
 - Current weather at position
-- Forecast at waypoints along route (~50km spacing)
+- Forecast at waypoints along route (~20km spacing)
 - Weather timeline — conditions at estimated future positions within the selected riding horizon (uses ETA calculator)
 - Route weather projections include prior planned POI stop durations
 - Wind indicator: headwind/tailwind/crosswind relative to route direction
@@ -103,3 +109,5 @@ What's implemented. For the "why" behind these, see `usage-context.md`.
 - Export standalone routes and stitched collections as GPX tracks
 - Include starred and saved custom POIs as on-route GPX waypoint cues for bike-computer workflows
 - Share exported GPX files through the native iOS share sheet
+- Export and import the complete planning workspace as a versioned `.ultra-plan.db` file
+- Move planning data between the browser workspace and iOS without requiring a hosted account or backend

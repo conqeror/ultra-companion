@@ -2,7 +2,7 @@
 
 Current test strategy and remaining gaps.
 
-Last reviewed: 2026-05-07
+Last reviewed: 2026-07-13
 
 ## Commands
 
@@ -15,7 +15,7 @@ Last reviewed: 2026-05-07
 
 ## Current Coverage
 
-The app has a pure-logic Vitest suite for the bug classes that TypeScript and linting cannot catch. As of this review: 30 test files, 172 tests.
+The app has a pure-logic Vitest suite for the bug classes that TypeScript and linting cannot catch. As of this review: 40 test files, 223 tests.
 
 Covered areas:
 
@@ -25,6 +25,7 @@ Covered areas:
 - ETA calculator, power model, planned stops, and active timing helpers
 - POI parsing, classification, map feature generation, list modeling, Google Places, Overpass, and saved custom POIs
 - Collection stitching and stitched POI/climb/ETA coordinate behavior
+- Native and web planning-database transport, validation, and replacement behavior
 - Weather service behavior and route-aware upcoming timeline helpers
 - Route, POI, offline, and ETA/climb store behavior through focused store tests
 
@@ -40,3 +41,4 @@ This is intentional for now: the riskiest pure logic has fast tests, while nativ
 - Store recovery tests for persisted stale download/fetch state after interrupted app sessions
 - Surface/descents tests when those features land
 - A small native smoke checklist for share-sheet GPX/KML import and offline tile cancel/retry
+- End-to-end native and browser smoke coverage for `.ultra-plan.db` transfer

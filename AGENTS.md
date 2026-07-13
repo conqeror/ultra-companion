@@ -1,6 +1,6 @@
 # Ultra Companion
 
-Logistics companion app for ultra-distance cycling races. iOS only, personal use. Not a navigation device or GPS tracker — those are handled by dedicated bike computer and race tracker. This app answers: where to stop, what's available, when does it close, what's the terrain, what's the weather.
+Logistics companion app for ultra-distance cycling races. The mounted riding app is iOS-only and for personal use; a browser planning companion is also supported. Android project files are build plumbing, not a supported runtime. Not a navigation device or GPS tracker — those are handled by dedicated bike computer and race tracker. This app answers: where to stop, what's available, when does it close, what's the terrain, what's the weather.
 
 ## Docs
 
@@ -46,7 +46,7 @@ Logistics companion app for ultra-distance cycling races. iOS only, personal use
 - **UI components** (cards, buttons, lists, settings): NativeWind `className` with Tailwind classes. Use `cn()` from `@/lib/cn` for conditional merging. Dark mode via `dark:` prefix — automatic.
 - **Map/SVG/Reanimated components** (Mapbox layers, elevation SVG, animated styles): `useThemeColors()` from `@/theme` for programmatic color access. These components can't use `className`.
 - Design tokens defined in three places kept in sync: `global.css` (CSS vars), `tailwind.config.ts` (class mapping), `theme/colors.ts` (hex values for programmatic use)
-- RNR components live in `components/ui/` — use them for standard UI elements (Button, Card, Badge, Text, Separator)
+- RNR components live in `components/ui/` — use them for standard UI elements (Button, Card, Badge, Text)
 - Font: Barlow (`font-barlow`, `font-barlow-medium`, `font-barlow-semibold`, `font-barlow-bold`) and Barlow Semi Condensed (`font-barlow-sc-medium`, `font-barlow-sc-semibold`) for data values
 - Read `docs/design-system.md` before making visual changes
 

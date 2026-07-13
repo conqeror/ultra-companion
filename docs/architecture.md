@@ -21,8 +21,11 @@ interface Route {
   totalAscentMeters: number;
   totalDescentMeters: number;
   pointCount: number;
-  points: RoutePoint[];
   createdAt: string;
+}
+
+interface RouteWithPoints extends Route {
+  points: RoutePoint[];
 }
 
 interface RoutePoint {
@@ -89,7 +92,7 @@ interface PowerModelConfig {
   cda: number; // default 0.4 m²
   crr: number; // default 0.005
   airDensity: number; // default 1.225 kg/m³
-  maxDescentSpeedKmh: number; // default 60
+  maxDescentSpeedKmh: number; // default 50
   drivetrainEfficiency: number; // default 0.97
 }
 ```
@@ -127,6 +130,12 @@ ETA computation: for each route segment, solve `P = (Crr × m × g × cos(θ) + 
 | Overpass API (OSM) | POI data (most categories)              | Free                  |
 | Google Places API  | Gas stations + groceries (better hours) | Free ($200/mo credit) |
 | Open-Meteo API     | Weather forecasts                       | Free, no API key      |
+
+## Supported Runtime Surfaces
+
+- The iOS app is the supported mounted riding surface and owns native integrations such as share-sheet import/export, location, and Mapbox offline regions.
+- The web build is a supported browser planning companion. It keeps a browser-local SQLite workspace and exchanges the full planning dataset through versioned `.ultra-plan.db` files.
+- Android source and configuration are retained for shared Expo/native compatibility, but Android behavior is not part of the supported or tested product surface.
 
 ## Key Technical Decisions
 
@@ -172,3 +181,7 @@ Runs on import, stored per-route. Algorithm: smooth elevation (200m window), fin
 ### GPX Export
 
 Routes and stitched collections export as GPX 1.1 tracks. Starred POIs and saved custom POIs can be included as GPX `<wpt>` entries, but they are emitted as on-route cue points interpolated from `DisplayPOI.effectiveDistanceMeters`, not as an imported route-waypoint data model. The waypoint name keeps the POI name/category and off-route distance; the description keeps the actual POI coordinates and available notes/address context.
+
+### Planning Database Transfer
+
+The browser and iOS app exchange complete planning state through `.ultra-plan.db` files. The transport validates a schema version, includes routes, points, collections, POIs, climbs, starred state, and planning metadata, and replaces the destination planning workspace on import. It is a file-based offline workflow rather than account synchronization; the transfer file should therefore be treated as a snapshot, not as a mergeable or continuously synced database.
