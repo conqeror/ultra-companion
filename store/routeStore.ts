@@ -181,11 +181,12 @@ export const useRouteStore = create<RouteState>((set, get) => ({
       createdAt: options?.createdAt ?? new Date().toISOString(),
     };
 
-    await insertRoute(route, parsed.points);
-
-    // Detect and store climbs
-    const { detectAndStoreClimbs } = await import("@/services/climbDetector");
-    await detectAndStoreClimbs(route.id, parsed.points);
+    // Build climbs before changing the database, then persist the route, its
+    // geometry, and climbs in one transaction. A failed import therefore
+    // cannot leave a route that the UI reported as failed.
+    const { detectClimbsForRoute } = await import("@/services/climbDetector");
+    const climbs = await detectClimbsForRoute(route.id, parsed.points);
+    await insertRoute(route, parsed.points, climbs);
     scheduleRouteETAPrewarm(route, parsed.points);
 
     await get().loadRouteMetadata();

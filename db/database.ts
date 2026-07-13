@@ -206,7 +206,11 @@ export async function clearRelativeETACaches(scopeId?: string): Promise<void> {
 
 // --- Route CRUD ---
 
-export async function insertRoute(route: Route, points: RoutePoint[]): Promise<void> {
+export async function insertRoute(
+  route: Route,
+  points: RoutePoint[],
+  routeClimbs: Climb[] = [],
+): Promise<void> {
   db.transaction((tx) => {
     tx.insert(routes)
       .values({
@@ -236,6 +240,28 @@ export async function insertRoute(route: Route, points: RoutePoint[]): Promise<v
             longitude: p.longitude,
             elevationMeters: p.elevationMeters,
             distanceFromStartMeters: p.distanceFromStartMeters,
+          })),
+        )
+        .run();
+    }
+
+    for (let i = 0; i < routeClimbs.length; i += CHUNK) {
+      const chunk = routeClimbs.slice(i, i + CHUNK);
+      tx.insert(climbs)
+        .values(
+          chunk.map((climb) => ({
+            id: climb.id,
+            routeId: climb.routeId,
+            name: climb.name,
+            startDistanceMeters: climb.startDistanceMeters,
+            endDistanceMeters: climb.endDistanceMeters,
+            lengthMeters: climb.lengthMeters,
+            totalAscentMeters: climb.totalAscentMeters,
+            startElevationMeters: climb.startElevationMeters,
+            endElevationMeters: climb.endElevationMeters,
+            averageGradientPercent: climb.averageGradientPercent,
+            maxGradientPercent: climb.maxGradientPercent,
+            difficultyScore: climb.difficultyScore,
           })),
         )
         .run();
