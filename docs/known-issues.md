@@ -6,12 +6,12 @@ Last reviewed: 2026-07-13
 
 ## Warnings
 
-### npm audit: upstream Expo/Metro dependency advisories
+### npm audit: upstream Expo and Drizzle dependency advisories
 
-- **Snapshot:** `npm audit --omit=dev --audit-level=moderate` reports 158 advisories (98 low, 13 moderate, 45 high, 2 critical) as of 2026-07-13
-- **Where:** The reported chains are predominantly transitive Expo/Metro/React Native build-tool dependencies, including Babel, `ws`, and PostCSS chains
+- **Snapshot:** `npm audit --audit-level=moderate` reports 15 moderate advisories as of 2026-07-13; `npm audit --omit=dev --audit-level=moderate` reports 11 moderate advisories
+- **Where:** The production advisories come from Expo's transitive `xcode` -> `uuid` build-tool chain; the additional development-only advisories come from Drizzle Kit's legacy esbuild loader chain
 - **Compatibility:** `npx expo-doctor` passes all checks; Expo-managed package versions are aligned
-- **Status:** Do not run a blanket `npm audit fix` because it can move the Expo dependency graph outside supported versions. Review Expo SDK updates and targeted upstream fixes instead.
+- **Status:** Do not run `npm audit fix --force`: npm proposes a breaking Drizzle Kit downgrade and no compatible fix is available for Expo's `uuid` chain. Review Expo SDK updates and targeted upstream fixes instead.
 - **Impact:** This is primarily build/development tooling exposure for the current local, personal-use app. Reassess before accepting untrusted build inputs, exposing development servers, or deploying the web planner publicly.
 
 ### NestableDraggableFlatList measureLayout warning
