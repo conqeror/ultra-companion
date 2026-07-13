@@ -4,6 +4,7 @@ const { withNativeWind } = require("nativewind/metro");
 
 const projectRoot = __dirname;
 const config = getDefaultConfig(projectRoot);
+const nativeWindChangeEventFixKey = "__nativewindMetro83ChangeEventFix";
 
 config.resolver.assetExts = Array.from(new Set([...config.resolver.assetExts, "wasm"]));
 
@@ -61,9 +62,9 @@ function withNativeWindMetro83ChangeEventFix(metroConfig) {
         const bundler = metroServer.getBundler().getBundler();
 
         bundler.getDependencyGraph().then((graph) => {
-          const haste = graph?._haste;
+          const haste = graph?.["_haste"];
 
-          if (!haste || haste.__nativewindMetro83ChangeEventFix) {
+          if (!haste || haste[nativeWindChangeEventFixKey]) {
             return;
           }
 
@@ -76,7 +77,7 @@ function withNativeWindMetro83ChangeEventFix(metroConfig) {
             );
           };
 
-          haste.__nativewindMetro83ChangeEventFix = true;
+          haste[nativeWindChangeEventFixKey] = true;
         });
 
         const enhancedMiddleware = originalEnhanceMiddleware

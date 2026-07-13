@@ -21,5 +21,3 @@ export const CLIMB_DIFFICULTY_LABELS: Record<ClimbDifficulty, string> = {
   medium: "Moderate",
   hard: "Hard",
 };
-
-export const CLIMB_BEHIND_THRESHOLD_M = 1000;

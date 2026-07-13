@@ -4,16 +4,11 @@ export const DEFAULT_MAP_CENTER = {
 };
 
 export const DEFAULT_ZOOM = 12;
-// Fatigue-friendly: minimum 48dp touch targets
-export const MIN_TOUCH_TARGET = 48;
 
 // Route colors: active stands out, inactive fades back
 export const ACTIVE_ROUTE_COLOR = "#E63946";
 export const INACTIVE_ROUTE_COLOR = "#94A3B8";
 export const COLLECTION_SEGMENT_ALTERNATE_ROUTE_COLOR = "#6A4C93";
-
-// Max points before downsampling elevation chart
-export const ELEVATION_CHART_MAX_POINTS = 500;
 
 // --- Phase 2b: Bottom panel ---
 
@@ -215,8 +210,6 @@ export const POI_CLUSTER_RADIUS = 60;
 export const POI_CLUSTER_HITBOX = 44;
 
 export const DEFAULT_CORRIDOR_WIDTH_M = 1000;
-export const MAX_CORRIDOR_WIDTH_M = 10000;
-export const MIN_CORRIDOR_WIDTH_M = 500;
 
 export const DEFAULT_POI_CATEGORY_CORRIDOR_WIDTH_M: Record<POICategory, number> = {
   water: 1000,
@@ -255,9 +248,6 @@ export const OVERPASS_REQUEST_TIMEOUT_MS = 35_000;
 export const OVERPASS_USER_AGENT =
   "UltraCompanion/1.0 (https://github.com/conqeror/ultra-companion)";
 
-/** Max elevation difference between POI and route at nearest point (meters) */
-export const POI_MAX_ELEVATION_DIFF_M = 25;
-
 // --- Phase 4: GPS & ETA ---
 
 /** Position older than this triggers auto-refresh on app focus */
@@ -285,9 +275,6 @@ export const DEFAULT_POWER_CONFIG: PowerModelConfig = {
 
 /** Sample weather waypoints every N meters along route */
 export const WEATHER_WAYPOINT_INTERVAL_M = 20_000;
-
-/** Only fetch weather for the next N meters ahead */
-export const WEATHER_LOOKAHEAD_M = 200_000;
 
 /** Weather cache becomes stale after this (1 hour) */
 export const WEATHER_STALE_MS = 60 * 60 * 1000;

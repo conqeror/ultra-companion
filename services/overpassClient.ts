@@ -10,12 +10,12 @@ import {
 } from "@/constants";
 import { splitRoutePointsByDistance } from "@/utils/geo";
 
-let _nextServerIndex = 0;
+let nextServerIndex = 0;
 
 /** Get the next Overpass server URL (round-robin) */
 function nextServerUrl(): string {
-  const url = OVERPASS_API_URLS[_nextServerIndex % OVERPASS_API_URLS.length];
-  _nextServerIndex++;
+  const url = OVERPASS_API_URLS[nextServerIndex % OVERPASS_API_URLS.length];
+  nextServerIndex++;
   return url;
 }
 

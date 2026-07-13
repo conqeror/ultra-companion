@@ -76,15 +76,6 @@ export function classifyTemperatureComfort(temperatureC: number): TemperatureCom
   return bucket;
 }
 
-export function temperatureColor(temperatureC: number): string {
-  const bucket = classifyTemperatureComfort(temperatureC);
-  if (bucket === "unknown") return UNKNOWN_TEMPERATURE_COLOR;
-  return (
-    TEMPERATURE_COMFORT_STOPS.find((stop) => stop.bucket === bucket)?.color ??
-    UNKNOWN_TEMPERATURE_COLOR
-  );
-}
-
 export function temperatureGradientColor(temperatureC: number): string {
   if (!Number.isFinite(temperatureC)) return UNKNOWN_TEMPERATURE_COLOR;
 

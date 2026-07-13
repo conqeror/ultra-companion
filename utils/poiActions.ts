@@ -1,13 +1,5 @@
 import type { POI } from "@/types";
 
-const ADDRESS_TAG_KEYS = [
-  "formatted_address",
-  "addr:street",
-  "addr:housenumber",
-  "addr:city",
-  "addr:postcode",
-  "addr:country",
-];
 const PHONE_TAG_KEYS = ["phone", "contact:phone"];
 const WEBSITE_TAG_KEYS = ["website", "contact:website", "url"];
 const EXTRA_DETAIL_TAGS: Array<{ key: string; label: string }> = [
@@ -97,14 +89,4 @@ export function getPoiExtraDetailFields(poi: POI): PoiDetailField[] {
   }
 
   return fields;
-}
-
-export function hasExpandablePoiDetails(poi: POI): boolean {
-  if (cleanTagValue(poi.tags.opening_hours)) return true;
-  if (getPoiAddress(poi)) return true;
-  if (getPoiPhone(poi)) return true;
-  if (getPoiWebsiteUrl(poi)) return true;
-  if (getPoiExtraDetailFields(poi).length > 0) return true;
-
-  return ADDRESS_TAG_KEYS.some((key) => Boolean(cleanTagValue(poi.tags[key])));
 }

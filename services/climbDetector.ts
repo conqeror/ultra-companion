@@ -253,13 +253,13 @@ function computeDifficultyScore(
  * Re-detect climbs for all routes if the algorithm version has changed.
  * Preserves user-assigned climb names where possible.
  */
-let _storage: import("@/lib/keyValueStorage").KeyValueStorage | null = null;
+let storageInstance: import("@/lib/keyValueStorage").KeyValueStorage | null = null;
 async function getStorage() {
-  if (!_storage) {
+  if (!storageInstance) {
     const { createKeyValueStorage } = await import("@/lib/keyValueStorage");
-    _storage = createKeyValueStorage("climb-detector");
+    storageInstance = createKeyValueStorage("climb-detector");
   }
-  return _storage;
+  return storageInstance;
 }
 
 export async function redetectClimbsIfNeeded(): Promise<void> {

@@ -12,10 +12,6 @@ export function categoryColor(key: string): string {
   return categoryMap.get(key)?.color ?? "#888";
 }
 
-export function categoryLetter(key: string): string {
-  return categoryMap.get(key)?.label?.charAt(0) ?? "?";
-}
-
 /**
  * Derive a theme color for an opening hours status.
  * Returns the color key name so callers can look it up from their theme colors.

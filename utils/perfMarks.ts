@@ -4,8 +4,10 @@ type PerfMarksGlobal = typeof globalThis & {
   __ULTRA_ENABLE_PERF_MARKS__?: boolean;
 };
 
+const PERF_MARKS_ENABLED_KEY = "__ULTRA_ENABLE_PERF_MARKS__";
+
 function perfMarksEnabled(): boolean {
-  return (globalThis as PerfMarksGlobal).__ULTRA_ENABLE_PERF_MARKS__ === true;
+  return (globalThis as PerfMarksGlobal)[PERF_MARKS_ENABLED_KEY] === true;
 }
 
 function canMeasure(): boolean {

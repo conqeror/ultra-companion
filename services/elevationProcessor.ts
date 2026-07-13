@@ -3,14 +3,14 @@ import type { KeyValueStorage } from "@/lib/keyValueStorage";
 
 export const ELEVATION_PROCESSOR_VERSION = 1;
 
-let _storage: KeyValueStorage | null = null;
+let storageInstance: KeyValueStorage | null = null;
 
 async function getStorage() {
-  if (!_storage) {
+  if (!storageInstance) {
     const { createKeyValueStorage } = await import("@/lib/keyValueStorage");
-    _storage = createKeyValueStorage("elevation-processor");
+    storageInstance = createKeyValueStorage("elevation-processor");
   }
-  return _storage;
+  return storageInstance;
 }
 
 export async function reprocessElevationsIfNeeded(): Promise<number> {

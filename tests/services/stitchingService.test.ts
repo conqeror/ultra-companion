@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   proposePatchVariantFromPoints,
   stitchCollection,
+  stitchCollectionFromData,
   stitchPOIs,
 } from "@/services/stitchingService";
-import { stitchCollectionFromData as stitchCollectionFromCore } from "@/services/stitchingCore";
 import { toDisplayDistanceMeters } from "@/services/displayDistance";
 import { databaseMocks } from "@/tests/mocks/database";
 import type {
@@ -143,7 +143,7 @@ const segmentInfo = (
 
 describe("stitchingService", () => {
   it("stitches collections from in-memory route data", () => {
-    const stitched = stitchCollectionFromCore(
+    const stitched = stitchCollectionFromData(
       "c1",
       [collectionSegment("r2", 1), collectionSegment("r1", 0), collectionSegment("r3", 2, false)],
       {
