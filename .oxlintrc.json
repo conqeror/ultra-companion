@@ -16,6 +16,20 @@
     "unicorn/explicit-length-check": "warn",
     "unicorn/no-array-sort": "off",
     "no-await-in-loop": "off",
+    "no-underscore-dangle": [
+      "error",
+      {
+        "allow": [
+          "_resolveETA",
+          "_nextServerIndex",
+          "__ULTRA_ENABLE_PERF_MARKS__",
+          "_storage",
+          "__dirname",
+          "_haste",
+          "__nativewindMetro83ChangeEventFix"
+        ]
+      }
+    ],
     "import/no-unassigned-import": "off"
   },
   "ignorePatterns": ["ios", "android", ".expo", "drizzle", "node_modules"]
