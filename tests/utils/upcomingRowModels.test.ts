@@ -18,27 +18,27 @@ function dayHeaderLabels(items: UpcomingListItemModel[]): string[] {
   return items.filter((item) => item.itemType === "day-header").map((item) => item.label);
 }
 
+function poiEvent(id: string, distanceMeters: number, eta: Date | null): UpcomingEvent {
+  return {
+    id: `poi:${id}`,
+    kind: "poi",
+    distanceMeters: toDisplayDistanceMeters(distanceMeters),
+    eta: eta
+      ? {
+          distanceMeters,
+          ridingTimeSeconds: 60,
+          eta,
+        }
+      : null,
+    poi: toDisplayPOI(buildPoi(id, "r1", distanceMeters, { name: id })),
+  };
+}
+
 describe("upcomingRowModels", () => {
   const mondayNoon = new Date(2026, 0, 5, 12, 0, 0);
   const mondayEveningOnly = JSON.stringify([
     { open: { day: 1, hour: 18, minute: 0 }, close: { day: 1, hour: 19, minute: 0 } },
   ]);
-
-  function poiEvent(id: string, distanceMeters: number, eta: Date | null): UpcomingEvent {
-    return {
-      id: `poi:${id}`,
-      kind: "poi",
-      distanceMeters: toDisplayDistanceMeters(distanceMeters),
-      eta: eta
-        ? {
-            distanceMeters,
-            ridingTimeSeconds: 60,
-            eta,
-          }
-        : null,
-      poi: toDisplayPOI(buildPoi(id, "r1", distanceMeters, { name: id })),
-    };
-  }
 
   it("builds stable item types and labels for mixed upcoming events", () => {
     const events = buildUpcomingTimeline({

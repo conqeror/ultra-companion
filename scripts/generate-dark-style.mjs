@@ -12,9 +12,9 @@ import { readFileSync, writeFileSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const INPUT = resolve(__dirname, "../assets/map-styles/outdoors-v12.json");
-const OUTPUT = resolve(__dirname, "../assets/map-styles/outdoors-v12-dark.json");
+const currentDirectory = dirname(fileURLToPath(import.meta.url));
+const INPUT = resolve(currentDirectory, "../assets/map-styles/outdoors-v12.json");
+const OUTPUT = resolve(currentDirectory, "../assets/map-styles/outdoors-v12-dark.json");
 
 // ---------------------------------------------------------------------------
 // HSL parsing / serialization

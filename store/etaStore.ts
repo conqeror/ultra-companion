@@ -109,7 +109,7 @@ interface ETAState {
 
   getETAToPOI: (poi: DisplayPOI) => ETAResult | null;
   getETAToDistance: (distAlongRouteM: DisplayDistanceMeters) => ETAResult | null;
-  _resolveETA: (targetDistM: DisplayDistanceMeters) => ETAResult | null;
+  resolveETA: (targetDistM: DisplayDistanceMeters) => ETAResult | null;
 }
 
 export const useEtaStore = create<ETAState>((set, get) => {
@@ -377,14 +377,14 @@ export const useEtaStore = create<ETAState>((set, get) => {
       const displayPOI = toDisplayPOIForSegments(poi, segments);
       if (!displayPOI) return null;
 
-      return get()._resolveETA(displayPOI.effectiveDistanceMeters);
+      return get().resolveETA(displayPOI.effectiveDistanceMeters);
     },
 
     getETAToDistance: (distAlongRouteM) => {
-      return get()._resolveETA(distAlongRouteM);
+      return get().resolveETA(distAlongRouteM);
     },
 
-    _resolveETA: (targetDistM) => {
+    resolveETA: (targetDistM) => {
       const { cumulativeTime, routeId, cachedPoints } = get();
       if (!cumulativeTime || !routeId) return null;
 

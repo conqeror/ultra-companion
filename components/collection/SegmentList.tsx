@@ -170,6 +170,9 @@ interface SegmentListProps {
   onRemove: (routeId: string) => void;
 }
 
+const EMPTY_POINTS_BY_ROUTE_ID: Record<string, RoutePoint[]> = {};
+const EMPTY_STITCHED_SEGMENTS: StitchedSegmentInfo[] = [];
+
 function groupByPosition(segments: CollectionSegmentWithRoute[]): PositionGroup[] {
   const map = new Map<number, CollectionSegmentWithRoute[]>();
   for (const sw of segments) {
@@ -336,8 +339,8 @@ function SegmentRow({
 export default function SegmentList({
   segmentsWithRoutes,
   pointsByRouteId,
-  resolvedPointsByRouteId = {},
-  stitchedSegments = [],
+  resolvedPointsByRouteId = EMPTY_POINTS_BY_ROUTE_ID,
+  stitchedSegments = EMPTY_STITCHED_SEGMENTS,
   onSelectVariant,
   onAddPatchVariant,
   onReorder,

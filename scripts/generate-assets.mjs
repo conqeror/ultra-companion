@@ -7,8 +7,8 @@ import { writeFileSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const ASSETS_DIR = join(__dirname, "..", "assets", "images");
+const currentDirectory = dirname(fileURLToPath(import.meta.url));
+const ASSETS_DIR = join(currentDirectory, "..", "assets", "images");
 
 function renderSvgToPng(svgString, width, height, outputPath) {
   const resvg = new Resvg(svgString, {

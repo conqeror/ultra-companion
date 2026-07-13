@@ -98,32 +98,6 @@ export function computeRouteStats(
   };
 }
 
-/**
- * Find the nearest point on a route to a given position.
- * Returns the index of the nearest point and perpendicular distance.
- */
-export function findNearestPointOnRoute(
-  lat: number,
-  lon: number,
-  points: RoutePoint[],
-  options?: { startIndex?: number; endIndex?: number },
-): { index: number; distanceMeters: number } {
-  let minDist = Infinity;
-  let minIndex = options?.startIndex ?? 0;
-  const startIndex = Math.max(0, options?.startIndex ?? 0);
-  const endIndex = Math.min(points.length - 1, options?.endIndex ?? points.length - 1);
-
-  for (let i = startIndex; i <= endIndex; i++) {
-    const d = haversineDistance(lat, lon, points[i].latitude, points[i].longitude);
-    if (d < minDist) {
-      minDist = d;
-      minIndex = i;
-    }
-  }
-
-  return { index: minIndex, distanceMeters: minDist };
-}
-
 export interface DownsampleRoutePointsOptions<TOutput> {
   intervalMeters: number;
   mapPoint: (point: RoutePoint) => TOutput;
@@ -350,39 +324,6 @@ export function interpolateRoutePointAtDistance(
   };
 }
 
-/** Downsample an array to at most maxPoints using Ramer-Douglas-Peucker on elevation vs distance */
-export function downsampleForChart<
-  T extends { distanceFromStartMeters: number; elevationMeters: number | null },
->(points: T[], maxPoints: number): T[] {
-  if (points.length <= maxPoints) return points;
-
-  // Simple uniform sampling — preserves first and last
-  const step = (points.length - 1) / (maxPoints - 1);
-  const result: T[] = [];
-  for (let i = 0; i < maxPoints; i++) {
-    result.push(points[Math.round(i * step)]);
-  }
-  return result;
-}
-
-/** Compute elevation gain/loss done and remaining at a given point index */
-export function computeElevationProgress(
-  points: RoutePoint[],
-  currentIndex: number,
-): {
-  ascentDone: number;
-  descentDone: number;
-  ascentRemaining: number;
-  descentRemaining: number;
-} {
-  if (points.length === 0) {
-    return { ascentDone: 0, descentDone: 0, ascentRemaining: 0, descentRemaining: 0 };
-  }
-
-  const clampedIndex = Math.max(0, Math.min(points.length - 1, currentIndex));
-  return computeElevationProgressAtDistance(points, points[clampedIndex].distanceFromStartMeters);
-}
-
 export function computeElevationProgressAtDistance(
   points: RoutePoint[],
   currentDistanceMeters: number,
@@ -461,20 +402,6 @@ export function computeBounds(points: RoutePoint[]): {
   };
 }
 
-/** Compute ascent within a distance-bounded slice starting at a given index */
-export function computeSliceAscent(
-  points: RoutePoint[],
-  startIndex: number,
-  endDistanceMeters: number,
-): number {
-  if (startIndex < 0 || startIndex >= points.length) return 0;
-  return computeSliceAscentFromDistance(
-    points,
-    points[startIndex].distanceFromStartMeters,
-    endDistanceMeters,
-  );
-}
-
 export function computeSliceElevationTotalsFromDistance(
   points: RoutePoint[],
   startDistanceMeters: number,
@@ -528,20 +455,6 @@ export function computeSliceAscentFromDistance(
 ): number {
   return computeSliceElevationTotalsFromDistance(points, startDistanceMeters, endDistanceMeters)
     .ascent;
-}
-
-/** Compute descent within a distance-bounded slice starting at a given index */
-export function computeSliceDescent(
-  points: RoutePoint[],
-  startIndex: number,
-  endDistanceMeters: number,
-): number {
-  if (startIndex < 0 || startIndex >= points.length) return 0;
-  return computeSliceDescentFromDistance(
-    points,
-    points[startIndex].distanceFromStartMeters,
-    endDistanceMeters,
-  );
 }
 
 export function computeSliceDescentFromDistance(

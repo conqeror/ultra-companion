@@ -24,7 +24,7 @@ Covered areas:
 - Route snapping, including segment projection and ambiguous route progress behavior
 - ETA calculator, power model, planned stops, and active timing helpers
 - POI parsing, classification, map feature generation, list modeling, Google Places, Overpass, and saved custom POIs
-- Collection stitching and stitched POI/climb/ETA coordinate behavior
+- Collection stitching and stitched POI/climb/ETA coordinate behavior, exercised through the production stitching service
 - Native and web planning-database transport, validation, and replacement behavior
 - Weather service behavior and route-aware upcoming timeline helpers
 - Route, POI, offline, and ETA/climb store behavior through focused store tests

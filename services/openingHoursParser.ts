@@ -204,30 +204,6 @@ export function getDayScheduleForDate(tag: string, date: Date): DaySchedule | nu
   return { label: WEEKDAY_LABELS[day], hours: formatDayHours(periods, day) };
 }
 
-/** Get opening hours schedule for today and tomorrow */
-export function getDaySchedules(tag: string, referenceTime?: Date): DaySchedule[] | null {
-  const periods = parsePeriods(tag);
-  if (!periods) return null;
-
-  // Check for 24/7
-  const normalized = normalizePeriods(periods);
-  if (isEffectively247(normalized)) {
-    return [
-      { label: "Today", hours: "24h" },
-      { label: "Tomorrow", hours: "24h" },
-    ];
-  }
-
-  const now = referenceTime ?? new Date();
-  const todayDay = now.getDay();
-  const tomorrowDay = (todayDay + 1) % 7;
-
-  return [
-    { label: "Today", hours: formatDayHours(periods, todayDay) },
-    { label: "Tomorrow", hours: formatDayHours(periods, tomorrowDay) },
-  ];
-}
-
 function formatDayHours(periods: GooglePeriod[], day: number): string {
   // Collect all periods that apply to this day
   const ranges: string[] = [];
