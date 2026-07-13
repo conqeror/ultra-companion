@@ -314,15 +314,27 @@ export async function detectAndStoreClimbs(
   points: RoutePoint[],
 ): Promise<Climb[]> {
   const { insertClimbs } = await import("@/db/database");
+  const records = await detectClimbsForRoute(routeId, points);
+  await insertClimbs(records);
+  return records;
+}
+
+/**
+ * Detect climbs and create their database records without persisting them.
+ * This lets route imports include climbs in the same transaction as the route
+ * and its points.
+ */
+export async function detectClimbsForRoute(
+  routeId: string,
+  points: RoutePoint[],
+): Promise<Climb[]> {
   const { generateId } = await import("@/utils/generateId");
   const detected = detectClimbs(points);
-  const records: Climb[] = detected.map((c) => {
+  return detected.map((c) => {
     const out = Object.assign({}, c) as Climb;
     out.id = generateId();
     out.routeId = routeId;
     out.name = null;
     return out;
   });
-  await insertClimbs(records);
-  return records;
 }

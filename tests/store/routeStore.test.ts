@@ -3,16 +3,25 @@ import * as DocumentPicker from "expo-document-picker";
 import { databaseMocks } from "@/tests/mocks/database";
 import type { Route, RoutePoint } from "@/types";
 
+const { fileText, detectClimbsForRoute } = vi.hoisted(() => ({
+  fileText: vi.fn(),
+  detectClimbsForRoute: vi.fn(),
+}));
+
 vi.mock("expo-document-picker", () => ({
   getDocumentAsync: vi.fn(),
 }));
 
 vi.mock("expo-file-system", () => ({
   File: class {
-    text = vi.fn();
+    text = fileText;
     delete = vi.fn();
   },
   Paths: { cache: "" },
+}));
+
+vi.mock("@/services/climbDetector", () => ({
+  detectClimbsForRoute,
 }));
 
 import { useRouteStore } from "@/store/routeStore";
@@ -43,9 +52,17 @@ const point = (idx: number): RoutePoint => ({
   idx,
 });
 
+const validGpx = `<?xml version="1.0"?>
+<gpx><trk><name>Atomic route</name><trkseg>
+  <trkpt lat="48.1" lon="17.1"><ele>120</ele></trkpt>
+  <trkpt lat="48.2" lon="17.2"><ele>130</ele></trkpt>
+</trkseg></trk></gpx>`;
+
 describe("routeStore", () => {
   beforeEach(() => {
     vi.mocked(DocumentPicker.getDocumentAsync).mockReset();
+    fileText.mockReset();
+    detectClimbsForRoute.mockReset();
     useRouteStore.setState({
       routes: [],
       isLoading: false,
@@ -57,6 +74,55 @@ describe("routeStore", () => {
       importRoute: initialImportRoute,
       importFromUri: initialImportFromUri,
     });
+  });
+
+  it("commits the route, points, and detected climbs together", async () => {
+    const climbs = [
+      {
+        id: "climb-1",
+        routeId: "ignored",
+        name: null,
+        startDistanceMeters: 0,
+        endDistanceMeters: 1_000,
+        lengthMeters: 1_000,
+        totalAscentMeters: 100,
+        startElevationMeters: 100,
+        endElevationMeters: 200,
+        averageGradientPercent: 10,
+        maxGradientPercent: 12,
+        difficultyScore: 100,
+      },
+    ];
+    fileText.mockResolvedValue(validGpx);
+    detectClimbsForRoute.mockResolvedValue(climbs);
+
+    const imported = await useRouteStore.getState().importFromUri("file://route.gpx", "route.gpx");
+
+    expect(detectClimbsForRoute).toHaveBeenCalledWith(imported.id, expect.any(Array));
+    expect(databaseMocks.insertRoute).toHaveBeenCalledWith(imported, expect.any(Array), climbs);
+  });
+
+  it("does not persist a route when climb detection fails", async () => {
+    fileText.mockResolvedValue(validGpx);
+    detectClimbsForRoute.mockRejectedValue(new Error("Climb detection failed"));
+
+    await expect(
+      useRouteStore.getState().importFromUri("file://route.gpx", "route.gpx"),
+    ).rejects.toThrow("Climb detection failed");
+
+    expect(databaseMocks.insertRoute).not.toHaveBeenCalled();
+  });
+
+  it("reports a transactional persistence failure without treating the route as imported", async () => {
+    fileText.mockResolvedValue(validGpx);
+    detectClimbsForRoute.mockResolvedValue([]);
+    databaseMocks.insertRoute.mockRejectedValue(new Error("Route transaction failed"));
+
+    await expect(
+      useRouteStore.getState().importFromUri("file://route.gpx", "route.gpx"),
+    ).rejects.toThrow("Route transaction failed");
+
+    expect(databaseMocks.getAllRoutes).not.toHaveBeenCalled();
   });
 
   it("imports every selected route file and isolates per-file failures", async () => {

@@ -386,7 +386,11 @@ export async function clearRelativeETACaches(scopeId?: string): Promise<void> {
 
 // --- Route CRUD ---
 
-export async function insertRoute(route: Route, points: RoutePoint[]): Promise<void> {
+export async function insertRoute(
+  route: Route,
+  points: RoutePoint[],
+  routeClimbs: Climb[] = [],
+): Promise<void> {
   const database = await getWebSQLiteDatabase();
   await database.withTransactionAsync(async () => {
     await database.runAsync(
@@ -421,6 +425,30 @@ export async function insertRoute(route: Route, points: RoutePoint[]): Promise<v
           point.longitude,
           point.elevationMeters,
           point.distanceFromStartMeters,
+        ],
+      );
+    }
+
+    for (const climb of routeClimbs) {
+      await database.runAsync(
+        `INSERT INTO climbs (
+          id, routeId, name, startDistanceMeters, endDistanceMeters, lengthMeters,
+          totalAscentMeters, startElevationMeters, endElevationMeters,
+          averageGradientPercent, maxGradientPercent, difficultyScore
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          climb.id,
+          climb.routeId,
+          climb.name,
+          climb.startDistanceMeters,
+          climb.endDistanceMeters,
+          climb.lengthMeters,
+          climb.totalAscentMeters,
+          climb.startElevationMeters,
+          climb.endElevationMeters,
+          climb.averageGradientPercent,
+          climb.maxGradientPercent,
+          climb.difficultyScore,
         ],
       );
     }
