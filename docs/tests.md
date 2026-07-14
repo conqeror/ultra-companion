@@ -2,7 +2,7 @@
 
 Current test strategy and remaining gaps.
 
-Last reviewed: 2026-07-13
+Last reviewed: 2026-07-14
 
 ## Commands
 
@@ -15,16 +15,19 @@ Last reviewed: 2026-07-13
 
 ## Current Coverage
 
-The app has a pure-logic Vitest suite for the bug classes that TypeScript and linting cannot catch. As of this review: 40 test files, 223 tests.
+The app has a pure-logic Vitest suite for the bug classes that TypeScript and linting cannot catch. As of this review: 48 test files, 280 tests.
 
 Covered areas:
 
 - Route import/export helpers and GPX serialization
 - Route geometry, distance buckets, route markers, route progress, and riding horizon helpers
+- Bounded long-route map geometry, compact fingerprints, and keyed-cache eviction
+- Bounded elevation-profile sampling and renderer-neutral layout, ticks, markers, and tile models
 - Route snapping, including segment projection and ambiguous route progress behavior
 - ETA calculator, power model, planned stops, and active timing helpers
 - POI parsing, classification, map feature generation, list modeling, Google Places, Overpass, and saved custom POIs
 - Collection stitching and stitched POI/climb/ETA coordinate behavior, exercised through the production stitching service
+- Sequential active-collection route loading and chunked collection-segment ETA totals
 - Native and web planning-database transport, validation, and replacement behavior
 - Weather service behavior and route-aware upcoming timeline helpers
 - Route, POI, offline, and ETA/climb store behavior through focused store tests

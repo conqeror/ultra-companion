@@ -21,6 +21,7 @@ import { useSettingsStore } from "@/store/settingsStore";
 import { useOfflineStore } from "@/store/offlineStore";
 import { ACTIVE_ROUTE_COLOR, INACTIVE_ROUTE_COLOR } from "@/constants";
 import { formatDistance, formatElevation } from "@/utils/formatters";
+import { yieldToUI } from "@/utils/yieldToUI";
 import { useThemeColors } from "@/theme";
 import type { Route, Collection, RouteImportSummary } from "@/types";
 
@@ -31,6 +32,11 @@ interface CollectionPromptState {
   message: string;
   confirmLabel: string;
   onSubmit: (name: string) => Promise<void>;
+}
+
+interface ActivationTarget {
+  kind: "route" | "collection";
+  id: string;
 }
 
 function getErrorMessage(error: unknown, fallback: string): string {
@@ -95,6 +101,8 @@ export default function RoutesScreen() {
   const [collectionPrompt, setCollectionPrompt] = React.useState<CollectionPromptState | null>(
     null,
   );
+  const [activationTarget, setActivationTarget] = React.useState<ActivationTarget | null>(null);
+  const activationInFlightRef = React.useRef(false);
 
   const units = useSettingsStore((s) => s.units);
   const isRouteOfflineReady = useOfflineStore((s) => s.isRouteOfflineReady);
@@ -231,6 +239,48 @@ export default function RoutesScreen() {
     );
   }, [importRoute, promptCreateCollectionFromRoutes]);
 
+  const handleActivateCollection = useCallback(
+    async (collection: Collection) => {
+      if (collection.isActive || activationInFlightRef.current) return;
+      activationInFlightRef.current = true;
+      setActivationTarget({ kind: "collection", id: collection.id });
+      try {
+        await yieldToUI();
+        await setActiveCollection(collection.id);
+      } catch (activationError: unknown) {
+        Alert.alert(
+          "Activation Failed",
+          getErrorMessage(activationError, "Could not activate this collection."),
+        );
+      } finally {
+        activationInFlightRef.current = false;
+        setActivationTarget(null);
+      }
+    },
+    [setActiveCollection],
+  );
+
+  const handleActivateRoute = useCallback(
+    async (route: Route) => {
+      if (route.isActive || activationInFlightRef.current) return;
+      activationInFlightRef.current = true;
+      setActivationTarget({ kind: "route", id: route.id });
+      try {
+        await yieldToUI();
+        await setActiveRoute(route.id);
+      } catch (activationError: unknown) {
+        Alert.alert(
+          "Activation Failed",
+          getErrorMessage(activationError, "Could not activate this route."),
+        );
+      } finally {
+        activationInFlightRef.current = false;
+        setActivationTarget(null);
+      }
+    },
+    [setActiveRoute],
+  );
+
   const borderColor = colors.border;
 
   const unassignedRoutes = useMemo(
@@ -261,6 +311,9 @@ export default function RoutesScreen() {
         const collection = item.data;
         const stitched = collection.isActive ? activeStitchedCollection : null;
         const segmentCount = stitched?.segments.length;
+        const isActivatingThis =
+          activationTarget?.kind === "collection" && activationTarget.id === collection.id;
+        const isActivationDisabled = collection.isActive || activationTarget != null;
         return (
           <Card className="mb-3">
             <TouchableOpacity
@@ -313,18 +366,35 @@ export default function RoutesScreen() {
               style={{ borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: borderColor }}
             >
               <TouchableOpacity
-                className={cn("min-h-[48px] justify-center", collection.isActive && "opacity-50")}
-                onPress={() => !collection.isActive && setActiveCollection(collection.id)}
+                className={cn("min-h-[48px] justify-center", isActivationDisabled && "opacity-50")}
+                onPress={() => void handleActivateCollection(collection)}
+                disabled={isActivationDisabled}
                 hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel={
+                  collection.isActive
+                    ? "Active collection"
+                    : isActivatingThis
+                      ? "Activating collection"
+                      : "Set active collection"
+                }
+                accessibilityState={{ disabled: isActivationDisabled, busy: isActivatingThis }}
               >
-                <Text
-                  className={cn(
-                    "text-[15px] font-barlow-medium",
-                    collection.isActive ? "text-muted-foreground" : "text-primary",
-                  )}
-                >
-                  {collection.isActive ? "Active" : "Set Active"}
-                </Text>
+                <View className="flex-row items-center gap-2">
+                  {isActivatingThis && <ActivityIndicator size="small" color={colors.accent} />}
+                  <Text
+                    className={cn(
+                      "text-[15px] font-barlow-medium",
+                      collection.isActive ? "text-muted-foreground" : "text-primary",
+                    )}
+                  >
+                    {collection.isActive
+                      ? "Active"
+                      : isActivatingThis
+                        ? "Activating collection…"
+                        : "Set Active"}
+                  </Text>
+                </View>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -340,6 +410,9 @@ export default function RoutesScreen() {
       }
 
       const route = item.data;
+      const isActivatingThis =
+        activationTarget?.kind === "route" && activationTarget.id === route.id;
+      const isActivationDisabled = route.isActive || activationTarget != null;
       return (
         <Card className="mb-3">
           <TouchableOpacity
@@ -387,18 +460,35 @@ export default function RoutesScreen() {
             style={{ borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: borderColor }}
           >
             <TouchableOpacity
-              className={cn("min-h-[48px] justify-center", route.isActive && "opacity-50")}
-              onPress={() => !route.isActive && setActiveRoute(route.id)}
+              className={cn("min-h-[48px] justify-center", isActivationDisabled && "opacity-50")}
+              onPress={() => void handleActivateRoute(route)}
+              disabled={isActivationDisabled}
               hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel={
+                route.isActive
+                  ? "Active route"
+                  : isActivatingThis
+                    ? "Activating route"
+                    : "Set active route"
+              }
+              accessibilityState={{ disabled: isActivationDisabled, busy: isActivatingThis }}
             >
-              <Text
-                className={cn(
-                  "text-[15px] font-barlow-medium",
-                  route.isActive ? "text-muted-foreground" : "text-primary",
-                )}
-              >
-                {route.isActive ? "Active" : "Set Active"}
-              </Text>
+              <View className="flex-row items-center gap-2">
+                {isActivatingThis && <ActivityIndicator size="small" color={colors.accent} />}
+                <Text
+                  className={cn(
+                    "text-[15px] font-barlow-medium",
+                    route.isActive ? "text-muted-foreground" : "text-primary",
+                  )}
+                >
+                  {route.isActive
+                    ? "Active"
+                    : isActivatingThis
+                      ? "Activating route…"
+                      : "Set Active"}
+                </Text>
+              </View>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -424,8 +514,6 @@ export default function RoutesScreen() {
     },
     [
       units,
-      setActiveRoute,
-      setActiveCollection,
       toggleVisibility,
       handleDeleteRoute,
       handleDeleteCollection,
@@ -434,6 +522,10 @@ export default function RoutesScreen() {
       activeStitchedCollection,
       openCollectionDetail,
       openRouteDetail,
+      activationTarget,
+      handleActivateCollection,
+      handleActivateRoute,
+      colors.accent,
     ],
   );
 

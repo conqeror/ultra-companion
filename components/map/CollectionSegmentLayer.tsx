@@ -1,14 +1,12 @@
-import React, { useMemo } from "react";
+import React from "react";
 import { CircleLayer, LineLayer, ShapeSource, SymbolLayer } from "@rnmapbox/maps";
 import { ACTIVE_ROUTE_COLOR, COLLECTION_SEGMENT_ALTERNATE_ROUTE_COLOR } from "@/constants";
 import { MAP_LAYER_IDS } from "@/constants/mapLayers";
 import { useThemeColors } from "@/theme";
-import { buildCollectionSegmentMapFeatureCollections } from "@/utils/collectionSegmentDisplay";
-import type { RoutePoint, StitchedSegmentInfo } from "@/types";
+import type { CollectionSegmentMapFeatureCollections } from "@/utils/collectionSegmentDisplay";
 
 interface CollectionSegmentLayerProps {
-  points: RoutePoint[];
-  segments: StitchedSegmentInfo[] | null;
+  features: CollectionSegmentMapFeatureCollections;
   lineAboveLayerID?: string;
   symbolAboveLayerID?: string;
   dimmed?: boolean;
@@ -18,18 +16,12 @@ const COLOR_ROLE_FIELD = ["get", "colorRole"] as const;
 const SORT_KEY_FIELD = ["get", "sortKey"] as const;
 
 export default function CollectionSegmentLayer({
-  points,
-  segments,
+  features,
   lineAboveLayerID,
   symbolAboveLayerID,
   dimmed = false,
 }: CollectionSegmentLayerProps) {
   const colors = useThemeColors();
-  const features = useMemo(
-    () => buildCollectionSegmentMapFeatureCollections(points, segments),
-    [points, segments],
-  );
-
   const hasLines = features.lines.features.length > 0;
   const hasBoundaries = features.boundaries.features.length > 0;
   if (!hasLines && !hasBoundaries) return null;

@@ -208,6 +208,92 @@ describe("stitchingService", () => {
     expect(stitched.pointsByRouteId).toEqual({});
   });
 
+  it("loads and releases active collection source routes sequentially", async () => {
+    databaseMocks.getCollectionSegments.mockResolvedValue([
+      collectionSegment("r3", 2),
+      collectionSegment("r1", 0),
+      collectionSegment("r2", 1),
+    ]);
+    const loadOrder: string[] = [];
+    let activeLoads = 0;
+    let maxActiveLoads = 0;
+    databaseMocks.getRouteWithPoints.mockImplementation(async (routeId: string) => {
+      loadOrder.push(routeId);
+      activeLoads++;
+      maxActiveLoads = Math.max(maxActiveLoads, activeLoads);
+      await Promise.resolve();
+      activeLoads--;
+      return route(routeId);
+    });
+
+    const stitched = await stitchCollection("c1", { includePointsByRouteId: false });
+
+    expect(loadOrder).toEqual(["r1", "r2", "r3"]);
+    expect(maxActiveLoads).toBe(1);
+    expect(stitched.segments.map((segment) => segment.routeId)).toEqual(["r1", "r2", "r3"]);
+    expect(stitched.pointsByRouteId).toEqual({});
+  });
+
+  it("stops sequential stitching when its owning request becomes obsolete", async () => {
+    databaseMocks.getCollectionSegments.mockResolvedValue([
+      collectionSegment("r1", 0),
+      collectionSegment("r2", 1),
+    ]);
+    let cancelled = false;
+    databaseMocks.getRouteWithPoints.mockImplementation(async (routeId: string) => {
+      cancelled = true;
+      return route(routeId);
+    });
+
+    await expect(
+      stitchCollection("c1", {
+        includePointsByRouteId: false,
+        shouldCancel: () => cancelled,
+      }),
+    ).rejects.toThrow("Collection stitching cancelled");
+    expect(databaseMocks.getRouteWithPoints).toHaveBeenCalledTimes(1);
+  });
+
+  it("matches in-memory stitching semantics in the sequential active path", async () => {
+    const first = route("first");
+    const base = routeFromPoints("base", [
+      routePoint(0, 0, 0),
+      routePoint(1, 500, 0.005),
+      routePoint(2, 1_500, 0.015),
+      routePoint(3, 2_000, 0.02),
+    ]);
+    const patch = routeFromPoints("patch", [routePoint(0, 0, 0.004), routePoint(1, 700, 0.016)]);
+    const last = route("last");
+    const segments = [
+      collectionSegment("last", 2),
+      collectionSegment("base", 1, false),
+      collectionSegment("patch", 1, true, {
+        baseRouteId: "base",
+        replaceStartDistanceMeters: 500,
+        replaceEndDistanceMeters: 1_500,
+      }),
+      collectionSegment("first", 0),
+    ];
+    const routesById = { first, base, patch, last };
+    const expected = stitchCollectionFromData("c1", segments, routesById, {
+      includePointsByRouteId: false,
+    });
+    databaseMocks.getCollectionSegments.mockResolvedValue(segments);
+    databaseMocks.getRouteWithPoints.mockImplementation(
+      async (routeId: string) => routesById[routeId as keyof typeof routesById] ?? null,
+    );
+
+    const actual = await stitchCollection("c1", { includePointsByRouteId: false });
+
+    expect(databaseMocks.getRouteWithPoints.mock.calls.map(([routeId]) => routeId)).toEqual([
+      "first",
+      "patch",
+      "base",
+      "last",
+    ]);
+    expect(actual).toEqual(expected);
+  });
+
   it("stitchPOIs keeps raw distances and sorts by effective distances", () => {
     const segments = [segmentInfo("r1", 0, 0), segmentInfo("r2", 1, 1_000)];
 
@@ -302,6 +388,10 @@ describe("stitchingService", () => {
     expect(stitched.points.map((pt) => pt.distanceFromStartMeters)).toEqual([
       0, 500, 500, 1_200, 1_200, 1_700,
     ]);
+    expect(stitched.pointsByRouteId).toEqual({
+      base: base.points,
+      patch: patch.points,
+    });
   });
 
   it("stitchPOIs clips base POIs inside a replaced patch range", async () => {

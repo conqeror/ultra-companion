@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { View, TouchableOpacity } from "react-native";
+import { ActivityIndicator, View, TouchableOpacity } from "react-native";
 import {
   NestableDraggableFlatList,
   ScaleDecorator,
@@ -13,10 +13,11 @@ import { useThemeColors } from "@/theme";
 import { useRouter } from "expo-router";
 import { useSettingsStore } from "@/store/settingsStore";
 import { useEtaStore } from "@/store/etaStore";
-import { computeRouteTotalETA } from "@/services/etaCalculator";
+import { computeRouteTotalETAInChunks } from "@/services/etaCalculator";
 import { buildPatchVariantRoutePoints, routeEndDistance } from "@/services/stitchingService";
 import { formatDistance, formatElevation, formatDuration } from "@/utils/formatters";
 import { computeSliceAscentFromDistance } from "@/utils/geo";
+import { yieldToUI } from "@/utils/yieldToUI";
 import type {
   CollectionSegmentWithRoute,
   PowerModelConfig,
@@ -33,8 +34,14 @@ interface PositionGroup {
 }
 
 interface SegmentTimeCacheEntry {
-  points: RoutePoint[];
+  routePoints: RoutePoint[];
+  basePoints: RoutePoint[] | null;
   configKey: string;
+  variantKind: "full" | "patch";
+  replaceStartDistanceMeters: number | null;
+  replaceEndDistanceMeters: number | null;
+  distanceMeters: number;
+  ascentMeters: number;
   ridingTime: number | null;
 }
 
@@ -42,7 +49,6 @@ interface SegmentMetrics {
   distanceMeters: number;
   ascentMeters: number;
   ridingTime: number | null;
-  points: RoutePoint[] | null;
 }
 
 interface VariantDiff {
@@ -93,12 +99,26 @@ function buildPatchVariantPoints(
 function getSegmentMetricPoints(
   sw: CollectionSegmentWithRoute,
   pointsByRouteId: Record<string, RoutePoint[]>,
-  resolvedPointsByRouteId: Record<string, RoutePoint[]>,
 ): RoutePoint[] | null {
-  const resolved = resolvedPointsByRouteId[sw.route.id];
-  if (resolved?.length >= 2) return resolved;
   if (sw.segment.variantKind === "patch") return buildPatchVariantPoints(sw, pointsByRouteId);
   return pointsByRouteId[sw.route.id] ?? null;
+}
+
+function cacheEntryMatches(
+  cached: SegmentTimeCacheEntry | undefined,
+  sw: CollectionSegmentWithRoute,
+  routePoints: RoutePoint[],
+  basePoints: RoutePoint[] | null,
+  configKey: string,
+): cached is SegmentTimeCacheEntry {
+  return (
+    cached?.routePoints === routePoints &&
+    cached.basePoints === basePoints &&
+    cached.configKey === configKey &&
+    cached.variantKind === sw.segment.variantKind &&
+    cached.replaceStartDistanceMeters === sw.segment.replaceStartDistanceMeters &&
+    cached.replaceEndDistanceMeters === sw.segment.replaceEndDistanceMeters
+  );
 }
 
 function getSegmentDistanceMeters(sw: CollectionSegmentWithRoute, points: RoutePoint[] | null) {
@@ -161,8 +181,7 @@ function formatSignedDurationDelta(deltaSeconds: number | null) {
 
 interface SegmentListProps {
   segmentsWithRoutes: CollectionSegmentWithRoute[];
-  pointsByRouteId: Record<string, RoutePoint[]>;
-  resolvedPointsByRouteId?: Record<string, RoutePoint[]>;
+  pointsByRouteId?: Record<string, RoutePoint[]>;
   stitchedSegments?: StitchedSegmentInfo[];
   onSelectVariant: (routeId: string) => void;
   onAddPatchVariant: (baseRouteId: string, position: number) => void;
@@ -338,8 +357,7 @@ function SegmentRow({
 
 export default function SegmentList({
   segmentsWithRoutes,
-  pointsByRouteId,
-  resolvedPointsByRouteId = EMPTY_POINTS_BY_ROUTE_ID,
+  pointsByRouteId = EMPTY_POINTS_BY_ROUTE_ID,
   stitchedSegments = EMPTY_STITCHED_SEGMENTS,
   onSelectVariant,
   onAddPatchVariant,
@@ -354,6 +372,8 @@ export default function SegmentList({
   const serverGroups = useMemo(() => groupByPosition(segmentsWithRoutes), [segmentsWithRoutes]);
   const [localGroups, setLocalGroups] = useState<PositionGroup[]>(serverGroups);
   const [isSaving, setIsSaving] = useState(false);
+  const [isCalculatingSegmentTimes, setIsCalculatingSegmentTimes] = useState(false);
+  const [metricsByRouteId, setMetricsByRouteId] = useState<Record<string, SegmentMetrics>>({});
   const stitchedInfoByRouteId = useMemo(() => {
     const out: Record<string, StitchedSegmentInfo> = {};
     for (const segment of stitchedSegments) {
@@ -363,56 +383,94 @@ export default function SegmentList({
   }, [stitchedSegments]);
 
   const powerConfigKey = useMemo(() => powerConfigCacheKey(powerConfig), [powerConfig]);
-  const metricsByRouteId = useMemo(() => {
+
+  useEffect(() => {
+    let cancelled = false;
     const cache = segmentTimeCacheRef.current;
-    const activeRouteIds = new Set<string>();
-    const metrics: Record<string, SegmentMetrics> = {};
 
-    for (const sw of segmentsWithRoutes) {
-      const routeId = sw.route.id;
-      if (routeId in metrics) continue;
-      activeRouteIds.add(routeId);
-
-      const points = getSegmentMetricPoints(sw, pointsByRouteId, resolvedPointsByRouteId);
-      const distanceMeters = getSegmentDistanceMeters(sw, points);
-      const ascentMeters = getSegmentAscentMeters(sw, pointsByRouteId);
-      if (!points || points.length < 2) {
-        metrics[routeId] = {
-          distanceMeters,
-          ascentMeters,
-          ridingTime: null,
-          points,
-        };
-        continue;
-      }
-
-      const cached = cache.get(routeId);
-      if (cached?.points === points && cached.configKey === powerConfigKey) {
-        metrics[routeId] = {
-          distanceMeters,
-          ascentMeters,
-          ridingTime: cached.ridingTime,
-          points,
-        };
-        continue;
-      }
-
-      const ridingTime = computeRouteTotalETA(points, powerConfig);
-      cache.set(routeId, { points, configKey: powerConfigKey, ridingTime });
-      metrics[routeId] = {
-        distanceMeters,
-        ascentMeters,
-        ridingTime,
-        points,
-      };
+    if (segmentsWithRoutes.length === 0) {
+      cache.clear();
+      setMetricsByRouteId({});
+      setIsCalculatingSegmentTimes(false);
+      return;
     }
 
-    for (const routeId of cache.keys()) {
-      if (!activeRouteIds.has(routeId)) cache.delete(routeId);
-    }
+    setMetricsByRouteId({});
+    setIsCalculatingSegmentTimes(true);
 
-    return metrics;
-  }, [segmentsWithRoutes, pointsByRouteId, resolvedPointsByRouteId, powerConfig, powerConfigKey]);
+    void (async () => {
+      try {
+        // Make the progress status visible before patch construction or ETA work starts.
+        await yieldToUI();
+        if (cancelled) return;
+
+        const activeRouteIds = new Set<string>();
+        const metrics: Record<string, SegmentMetrics> = {};
+
+        for (const sw of segmentsWithRoutes) {
+          const routeId = sw.route.id;
+          if (routeId in metrics) continue;
+          activeRouteIds.add(routeId);
+
+          const routePoints = pointsByRouteId[routeId];
+          const basePoints = sw.segment.baseRouteId
+            ? (pointsByRouteId[sw.segment.baseRouteId] ?? null)
+            : null;
+          const cached = routePoints ? cache.get(routeId) : undefined;
+          if (
+            routePoints &&
+            cacheEntryMatches(cached, sw, routePoints, basePoints, powerConfigKey)
+          ) {
+            metrics[routeId] = {
+              distanceMeters: cached.distanceMeters,
+              ascentMeters: cached.ascentMeters,
+              ridingTime: cached.ridingTime,
+            };
+            continue;
+          }
+
+          const points = getSegmentMetricPoints(sw, pointsByRouteId);
+          const distanceMeters = getSegmentDistanceMeters(sw, points);
+          const ascentMeters = getSegmentAscentMeters(sw, pointsByRouteId);
+          const ridingTime =
+            points && points.length >= 2
+              ? await computeRouteTotalETAInChunks(points, powerConfig, {
+                  shouldCancel: () => cancelled,
+                })
+              : null;
+          if (cancelled) return;
+
+          metrics[routeId] = { distanceMeters, ascentMeters, ridingTime };
+          if (routePoints) {
+            cache.set(routeId, {
+              routePoints,
+              basePoints,
+              configKey: powerConfigKey,
+              variantKind: sw.segment.variantKind,
+              replaceStartDistanceMeters: sw.segment.replaceStartDistanceMeters,
+              replaceEndDistanceMeters: sw.segment.replaceEndDistanceMeters,
+              distanceMeters,
+              ascentMeters,
+              ridingTime,
+            });
+          }
+        }
+
+        for (const routeId of cache.keys()) {
+          if (!activeRouteIds.has(routeId)) cache.delete(routeId);
+        }
+        if (!cancelled) setMetricsByRouteId(metrics);
+      } catch (error) {
+        console.warn("Failed to calculate collection segment times:", error);
+      } finally {
+        if (!cancelled) setIsCalculatingSegmentTimes(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [segmentsWithRoutes, pointsByRouteId, powerConfig, powerConfigKey]);
 
   useEffect(() => {
     setLocalGroups(serverGroups);
@@ -425,14 +483,17 @@ export default function SegmentList({
 
   const handleSaveOrder = useCallback(async () => {
     setIsSaving(true);
-    const updates: { routeId: string; position: number }[] = [];
-    localGroups.forEach((group, newPos) => {
-      for (const sw of group.variants) {
-        updates.push({ routeId: sw.route.id, position: newPos });
-      }
-    });
-    await onReorder(updates);
-    setIsSaving(false);
+    try {
+      const updates: { routeId: string; position: number }[] = [];
+      localGroups.forEach((group, newPos) => {
+        for (const sw of group.variants) {
+          updates.push({ routeId: sw.route.id, position: newPos });
+        }
+      });
+      await onReorder(updates);
+    } finally {
+      setIsSaving(false);
+    }
   }, [localGroups, onReorder]);
 
   const handleDragEnd = useCallback(({ data }: { data: PositionGroup[] }) => {
@@ -569,6 +630,19 @@ export default function SegmentList({
 
   return (
     <View>
+      {isCalculatingSegmentTimes && (
+        <View
+          className="mb-2 flex-row items-center gap-2 rounded-lg bg-muted px-3 py-2"
+          accessible
+          accessibilityRole="progressbar"
+          accessibilityLabel="Calculating segment times"
+        >
+          <ActivityIndicator size="small" color={colors.accent} />
+          <Text className="text-[13px] font-barlow-medium text-muted-foreground">
+            Calculating segment times…
+          </Text>
+        </View>
+      )}
       <NestableDraggableFlatList
         data={localGroups}
         keyExtractor={(item) => item.key}

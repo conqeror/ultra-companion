@@ -31,6 +31,8 @@ export interface CollectionSegmentMapFeatureCollections {
   boundaries: GeoJSON.FeatureCollection<GeoJSON.Point, CollectionSegmentBoundaryProperties>;
 }
 
+export type PreparedCollectionSegmentLine = GeoJSON.Feature<GeoJSON.LineString> | null | undefined;
+
 export function buildCollectionSegmentProfileBoundaries(
   segments: readonly StitchedSegmentInfo[] | null | undefined,
 ): CollectionSegmentProfileBoundary[] {
@@ -93,6 +95,64 @@ export function buildCollectionSegmentMapFeatureCollections(
     const boundaryPoint = points[segment.startPointIndex];
     if (!boundaryPoint) return;
 
+    boundaries.push({
+      type: "Feature",
+      properties: {
+        kind: "boundary",
+        label: segmentLabel(index),
+        routeName: segment.routeName,
+        segmentIndex: index,
+        distanceMeters: segment.distanceOffsetMeters,
+        sortKey: 100 + index,
+      },
+      geometry: {
+        type: "Point",
+        coordinates: [boundaryPoint.longitude, boundaryPoint.latitude],
+      },
+    });
+  });
+
+  return {
+    lines: { type: "FeatureCollection", features: lines },
+    boundaries: { type: "FeatureCollection", features: boundaries },
+  };
+}
+
+/**
+ * Builds the colored collection source from already simplified line geometry.
+ * The coordinate arrays are reused directly, so rendering does not remap the
+ * full stitched route after geometry preparation has completed.
+ */
+export function buildCollectionSegmentMapFeatureCollectionsFromPreparedLines(
+  points: readonly RoutePoint[] | null | undefined,
+  segments: readonly StitchedSegmentInfo[] | null | undefined,
+  preparedLines: readonly PreparedCollectionSegmentLine[],
+): CollectionSegmentMapFeatureCollections {
+  const empty = emptyCollectionSegmentMapFeatureCollections();
+  if (!points || points.length < 2 || !segments || segments.length <= 1) return empty;
+
+  const lines: GeoJSON.Feature<GeoJSON.LineString, CollectionSegmentLineProperties>[] = [];
+  const boundaries: GeoJSON.Feature<GeoJSON.Point, CollectionSegmentBoundaryProperties>[] = [];
+
+  segments.forEach((segment, index) => {
+    const preparedLine = preparedLines[index];
+    if (preparedLine && preparedLine.geometry.coordinates.length >= 2) {
+      lines.push({
+        type: "Feature",
+        properties: {
+          routeId: segment.routeId,
+          routeName: segment.routeName,
+          segmentIndex: index,
+          colorRole: segmentColorRole(index),
+          sortKey: index,
+        },
+        geometry: preparedLine.geometry,
+      });
+    }
+
+    if (index === 0) return;
+    const boundaryPoint = points[segment.startPointIndex];
+    if (!boundaryPoint) return;
     boundaries.push({
       type: "Feature",
       properties: {

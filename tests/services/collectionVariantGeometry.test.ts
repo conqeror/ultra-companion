@@ -61,7 +61,7 @@ describe("loadCollectionVariantDisplayData", () => {
     );
 
     expect(loadRoutePoints).not.toHaveBeenCalled();
-    expect(result).toEqual({ metricsByKey: {}, overlayPointsByKey: {} });
+    expect(result).toEqual({ metricsByKey: {}, overlaysByKey: {} });
   });
 
   it("loads only a variant position and retains only its alternative overlay", async () => {
@@ -86,9 +86,15 @@ describe("loadCollectionVariantDisplayData", () => {
         [collectionVariantKey(alternative)]: expect.any(Object),
       }),
     );
-    expect(result.overlayPointsByKey).toEqual({
-      [collectionVariantKey(alternative)]: geometry["r1-alt"],
-    });
+    expect(
+      result.overlaysByKey[collectionVariantKey(alternative)]?.geoJSON.geometry.coordinates,
+    ).toEqual([
+      [0, 2],
+      [0.01, 2.01],
+    ]);
+    expect(result.overlaysByKey[collectionVariantKey(alternative)]?.labelCoordinate).toEqual([
+      0.005, 2.005,
+    ]);
   });
 
   it("loads a patch base only when that variant needs it and slices the full-route overlay", async () => {
@@ -122,10 +128,10 @@ describe("loadCollectionVariantDisplayData", () => {
     );
 
     expect(loadRoutePoints.mock.calls.map(([routeId]) => routeId)).toEqual(["base", "patch"]);
-    expect(
-      result.overlayPointsByKey[collectionVariantKey(base)]?.map(
-        (point) => point.distanceFromStartMeters,
-      ),
-    ).toEqual([250, 500, 750]);
+    expect(result.overlaysByKey[collectionVariantKey(base)]?.geoJSON.geometry.coordinates).toEqual([
+      [0.005, 0],
+      [0.015, 0],
+    ]);
+    expect(result.overlaysByKey[collectionVariantKey(base)]?.labelCoordinate).toEqual([0.01, 0]);
   });
 });

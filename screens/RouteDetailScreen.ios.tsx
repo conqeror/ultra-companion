@@ -22,6 +22,8 @@ import AddSavedPOISheet from "@/components/poi/AddSavedPOISheet";
 import type { SavedPOITarget } from "@/services/savedPOIService";
 import { serializeRouteToGPX } from "@/services/gpxSerializer";
 import { shareGPXFile } from "@/utils/gpxExportShare";
+import { measureSync } from "@/utils/perfMarks";
+import { yieldToUI } from "@/utils/yieldToUI";
 
 const EMPTY_CLIMBS: Climb[] = [];
 
@@ -113,7 +115,10 @@ export default function RouteDetailScreen() {
     if (!route) return;
     setIsExporting(true);
     try {
-      const gpx = serializeRouteToGPX(route, { poisAsWaypoints: chartPOIs });
+      await yieldToUI();
+      const gpx = measureSync("gpx.serializeRoute", () =>
+        serializeRouteToGPX(route, { poisAsWaypoints: chartPOIs }),
+      );
       await shareGPXFile(gpx, route.name);
     } catch {
       Alert.alert("Export Failed", "Could not export this route as GPX.");
@@ -124,8 +129,16 @@ export default function RouteDetailScreen() {
 
   if (loading) {
     return (
-      <View className="flex-1 items-center justify-center bg-background">
+      <View
+        className="flex-1 items-center justify-center bg-background px-6"
+        accessible
+        accessibilityRole="progressbar"
+        accessibilityLabel="Loading route"
+      >
         <ActivityIndicator size="large" color={colors.accent} />
+        <Text className="mt-3 text-[17px] font-barlow-semibold text-foreground">
+          Loading route…
+        </Text>
       </View>
     );
   }

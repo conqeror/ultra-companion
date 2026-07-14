@@ -35,7 +35,7 @@ import {
 } from "@/utils/routeMarkers";
 import { MAP_LAYER_IDS, routeDistanceMarkerLayerId } from "@/constants/mapLayers";
 import { buildPOIClusterProperties, buildPOIMapFeatureCollections } from "@/utils/poiMapFeatures";
-import { buildCollectionSegmentMapFeatureCollections } from "@/utils/collectionSegmentDisplay";
+import type { CollectionSegmentMapFeatureCollections } from "@/utils/collectionSegmentDisplay";
 import { toDisplayPOIs } from "@/services/displayDistance";
 import { stitchPOIs } from "@/services/stitchingService";
 import {
@@ -108,6 +108,8 @@ interface MapCanvasProps {
   };
   pulsingConfig: { isEnabled: boolean; color: string; radius: number };
   routeLayers: MapCanvasRouteLayer[];
+  collectionSegmentFeatures: CollectionSegmentMapFeatureCollections;
+  isRouteGeometryPreparing: boolean;
   activeRoutePoints: RoutePoint[] | null;
   activeRouteIds: string[];
   activeSegments: StitchedSegmentInfo[] | null;
@@ -235,11 +237,21 @@ function emptyFeatureCollection<
   return { type: "FeatureCollection", features: [] };
 }
 
-function routeLayersBounds(routeLayers: MapCanvasRouteLayer[]): mapboxgl.LngLatBounds | null {
+function routeLayersBounds(
+  routeLayers: MapCanvasRouteLayer[],
+  collectionSegmentLines: GeoJSON.FeatureCollection<GeoJSON.LineString>,
+): mapboxgl.LngLatBounds | null {
   const bounds = new mapboxgl.LngLatBounds();
   let hasPoint = false;
   for (const route of routeLayers) {
     for (const coordinate of route.geoJSON.geometry.coordinates) {
+      if (!isFiniteCoordinate(coordinate)) continue;
+      bounds.extend(coordinate);
+      hasPoint = true;
+    }
+  }
+  for (const feature of collectionSegmentLines.features) {
+    for (const coordinate of feature.geometry.coordinates) {
       if (!isFiniteCoordinate(coordinate)) continue;
       bounds.extend(coordinate);
       hasPoint = true;
@@ -755,6 +767,8 @@ function MapCanvas({
   cameraPadding,
   pulsingConfig,
   routeLayers,
+  collectionSegmentFeatures,
+  isRouteGeometryPreparing,
   activeRoutePoints,
   activeRouteIds,
   activeSegments,
@@ -783,6 +797,7 @@ function MapCanvas({
   const mapboxRef = useRef<mapboxgl.Map | null>(null);
   const [mapReady, setMapReady] = useState(false);
   const lastFitKey = useRef<string | null>(null);
+  const renderedRouteIdsRef = useRef<string[]>([]);
   const selectedPOI = usePoiStore((s) => s.selectedPOI);
   const setSelectedPOI = usePoiStore((s) => s.setSelectedPOI);
   const userPosition = useMapStore((s) => s.userPosition);
@@ -918,20 +933,6 @@ function MapCanvas({
       weatherTemperatureMode,
     ],
   );
-  const collectionSegmentFeatures = useMemo(
-    () => buildCollectionSegmentMapFeatureCollections(activeRoutePoints, activeSegments),
-    [activeRoutePoints, activeSegments],
-  );
-  const hasSegmentedCollectionRoute =
-    activeRoutePoints != null && activeSegments != null && activeSegments.length > 1;
-  const renderedRouteLayers = useMemo(
-    () =>
-      hasSegmentedCollectionRoute
-        ? routeLayers.filter((route) => route.id !== activeDataId)
-        : routeLayers,
-    [activeDataId, hasSegmentedCollectionRoute, routeLayers],
-  );
-
   useEffect(() => {
     if (!containerRef.current) return;
     setMapReady(false);
@@ -1035,9 +1036,10 @@ function MapCanvas({
   useEffect(() => {
     const map = mapboxRef.current;
     if (!map || !mapReady) return;
+    if (isRouteGeometryPreparing) return;
     const key = `${activeContextKey ?? "none"}:${routeLayers.map((route) => route.key).join("|")}`;
     if (lastFitKey.current === key) return;
-    const bounds = routeLayersBounds(routeLayers);
+    const bounds = routeLayersBounds(routeLayers, collectionSegmentFeatures.lines);
     if (!bounds) return;
     lastFitKey.current = key;
     map.fitBounds(bounds, {
@@ -1050,15 +1052,28 @@ function MapCanvas({
       duration: 500,
       maxZoom: 13,
     });
-  }, [activeContextKey, cameraPadding, mapReady, routeLayers]);
+  }, [
+    activeContextKey,
+    cameraPadding,
+    collectionSegmentFeatures.lines,
+    isRouteGeometryPreparing,
+    mapReady,
+    routeLayers,
+  ]);
 
   useEffect(() => {
     const map = mapboxRef.current;
     if (!map || !mapReady) return;
     void etaLabelVersion;
 
+    const currentRouteIds = routeLayers.map((route) => route.id);
+    const routeIdsToRemove = new Set([...renderedRouteIdsRef.current, ...currentRouteIds]);
+    renderedRouteIdsRef.current = currentRouteIds;
     const removableLayers = [
-      ...routeLayers.flatMap((route) => [`route-outline-${route.id}`, `route-line-${route.id}`]),
+      ...[...routeIdsToRemove].flatMap((routeId) => [
+        `route-outline-${routeId}`,
+        `route-line-${routeId}`,
+      ]),
       MAP_LAYER_IDS.collectionSegmentBoundaryLabel,
       MAP_LAYER_IDS.collectionSegmentBoundaryFill,
       MAP_LAYER_IDS.collectionSegmentBoundaryOutline,
@@ -1092,7 +1107,7 @@ function MapCanvas({
       "user-location-dot",
     ];
     for (const layerId of removableLayers) removeLayer(map, layerId);
-    for (const route of routeLayers) removeSource(map, `route-source-${route.id}`);
+    for (const routeId of routeIdsToRemove) removeSource(map, `route-source-${routeId}`);
     for (const sourceId of [
       "collection-variant-overlay-source",
       "collection-variant-overlay-label-source",
@@ -1113,7 +1128,7 @@ function MapCanvas({
     const isDark = colors.background === "#0E0E0C";
     const hasClimbHighlight = climbHighlight.hiddenRange != null;
 
-    for (const route of renderedRouteLayers) {
+    for (const route of routeLayers) {
       if (route.geoJSON.geometry.coordinates.length < 2) continue;
       const sourceId = `route-source-${route.id}`;
       upsertSource(map, sourceId, route.geoJSON);
@@ -1147,21 +1162,17 @@ function MapCanvas({
     const variantLines: GeoJSON.Feature<GeoJSON.LineString>[] = [];
     const variantLabels: GeoJSON.Feature<GeoJSON.Point>[] = [];
     for (const overlay of activeVariantOverlays) {
-      if (overlay.points.length < 2) continue;
+      if (overlay.geoJSON.geometry.coordinates.length < 2) continue;
       variantLines.push({
         type: "Feature",
         properties: { id: overlay.id },
-        geometry: {
-          type: "LineString",
-          coordinates: overlay.points.map((point) => [point.longitude, point.latitude]),
-        },
+        geometry: overlay.geoJSON.geometry,
       });
-      const middle = overlay.points[Math.floor(overlay.points.length / 2)];
-      if (middle) {
+      if (overlay.labelCoordinate) {
         variantLabels.push({
           type: "Feature",
           properties: { id: overlay.id, label: overlay.label },
-          geometry: { type: "Point", coordinates: [middle.longitude, middle.latitude] },
+          geometry: { type: "Point", coordinates: overlay.labelCoordinate },
         });
       }
     }
@@ -1494,7 +1505,6 @@ function MapCanvas({
     mapReady,
     poiFeatureCollections,
     pulsingConfig,
-    renderedRouteLayers,
     routeLayers,
     distanceMarkerMode,
     markerIntervalKm,

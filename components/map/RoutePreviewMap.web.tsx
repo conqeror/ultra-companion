@@ -1,12 +1,20 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { View } from "react-native";
+import { ActivityIndicator, View } from "react-native";
 import Constants from "expo-constants";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 import { ACTIVE_ROUTE_COLOR, INACTIVE_ROUTE_COLOR } from "@/constants";
 import { useMapStyle } from "@/hooks/useMapStyle";
 import { useThemeColors } from "@/theme";
-import { prepareRouteMapGeoJSONForKey } from "@/utils/geo";
+import {
+  isRouteGeometryRequestRenderable,
+  preparedRouteGeometryHasError,
+  preparedRouteGeometryMatchesRequest,
+  usePreparedRouteGeometries,
+  type PreparedRouteGeometryRequest,
+} from "@/hooks/usePreparedRouteGeometries";
+import { allocateMapCoordinateBudget, MAX_ROUTE_MAP_GEOJSON_POINTS } from "@/utils/geo";
+import { Text } from "@/components/ui/text";
 import type { RoutePoint } from "@/types";
 
 mapboxgl.accessToken = Constants.expoConfig?.extra?.mapboxAccessToken ?? "";
@@ -157,25 +165,46 @@ export default function RoutePreviewMap({ layers }: RoutePreviewMapProps) {
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const renderedIdsRef = useRef<string[]>([]);
   const [mapReady, setMapReady] = useState(false);
+  const visibleLayers = useMemo(() => layers.filter((layer) => layer.points.length >= 2), [layers]);
+
+  const routeGeometryRequests = useMemo<PreparedRouteGeometryRequest[]>(() => {
+    const budgets = allocateMapCoordinateBudget(
+      visibleLayers.map((layer) => layer.points.length),
+      MAX_ROUTE_MAP_GEOJSON_POINTS,
+    );
+    return visibleLayers.map((layer, index) => ({
+      id: layer.id,
+      cacheKey: layer.cacheKey ?? layer.id,
+      points: layer.points,
+      toleranceMeters: PREVIEW_TOLERANCE_METERS,
+      maxPoints: budgets[index],
+    }));
+  }, [visibleLayers]);
+  const preparedRouteGeometries = usePreparedRouteGeometries(routeGeometryRequests);
+  const isPreparing = routeGeometryRequests.some(
+    (request) =>
+      isRouteGeometryRequestRenderable(request) &&
+      !preparedRouteGeometryMatchesRequest(preparedRouteGeometries[request.id], request),
+  );
+  const hasPreparationError = routeGeometryRequests.some((request) =>
+    preparedRouteGeometryHasError(preparedRouteGeometries[request.id], request),
+  );
 
   const preparedLayers = useMemo<PreparedPreviewLayer[]>(
     () =>
-      layers
+      visibleLayers
         .map((layer, index) => {
-          if (layer.points.length < 2) return null;
+          const prepared = preparedRouteGeometries[layer.id];
+          if (!prepared) return null;
           const safeId = safeLayerId(layer.id, index);
           return {
             safeId,
             isActive: layer.isActive,
-            geoJSON: prepareRouteMapGeoJSONForKey(
-              layer.cacheKey ?? layer.id,
-              layer.points,
-              PREVIEW_TOLERANCE_METERS,
-            ),
+            geoJSON: prepared.geoJSON,
           };
         })
         .filter((layer): layer is PreparedPreviewLayer => layer != null),
-    [layers],
+    [preparedRouteGeometries, visibleLayers],
   );
 
   useEffect(() => {
@@ -234,6 +263,37 @@ export default function RoutePreviewMap({ layers }: RoutePreviewMapProps) {
         ref={containerRef as unknown as React.RefObject<View>}
         style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0 }}
       />
+      {(isPreparing || hasPreparationError) && (
+        <View
+          pointerEvents="none"
+          className={
+            isPreparing
+              ? "absolute inset-0 items-center justify-center bg-background/60"
+              : "absolute left-4 right-4 top-4 items-center"
+          }
+          accessible
+          accessibilityRole={isPreparing ? "progressbar" : "alert"}
+          accessibilityLiveRegion="polite"
+          accessibilityLabel={
+            isPreparing ? "Preparing route preview" : "Couldn’t prepare the route preview"
+          }
+        >
+          <View
+            className={
+              isPreparing
+                ? "items-center"
+                : "rounded-full border border-border bg-card px-3 py-2 shadow-sm"
+            }
+          >
+            {isPreparing && <ActivityIndicator size="small" color={colors.accent} />}
+            <Text
+              className={`${isPreparing ? "mt-2 text-foreground" : "text-destructive"} text-[13px] font-barlow-medium`}
+            >
+              {isPreparing ? "Preparing preview…" : "Couldn’t prepare the route preview"}
+            </Text>
+          </View>
+        </View>
+      )}
     </View>
   );
 }

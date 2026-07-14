@@ -13,7 +13,7 @@ UDID="${1:-$(xcrun simctl list devices booted -j | python3 -c "import sys,json; 
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
 OUTDIR="$DIR/.axe-screenshots"
 STEPS="$DIR/axe-steps"
-BUNDLE_ID="com.ultra.companion"
+BUNDLE_ID="com.conqeror.ultracompanion"
 N=1
 
 mkdir -p "$OUTDIR"

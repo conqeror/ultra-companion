@@ -160,6 +160,20 @@ function forecastHoursForProjection(projectionStart: Date, maxRidingTimeSeconds:
   );
 }
 
+function findFirstCumulativeTimeAtOrAfter(
+  cumulativeTime: readonly number[],
+  targetTime: number,
+): number {
+  let lo = 0;
+  let hi = cumulativeTime.length;
+  while (lo < hi) {
+    const mid = lo + Math.floor((hi - lo) / 2);
+    if (cumulativeTime[mid] < targetTime) lo = mid + 1;
+    else hi = mid;
+  }
+  return Math.min(Math.max(1, lo), cumulativeTime.length - 1);
+}
+
 function ridingTimeToRoutePosition(
   cumulativeTime: number[],
   points: RoutePoint[],
@@ -171,6 +185,12 @@ function ridingTimeToRoutePosition(
   const startDist = validRouteStartDistance(points, fromDistanceAlongRouteM);
   if (startDist == null) return null;
 
+  // A one-point GPX/KML is valid input but has no previous segment to
+  // interpolate. Its projected position is always the sole route point.
+  if (points.length === 1) {
+    return waypointAtRouteDistance(points, startDist, startDist);
+  }
+
   const routeEndMeters = points[points.length - 1].distanceFromStartMeters;
   const targetElapsedSeconds = Math.max(0, elapsedTimeSeconds);
   if (!plannedStops?.length) {
@@ -178,11 +198,10 @@ function ridingTimeToRoutePosition(
     if (fromTime == null) return null;
     const targetTime = fromTime + targetElapsedSeconds;
 
-    for (let index = 1; index < points.length; index++) {
+    if (targetTime <= cumulativeTime[cumulativeTime.length - 1]) {
+      const index = findFirstCumulativeTimeAtOrAfter(cumulativeTime, targetTime);
       const prevTime = cumulativeTime[index - 1];
       const nextTime = cumulativeTime[index];
-      if (nextTime < targetTime) continue;
-
       const prevPoint = points[index - 1];
       const nextPoint = points[index];
       const timeDelta = nextTime - prevTime;
@@ -192,17 +211,18 @@ function ridingTimeToRoutePosition(
         prevPoint.distanceFromStartMeters +
         (nextPoint.distanceFromStartMeters - prevPoint.distanceFromStartMeters) * clampedProgress;
 
-      if (routeDistanceMeters < startDist) continue;
-
-      return {
-        latitude: prevPoint.latitude + (nextPoint.latitude - prevPoint.latitude) * clampedProgress,
-        longitude:
-          prevPoint.longitude + (nextPoint.longitude - prevPoint.longitude) * clampedProgress,
-        distanceAlongRouteM: routeDistanceMeters - startDist,
-        routeDistanceMeters,
-        index,
-        segmentIndex: Math.max(0, index - 1),
-      };
+      if (routeDistanceMeters >= startDist) {
+        return {
+          latitude:
+            prevPoint.latitude + (nextPoint.latitude - prevPoint.latitude) * clampedProgress,
+          longitude:
+            prevPoint.longitude + (nextPoint.longitude - prevPoint.longitude) * clampedProgress,
+          distanceAlongRouteM: routeDistanceMeters - startDist,
+          routeDistanceMeters,
+          index,
+          segmentIndex: Math.max(0, index - 1),
+        };
+      }
     }
   }
 

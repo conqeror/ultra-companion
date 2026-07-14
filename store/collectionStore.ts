@@ -80,6 +80,19 @@ function fingerprintSegments(collectionId: string, segments: CollectionSegment[]
   return `${collectionId}|${selected}`;
 }
 
+let activeStitchGeneration = 0;
+
+function invalidateActiveStitchRequests(): void {
+  activeStitchGeneration++;
+}
+
+function isCollectionActive(state: CollectionState, collectionId: string): boolean {
+  const activeCollection = state.collections.find((collection) => collection.isActive);
+  return activeCollection
+    ? activeCollection.id === collectionId
+    : state.activeStitchedCollection?.collectionId === collectionId;
+}
+
 export const useCollectionStore = create<CollectionState>((set, get) => ({
   collections: [],
   activeStitchedCollection: null,
@@ -95,6 +108,7 @@ export const useCollectionStore = create<CollectionState>((set, get) => ({
       ]);
       set({ collections, assignedRouteIds });
       if (!collections.some((c) => c.isActive)) {
+        invalidateActiveStitchRequests();
         set({ activeStitchedCollection: null, activeStitchedFingerprint: null });
       }
     } catch (e: any) {
@@ -128,8 +142,10 @@ export const useCollectionStore = create<CollectionState>((set, get) => ({
   },
 
   deleteCollection: async (id) => {
+    const deletingActiveCollection = isCollectionActive(get(), id);
+    if (deletingActiveCollection) invalidateActiveStitchRequests();
     await dbDeleteCollection(id);
-    if (get().activeStitchedCollection?.collectionId === id) {
+    if (deletingActiveCollection || get().activeStitchedCollection?.collectionId === id) {
       set({ activeStitchedCollection: null, activeStitchedFingerprint: null });
     }
     await get().loadCollections();
@@ -204,6 +220,8 @@ export const useCollectionStore = create<CollectionState>((set, get) => ({
     } else {
       // Add as new position at the end
       const maxPos = await getMaxSegmentPosition(collectionId);
+      const refreshActiveStitch = isCollectionActive(get(), collectionId);
+      if (refreshActiveStitch) invalidateActiveStitchRequests();
       await insertCollectionSegment({
         collectionId,
         routeId,
@@ -214,7 +232,7 @@ export const useCollectionStore = create<CollectionState>((set, get) => ({
         replaceStartDistanceMeters: null,
         replaceEndDistanceMeters: null,
       });
-      if (get().activeStitchedCollection?.collectionId === collectionId) {
+      if (isCollectionActive(get(), collectionId)) {
         await get().loadStitchedCollection(collectionId);
       }
     }
@@ -230,6 +248,8 @@ export const useCollectionStore = create<CollectionState>((set, get) => ({
     replaceStartDistanceMeters,
     replaceEndDistanceMeters,
   ) => {
+    const refreshActiveStitch = isCollectionActive(get(), collectionId);
+    if (refreshActiveStitch) invalidateActiveStitchRequests();
     await insertCollectionSegment({
       collectionId,
       routeId,
@@ -240,13 +260,15 @@ export const useCollectionStore = create<CollectionState>((set, get) => ({
       replaceStartDistanceMeters,
       replaceEndDistanceMeters,
     });
-    if (get().activeStitchedCollection?.collectionId === collectionId) {
+    if (isCollectionActive(get(), collectionId)) {
       await get().loadStitchedCollection(collectionId);
     }
     set({ assignedRouteIds: new Set([...get().assignedRouteIds, routeId, baseRouteId]) });
   },
 
   removeSegment: async (collectionId, routeId) => {
+    const refreshActiveStitch = isCollectionActive(get(), collectionId);
+    if (refreshActiveStitch) invalidateActiveStitchRequests();
     await dbDeleteCollectionSegment(collectionId, routeId);
     await deletePatchVariantsForBaseRoute(collectionId, routeId);
     // Normalize positions: get remaining segments, re-number
@@ -273,7 +295,7 @@ export const useCollectionStore = create<CollectionState>((set, get) => ({
         await dbSelectVariant(collectionId, atPos[0].routeId);
       }
     }
-    if (get().activeStitchedCollection?.collectionId === collectionId) {
+    if (isCollectionActive(get(), collectionId)) {
       await get().loadStitchedCollection(collectionId);
     }
     // Refresh assignedRouteIds — route may still be in other collections
@@ -282,13 +304,16 @@ export const useCollectionStore = create<CollectionState>((set, get) => ({
   },
 
   selectVariant: async (collectionId, routeId) => {
+    const refreshActiveStitch = isCollectionActive(get(), collectionId);
+    if (refreshActiveStitch) invalidateActiveStitchRequests();
     await dbSelectVariant(collectionId, routeId);
-    if (get().activeStitchedCollection?.collectionId === collectionId) {
+    if (isCollectionActive(get(), collectionId)) {
       await get().loadStitchedCollection(collectionId);
     }
   },
 
   setActiveCollection: async (id) => {
+    invalidateActiveStitchRequests();
     set({ isLoading: true });
     await dbSetActiveCollection(id);
     // Make all selected segment routes visible in a single query
@@ -310,11 +335,18 @@ export const useCollectionStore = create<CollectionState>((set, get) => ({
   },
 
   loadStitchedCollection: async (id) => {
+    const generation = ++activeStitchGeneration;
+    const isCurrent = () => generation === activeStitchGeneration;
     try {
       // Check fingerprint first — if the selected segments haven't changed,
       // skip the re-stitch entirely (avoids re-loading all segment points).
       const segments = await getCollectionSegments(id);
+      if (!isCurrent()) return;
       const fingerprint = fingerprintSegments(id, segments);
+      const requestedCollectionIsActive = get().collections.some(
+        (collection) => collection.id === id && collection.isActive,
+      );
+      if (!requestedCollectionIsActive) return;
       if (
         get().activeStitchedFingerprint === fingerprint &&
         get().activeStitchedCollection?.collectionId === id
@@ -322,15 +354,30 @@ export const useCollectionStore = create<CollectionState>((set, get) => ({
         return;
       }
 
-      const stitched = await stitchCollection(id, { includePointsByRouteId: false });
+      const stitched = await stitchCollection(id, {
+        includePointsByRouteId: false,
+        shouldCancel: () => !isCurrent(),
+      });
+      if (!isCurrent()) return;
+
+      // Selected variants and active collection identity may have changed while
+      // long source routes were read. Only publish the exact snapshot requested.
+      const latestSegments = await getCollectionSegments(id);
+      if (!isCurrent()) return;
+      const latestFingerprint = fingerprintSegments(id, latestSegments);
+      const activeCollectionId = get().collections.find((collection) => collection.isActive)?.id;
+      if (activeCollectionId !== id || latestFingerprint !== fingerprint) return;
+
       set({ activeStitchedCollection: stitched, activeStitchedFingerprint: fingerprint });
     } catch (e: any) {
-      console.warn("Failed to stitch collection:", e);
+      if (isCurrent()) console.warn("Failed to stitch collection:", e);
     }
   },
 
-  clearActiveStitched: () =>
-    set({ activeStitchedCollection: null, activeStitchedFingerprint: null }),
+  clearActiveStitched: () => {
+    invalidateActiveStitchRequests();
+    set({ activeStitchedCollection: null, activeStitchedFingerprint: null });
+  },
 
   getCollectionSegmentsWithRoutes: async (id) => {
     const segments = await getCollectionSegments(id);

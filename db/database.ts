@@ -14,6 +14,7 @@ import {
   relativeEtaCache,
 } from "./schema";
 import migrations from "../drizzle/migrations";
+import { measureAsync } from "@/utils/perfMarks";
 import type {
   Route,
   RoutePoint,
@@ -282,16 +283,9 @@ export async function getRouteWithPoints(routeId: string): Promise<RouteWithPoin
   const row = db.select().from(routes).where(eq(routes.id, routeId)).get();
   if (!row) return null;
 
-  const pointRows = db
-    .select()
-    .from(routePoints)
-    .where(eq(routePoints.routeId, routeId))
-    .orderBy(asc(routePoints.idx))
-    .all();
-
   return {
     ...row,
-    points: pointRows,
+    points: await getRoutePoints(routeId),
   };
 }
 
@@ -331,13 +325,19 @@ export async function getRouteEndpoints(
 }
 
 export async function getRoutePoints(routeId: string): Promise<RoutePoint[]> {
-  const rows = db
-    .select()
-    .from(routePoints)
-    .where(eq(routePoints.routeId, routeId))
-    .orderBy(asc(routePoints.idx))
-    .all();
-  return rows;
+  // Drizzle's Expo adapter uses prepareSync/executeSync internally. Route point
+  // arrays can contain hundreds of thousands of rows, so use Expo SQLite's
+  // native async query path rather than blocking the JS thread while SQLite
+  // prepares and steps through the result set.
+  return measureAsync("db.routePoints.read", () =>
+    appSQLiteDb.getAllAsync<RoutePoint>(
+      `SELECT idx, latitude, longitude, elevationMeters, distanceFromStartMeters
+       FROM route_points
+       WHERE routeId = ?
+       ORDER BY idx ASC`,
+      [routeId],
+    ),
+  );
 }
 
 export async function deleteRoute(routeId: string): Promise<void> {

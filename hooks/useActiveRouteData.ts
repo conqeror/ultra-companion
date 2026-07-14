@@ -11,7 +11,7 @@ function buildActiveRouteData(
   visibleRoutePoints: Record<string, RoutePoint[]>,
 ): ActiveRouteData | null {
   const activeCollection = collections.find((c) => c.isActive);
-  if (activeCollection && activeStitchedCollection) {
+  if (activeCollection && activeStitchedCollection?.collectionId === activeCollection.id) {
     return {
       type: "collection",
       id: activeCollection.id,

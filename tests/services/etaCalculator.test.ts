@@ -2,8 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 import {
   computeCachedRouteETA,
   computeCachedRouteTotalETA,
+  computeCachedRouteTotalETAInChunks,
   computeRouteETA,
   computeRouteTotalETA,
+  computeRouteTotalETAInChunks,
   getETABetweenIndices,
   getETAToDistance,
   getETAToDistanceFromDistance,
@@ -72,6 +74,106 @@ describe("etaCalculator", () => {
     expect(computeRouteTotalETA(points, DEFAULT_POWER_CONFIG)).toBe(
       cumulative[cumulative.length - 1],
     );
+  });
+
+  it("computes total ETA in chunks while yielding between chunks", async () => {
+    const points = [
+      basePoint(0, 0, 0),
+      basePoint(1_000, 10, 1),
+      basePoint(2_000, 20, 2),
+      basePoint(3_000, 10, 3),
+      basePoint(4_000, 0, 4),
+    ];
+    const yieldControl = vi.fn(async () => {});
+
+    await expect(
+      computeRouteTotalETAInChunks(points, DEFAULT_POWER_CONFIG, {
+        chunkPoints: 2,
+        yieldControl,
+      }),
+    ).resolves.toBe(computeRouteTotalETA(points, DEFAULT_POWER_CONFIG));
+    expect(yieldControl).toHaveBeenCalledTimes(1);
+  });
+
+  it("cancels obsolete chunked total ETA work", async () => {
+    const points = [
+      basePoint(0, 0, 0),
+      basePoint(1_000, 10, 1),
+      basePoint(2_000, 20, 2),
+      basePoint(3_000, 10, 3),
+      basePoint(4_000, 0, 4),
+    ];
+    let cancelled = false;
+
+    await expect(
+      computeRouteTotalETAInChunks(points, DEFAULT_POWER_CONFIG, {
+        chunkPoints: 2,
+        shouldCancel: () => cancelled,
+        yieldControl: async () => {
+          cancelled = true;
+        },
+      }),
+    ).resolves.toBeNull();
+  });
+
+  it("caches completed chunked totals across equivalent point arrays", async () => {
+    const points = [
+      basePoint(0, 0, 0),
+      basePoint(1_000, 10, 1),
+      basePoint(2_000, 20, 2),
+      basePoint(3_000, 10, 3),
+      basePoint(4_000, 0, 4),
+    ];
+    const firstYield = vi.fn(async () => {});
+    const cachedYield = vi.fn(async () => {});
+
+    const first = await computeCachedRouteTotalETAInChunks(
+      "chunked-cache-complete",
+      points,
+      DEFAULT_POWER_CONFIG,
+      { chunkPoints: 2, yieldControl: firstYield },
+    );
+    const cached = await computeCachedRouteTotalETAInChunks(
+      "chunked-cache-complete",
+      points.map((point) => ({ ...point })),
+      DEFAULT_POWER_CONFIG,
+      { chunkPoints: 2, yieldControl: cachedYield },
+    );
+
+    expect(first).toBe(computeRouteTotalETA(points, DEFAULT_POWER_CONFIG));
+    expect(cached).toBe(first);
+    expect(firstYield).toHaveBeenCalled();
+    expect(cachedYield).not.toHaveBeenCalled();
+  });
+
+  it("does not cache a cancelled chunked total", async () => {
+    const points = [
+      basePoint(0, 0, 0),
+      basePoint(1_000, 10, 1),
+      basePoint(2_000, 20, 2),
+      basePoint(3_000, 10, 3),
+      basePoint(4_000, 0, 4),
+    ];
+    let cancelled = false;
+    const retryYield = vi.fn(async () => {});
+
+    await expect(
+      computeCachedRouteTotalETAInChunks("chunked-cache-cancelled", points, DEFAULT_POWER_CONFIG, {
+        chunkPoints: 2,
+        shouldCancel: () => cancelled,
+        yieldControl: async () => {
+          cancelled = true;
+        },
+      }),
+    ).resolves.toBeNull();
+
+    await expect(
+      computeCachedRouteTotalETAInChunks("chunked-cache-cancelled", points, DEFAULT_POWER_CONFIG, {
+        chunkPoints: 2,
+        yieldControl: retryYield,
+      }),
+    ).resolves.toBe(computeRouteTotalETA(points, DEFAULT_POWER_CONFIG));
+    expect(retryYield).toHaveBeenCalled();
   });
 
   it("caches ETA arrays by route key, point fingerprint, and power config", () => {

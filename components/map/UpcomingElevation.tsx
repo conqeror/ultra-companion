@@ -8,6 +8,7 @@ import {
   findNearestPointIndexAtDistance,
 } from "@/utils/geo";
 import { filterCollectionSegmentProfileBoundariesForRange } from "@/utils/collectionSegmentDisplay";
+import { bucketDistanceForDerivedWork } from "@/utils/distanceBuckets";
 import { LOOK_BACK_RATIO } from "@/constants";
 import type { RoutePoint, UnitSystem, DisplayPOI, DisplayClimb } from "@/types";
 import type { CollectionSegmentProfileBoundary } from "@/utils/collectionSegmentDisplay";
@@ -45,34 +46,26 @@ export default function UpcomingElevation({
   segmentBoundaries,
   fitToWidth,
 }: UpcomingElevationProps) {
-  const {
-    slicedPoints,
-    currentIdxInSlice,
-    currentDistanceInSliceMeters,
-    offsetMeters,
-    sliceEndDist,
-  } = useMemo(() => {
+  const derivedCurrentDistanceMeters = bucketDistanceForDerivedWork(currentDistanceMeters) ?? 0;
+  const { slicedPoints, offsetMeters, sliceEndDist } = useMemo(() => {
     if (points.length < 2)
       return {
         slicedPoints: [] as RoutePoint[],
-        currentIdxInSlice: undefined as number | undefined,
-        currentDistanceInSliceMeters: undefined as number | undefined,
         offsetMeters: 0,
         sliceEndDist: 0,
       };
 
-    const hasCurrentDistance = currentDistanceMeters != null;
-    const currentDist = Math.max(
+    const windowAnchorDistanceMeters = Math.max(
       0,
-      Math.min(points[points.length - 1].distanceFromStartMeters, currentDistanceMeters ?? 0),
+      Math.min(points[points.length - 1].distanceFromStartMeters, derivedCurrentDistanceMeters),
     );
     const totalDist = points[points.length - 1].distanceFromStartMeters;
 
     // Keep the selected horizon as the upcoming distance, with a smaller
     // lookback for context: 10 km => 2 km back, 100 km => 20 km back, etc.
     const desiredBack = lookAhead * LOOK_BACK_RATIO;
-    const startDist = Math.max(0, currentDist - desiredBack);
-    const endDist = Math.min(totalDist, currentDist + lookAhead);
+    const startDist = Math.max(0, windowAnchorDistanceMeters - desiredBack);
+    const endDist = Math.min(totalDist, windowAnchorDistanceMeters + lookAhead);
 
     const firstAtOrAfterStart = findFirstPointAtOrAfterDistance(points, startDist);
     const startIdx =
@@ -83,20 +76,27 @@ export default function UpcomingElevation({
     const sliceOffsetMeters = points[startIdx].distanceFromStartMeters;
     const totalSliceM = Math.max(0, endDist - sliceOffsetMeters);
     const sliced = extractRouteSlice(points, startIdx, totalSliceM);
-    const distanceInSliceMeters = hasCurrentDistance ? currentDist - sliceOffsetMeters : undefined;
-    const idxInSlice =
-      distanceInSliceMeters != null
-        ? findNearestPointIndexAtDistance(sliced, distanceInSliceMeters)
-        : undefined;
 
     return {
       slicedPoints: sliced,
-      currentIdxInSlice: idxInSlice,
-      currentDistanceInSliceMeters: distanceInSliceMeters,
       offsetMeters: sliceOffsetMeters,
       sliceEndDist: endDist,
     };
-  }, [points, currentDistanceMeters, lookAhead]);
+  }, [points, derivedCurrentDistanceMeters, lookAhead]);
+
+  // Keep the marker exact while the expensive route slice changes only when
+  // progress crosses a derived-work bucket boundary.
+  const currentDistanceInSliceMeters =
+    currentDistanceMeters != null && points.length > 0
+      ? Math.max(
+          0,
+          Math.min(points[points.length - 1].distanceFromStartMeters, currentDistanceMeters),
+        ) - offsetMeters
+      : undefined;
+  const currentIdxInSlice =
+    currentDistanceInSliceMeters != null && slicedPoints.length > 0
+      ? findNearestPointIndexAtDistance(slicedPoints, currentDistanceInSliceMeters)
+      : undefined;
 
   // Filter POIs to visible slice range
   const visiblePOIs = useMemo(() => {

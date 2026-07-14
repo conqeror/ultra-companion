@@ -2,7 +2,7 @@ import type { RoutePoint, PowerModelConfig, ETAResult } from "@/types";
 import { computeSegmentTime } from "./powerModel";
 import { computeWindowedGradient } from "@/utils/elevation";
 import { findFirstPointAtOrAfterDistance, routePointArrayFingerprint } from "@/utils/geo";
-import { measureSync } from "@/utils/perfMarks";
+import { measureAsync, measureSync } from "@/utils/perfMarks";
 
 const routeEtaCache = new Map<string, { fingerprint: string; cumulative: number[] }>();
 const routeTotalEtaCache = new Map<string, { fingerprint: string; total: number | null }>();
@@ -77,6 +77,79 @@ export function computeRouteTotalETA(
   }
 
   return totalSeconds;
+}
+
+export interface ComputeRouteTotalETAInChunksOptions {
+  /** Number of points processed before yielding back to React Native. */
+  chunkPoints?: number;
+  /** Stops obsolete work when the owning component receives new inputs or unmounts. */
+  shouldCancel?: () => boolean;
+  /** Injectable for deterministic tests; production uses a zero-delay event-loop yield. */
+  yieldControl?: () => Promise<void>;
+}
+
+function yieldToEventLoop(): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, 0);
+  });
+}
+
+/**
+ * Compute total riding time without monopolizing the JS thread. Unlike the
+ * cumulative ETA calculation, this intentionally retains only the final total.
+ */
+export async function computeRouteTotalETAInChunks(
+  points: RoutePoint[],
+  config: PowerModelConfig,
+  options: ComputeRouteTotalETAInChunksOptions = {},
+): Promise<number | null> {
+  if (points.length < 2) return null;
+
+  return measureAsync("eta.computeRouteTotalETAInChunks", async () => {
+    const chunkPoints = Math.max(1, options.chunkPoints ?? 2_500);
+    const yieldControl = options.yieldControl ?? yieldToEventLoop;
+    let totalSeconds = 0;
+
+    for (let i = 1; i < points.length; i++) {
+      if (options.shouldCancel?.()) return null;
+
+      const prev = points[i - 1];
+      const curr = points[i];
+      const dist = curr.distanceFromStartMeters - prev.distanceFromStartMeters;
+      const gradient = computeWindowedGradient(points, i);
+      totalSeconds += computeSegmentTime(dist, gradient, config);
+
+      if (i % chunkPoints === 0 && i < points.length - 1) {
+        await yieldControl();
+      }
+    }
+
+    return options.shouldCancel?.() ? null : totalSeconds;
+  });
+}
+
+/**
+ * Chunked total ETA with the same completed-result cache used by the synchronous
+ * variant calculation. Cancelled work is deliberately never cached.
+ */
+export async function computeCachedRouteTotalETAInChunks(
+  routeKey: string,
+  points: RoutePoint[],
+  config: PowerModelConfig,
+  options: ComputeRouteTotalETAInChunksOptions = {},
+): Promise<number | null> {
+  if (options.shouldCancel?.()) return null;
+
+  const key = cacheKey(routeKey, config);
+  const fingerprint = routePointArrayFingerprint(points);
+  const cached = routeTotalEtaCache.get(key);
+  if (cached?.fingerprint === fingerprint) return cached.total;
+
+  const total = await computeRouteTotalETAInChunks(points, config, options);
+  if (total != null && !options.shouldCancel?.()) {
+    routeTotalEtaCache.set(key, { fingerprint, total });
+  }
+  return total;
 }
 
 export function computeCachedRouteTotalETA(

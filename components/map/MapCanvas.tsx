@@ -28,6 +28,7 @@ import ClimbDistanceMarkerLayer from "./ClimbDistanceMarkerLayer";
 import TemperatureRouteOverlay from "./TemperatureRouteOverlay";
 import VariantOverlayLayer, { type VariantOverlay } from "./VariantOverlayLayer";
 import CollectionSegmentLayer from "./CollectionSegmentLayer";
+import type { CollectionSegmentMapFeatureCollections } from "@/utils/collectionSegmentDisplay";
 import type {
   POIMapVisibility,
   DistanceMarkerMode,
@@ -102,6 +103,8 @@ interface MapCanvasProps {
   };
   pulsingConfig: { isEnabled: boolean; color: string; radius: number };
   routeLayers: MapCanvasRouteLayer[];
+  collectionSegmentFeatures: CollectionSegmentMapFeatureCollections;
+  isRouteGeometryPreparing: boolean;
   activeRoutePoints: RoutePoint[] | null;
   activeRouteIds: string[];
   activeSegments: StitchedSegmentInfo[] | null;
@@ -135,6 +138,7 @@ function MapCanvas({
   cameraPadding,
   pulsingConfig,
   routeLayers,
+  collectionSegmentFeatures,
   activeRoutePoints,
   activeRouteIds,
   activeSegments,
@@ -181,16 +185,6 @@ function MapCanvas({
   const overlayStackKey = `${mapStyle.styleKey}-${highlightedClimb?.id ?? "none"}-${
     activeContextKey ?? "none"
   }-markers:${distanceMarkerMode}-${weatherStackKey}-pois:${poiVisibility}`;
-  const hasSegmentedCollectionRoute =
-    activeRoutePoints != null && activeSegments != null && activeSegments.length > 1;
-  const renderedRouteLayers = useMemo(
-    () =>
-      hasSegmentedCollectionRoute
-        ? routeLayers.filter((route) => route.id !== activeDataId)
-        : routeLayers,
-    [activeDataId, hasSegmentedCollectionRoute, routeLayers],
-  );
-
   return (
     <MapboxMapView
       ref={mapRef as React.RefObject<MapboxMapView | null>}
@@ -213,7 +207,7 @@ function MapCanvas({
         padding={cameraPadding}
       />
       <MapLayerAnchors key={`map-layer-anchors-${mapStyle.styleKey}`} />
-      {renderedRouteLayers.map((route) => (
+      {routeLayers.map((route) => (
         <RouteLayer
           key={route.key}
           routeId={route.id}
@@ -268,8 +262,7 @@ function MapCanvas({
       {activeRoutePoints && (
         <CollectionSegmentLayer
           key={`collection-segments-${overlayStackKey}`}
-          points={activeRoutePoints}
-          segments={activeSegments}
+          features={collectionSegmentFeatures}
           lineAboveLayerID={MAP_LAYER_ANCHOR_IDS.routeLine}
           symbolAboveLayerID={MAP_LAYER_IDS.routeEndpointLabel}
           dimmed={hasClimbHighlight}

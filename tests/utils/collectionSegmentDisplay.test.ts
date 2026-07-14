@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildCollectionSegmentMapFeatureCollections,
+  buildCollectionSegmentMapFeatureCollectionsFromPreparedLines,
   buildCollectionSegmentProfileBoundaries,
   filterCollectionSegmentProfileBoundariesForRange,
 } from "@/utils/collectionSegmentDisplay";
@@ -119,6 +120,41 @@ describe("collectionSegmentDisplay", () => {
       "S2",
       "S3",
     ]);
+  });
+
+  it("reuses prepared segment geometry without rebuilding raw stitched coordinates", () => {
+    const points = [point(0, 0), point(1, 1_000), point(2, 1_000), point(3, 2_000)];
+    const firstGeometry: GeoJSON.LineString = {
+      type: "LineString",
+      coordinates: [
+        [17, 48],
+        [17.01, 48.01],
+      ],
+    };
+    const secondGeometry: GeoJSON.LineString = {
+      type: "LineString",
+      coordinates: [
+        [17.02, 48.02],
+        [17.03, 48.03],
+      ],
+    };
+
+    const features = buildCollectionSegmentMapFeatureCollectionsFromPreparedLines(
+      points,
+      [segment(0), segment(1)],
+      [
+        { type: "Feature", properties: {}, geometry: firstGeometry },
+        { type: "Feature", properties: {}, geometry: secondGeometry },
+      ],
+    );
+
+    expect(features.lines.features.map((feature) => feature.properties.colorRole)).toEqual([
+      "primary",
+      "alternate",
+    ]);
+    expect(features.lines.features[0].geometry).toBe(firstGeometry);
+    expect(features.lines.features[1].geometry).toBe(secondGeometry);
+    expect(features.boundaries.features[0].properties.label).toBe("S2");
   });
 
   it("filters profile boundaries to the visible absolute-distance range", () => {

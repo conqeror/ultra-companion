@@ -92,6 +92,23 @@ describe("weatherService", () => {
     expect(sampleWaypoints(points, 2_001)).toEqual([]);
   });
 
+  it("projects a one-point route without reading a negative segment index", async () => {
+    const onlyPoint = routePoint(0, 0);
+    mockFetchForecasts.mockResolvedValue([forecast(onlyPoint.latitude, onlyPoint.longitude)]);
+
+    const timeline = await buildWeatherTimeline([onlyPoint], 0, [0], {
+      projectionStartTime: new Date("2026-01-01T00:00:00.000Z"),
+    });
+
+    expect(timeline[0]).toMatchObject({
+      phase: "route",
+      routeDistanceMeters: 0,
+      latitude: onlyPoint.latitude,
+      longitude: onlyPoint.longitude,
+      sampleKinds: ["hourly", "finish"],
+    });
+  });
+
   it("uses planned projection start time to shift weather timeline alignment", async () => {
     const points = [routePoint(0, 0), routePoint(20_000, 1), routePoint(40_000, 2)];
     const cumulativeTime = [0, 3600, 7200];

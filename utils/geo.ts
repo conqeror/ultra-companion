@@ -17,6 +17,9 @@ const MAP_SIMPLIFY_TOLERANCE_BY_VISIBLE_SPAN = [
   { maxVisibleSpanMeters: 250_000, toleranceMeters: 12 },
   { maxVisibleSpanMeters: Infinity, toleranceMeters: 120 },
 ] as const;
+export const MAX_ROUTE_MAP_GEOJSON_POINTS = 60_000;
+export const MAX_VARIANT_MAP_GEOJSON_POINTS = 20_000;
+export const MAX_KEYED_MAP_GEOJSON_CACHE_ENTRIES = 32;
 const mapGeoJSONCache = new WeakMap<
   RoutePoint[],
   Map<number, GeoJSON.Feature<GeoJSON.LineString>>
@@ -24,11 +27,50 @@ const mapGeoJSONCache = new WeakMap<
 const keyedMapGeoJSONCache = new Map<
   string,
   {
-    points: RoutePoint[];
+    pointsRef: WeakRef<RoutePoint[]> | null;
     fingerprint: string;
     geoJSON: GeoJSON.Feature<GeoJSON.LineString>;
   }
 >();
+
+export interface RoutePointIndexRange {
+  startPointIndex?: number;
+  endPointIndex?: number;
+  maxPoints?: number;
+}
+
+/** Allocate a shared coordinate budget without starving any renderable line. */
+export function allocateMapCoordinateBudget(
+  pointCounts: readonly number[],
+  totalBudget: number,
+): number[] {
+  if (pointCounts.length === 0) return [];
+  const budget = Math.max(0, Math.floor(totalBudget));
+  const normalizedCounts = pointCounts.map((count) =>
+    Number.isFinite(count) ? Math.max(0, Math.floor(count)) : 0,
+  );
+  const totalPoints = normalizedCounts.reduce((total, count) => total + count, 0);
+  if (totalPoints === 0) return normalizedCounts.map(() => 0);
+
+  const allocations = normalizedCounts.map((count) =>
+    count >= 2 ? Math.max(2, Math.floor((budget * count) / totalPoints)) : 0,
+  );
+  let excess = allocations.reduce((total, count) => total + count, 0) - budget;
+  if (excess <= 0) return allocations;
+
+  for (const allocationIndex of allocations
+    .map((allocation, candidateIndex) => ({ allocation, candidateIndex }))
+    .sort((a, b) => b.allocation - a.allocation)
+    .map((entry) => entry.candidateIndex)) {
+    if (excess <= 0) break;
+    const reducible = Math.max(0, allocations[allocationIndex] - 2);
+    const reduction = Math.min(reducible, excess);
+    allocations[allocationIndex] -= reduction;
+    excess -= reduction;
+  }
+
+  return allocations;
+}
 
 export function toRad(deg: number): number {
   return (deg * Math.PI) / 180;
@@ -421,29 +463,21 @@ export function computeSliceElevationTotalsFromDistance(
   const endPoint = interpolateRoutePointAtDistance(points, end);
   if (!startPoint || !endPoint) return { ascent: 0, descent: 0 };
 
-  const slice: RoutePoint[] = [
-    {
-      latitude: startPoint.latitude,
-      longitude: startPoint.longitude,
-      elevationMeters: startPoint.elevationMeters,
-      distanceFromStartMeters: startPoint.distanceFromStartMeters,
-      idx: 0,
-    },
+  // Elevation totals only read elevationMeters, so retain references to the
+  // interior points instead of copying complete RoutePoint objects. Binary
+  // search also keeps a short window from scanning an entire long route.
+  const slice: Array<{ elevationMeters: number | null }> = [
+    { elevationMeters: startPoint.elevationMeters },
   ];
+  const firstCandidateIndex = findFirstPointAtOrAfterDistance(points, start);
+  const endExclusiveIndex = findFirstPointAtOrAfterDistance(points, end, firstCandidateIndex);
 
-  for (const point of points) {
-    if (point.distanceFromStartMeters > start && point.distanceFromStartMeters < end) {
-      slice.push({ ...point, idx: slice.length });
-    }
+  for (let index = firstCandidateIndex; index < endExclusiveIndex; index++) {
+    const point = points[index];
+    if (point.distanceFromStartMeters > start) slice.push(point);
   }
 
-  slice.push({
-    latitude: endPoint.latitude,
-    longitude: endPoint.longitude,
-    elevationMeters: endPoint.elevationMeters,
-    distanceFromStartMeters: endPoint.distanceFromStartMeters,
-    idx: slice.length,
-  });
+  slice.push({ elevationMeters: endPoint.elevationMeters });
 
   return computeTrustedElevationTotals(slice);
 }
@@ -810,20 +844,124 @@ export function getMapSimplifyToleranceForZoom(
   return getMapSimplifyToleranceForVisibleSpan(estimateMapVisibleSpanMeters(zoomLevel, viewport));
 }
 
-export function routePointArrayFingerprint(points: RoutePoint[]): string {
-  if (points.length === 0) return "empty";
-  return points
-    .map((point, index) => {
-      return [
-        index,
-        point.idx,
-        Math.round(point.distanceFromStartMeters),
-        point.latitude.toFixed(6),
-        point.longitude.toFixed(6),
-        point.elevationMeters == null ? "n" : Math.round(point.elevationMeters),
-      ].join(":");
-    })
-    .join("|");
+function normalizedRoutePointRange(
+  points: readonly RoutePoint[],
+  options?: RoutePointIndexRange,
+): {
+  startPointIndex: number;
+  endPointIndex: number;
+  pointCount: number;
+  maxPoints: number | null;
+} {
+  const startPointIndex = Math.max(
+    0,
+    Math.min(points.length, Math.floor(options?.startPointIndex ?? 0)),
+  );
+  const endPointIndex = Math.max(
+    startPointIndex - 1,
+    Math.min(points.length - 1, Math.floor(options?.endPointIndex ?? points.length - 1)),
+  );
+  const requestedMaxPoints = options?.maxPoints;
+  const maxPoints =
+    requestedMaxPoints != null && Number.isFinite(requestedMaxPoints)
+      ? Math.max(2, Math.floor(requestedMaxPoints))
+      : null;
+  return {
+    startPointIndex,
+    endPointIndex,
+    pointCount: Math.max(0, endPointIndex - startPointIndex + 1),
+    maxPoints,
+  };
+}
+
+function fingerprintNumber(value: number, scale = 1): number {
+  if (Number.isNaN(value)) return 0x7fc00000;
+  if (value === Infinity) return 0x7f800000;
+  if (value === -Infinity) return -0x00800000;
+  return Math.round(value * scale);
+}
+
+function sampledRangePointCount(range: ReturnType<typeof normalizedRoutePointRange>): number {
+  return range.maxPoints == null ? range.pointCount : Math.min(range.pointCount, range.maxPoints);
+}
+
+function sampledRangePointIndex(
+  range: ReturnType<typeof normalizedRoutePointRange>,
+  sampleIndex: number,
+  sampleCount: number,
+): number {
+  if (sampleCount <= 1 || range.pointCount <= 1) return range.startPointIndex;
+  return (
+    range.startPointIndex + Math.round((sampleIndex * (range.pointCount - 1)) / (sampleCount - 1))
+  );
+}
+
+function sampledRoutePoints(
+  points: RoutePoint[],
+  range: ReturnType<typeof normalizedRoutePointRange>,
+): RoutePoint[] {
+  const sampleCount = sampledRangePointCount(range);
+  if (sampleCount === 0) return [];
+  if (
+    sampleCount === points.length &&
+    range.startPointIndex === 0 &&
+    range.endPointIndex === points.length - 1
+  ) {
+    return points;
+  }
+  if (sampleCount === range.pointCount) {
+    return points.slice(range.startPointIndex, range.endPointIndex + 1);
+  }
+  return Array.from(
+    { length: sampleCount },
+    (_, sampleIndex) => points[sampledRangePointIndex(range, sampleIndex, sampleCount)],
+  );
+}
+
+/**
+ * Allocation-bounded fingerprint for route-derived caches.
+ *
+ * Coordinates retain the previous six-decimal precision, while two independent
+ * 32-bit streams keep the compact key collision-resistant without constructing
+ * one giant per-point string.
+ */
+export function routePointArrayFingerprint(
+  points: RoutePoint[],
+  options?: RoutePointIndexRange,
+): string {
+  const range = normalizedRoutePointRange(points, options);
+  if (range.pointCount === 0) return "empty";
+
+  let hashA = 0x811c9dc5;
+  let hashB = 0x9e3779b9;
+  const mix = (value: number) => {
+    const integer = value | 0;
+    hashA = Math.imul(hashA ^ integer, 0x01000193) >>> 0;
+    hashB = Math.imul(hashB ^ integer, 0x85ebca6b) >>> 0;
+    hashB = (hashB ^ (hashB >>> 13)) >>> 0;
+  };
+
+  mix(range.pointCount);
+  const sampleCount = sampledRangePointCount(range);
+  mix(sampleCount);
+  for (let sampleIndex = 0; sampleIndex < sampleCount; sampleIndex++) {
+    const pointIndex = sampledRangePointIndex(range, sampleIndex, sampleCount);
+    const point = points[pointIndex];
+    mix(pointIndex - range.startPointIndex);
+    mix(fingerprintNumber(point.idx));
+    mix(fingerprintNumber(point.distanceFromStartMeters));
+    mix(fingerprintNumber(point.latitude, 1_000_000));
+    mix(fingerprintNumber(point.longitude, 1_000_000));
+    if (point.elevationMeters == null) {
+      mix(0x7fffffff);
+    } else {
+      mix(fingerprintNumber(point.elevationMeters));
+    }
+  }
+
+  return `${range.pointCount}:${hashA.toString(16).padStart(8, "0")}${hashB
+    .toString(16)
+    .padStart(8, "0")}`;
 }
 
 function projectedPoint(point: RoutePoint, origin: RoutePoint): { x: number; y: number } {
@@ -856,17 +994,29 @@ function perpendicularDistanceMeters(
 export function simplifyRoutePointsForMap(
   points: RoutePoint[],
   toleranceMeters = MAP_SIMPLIFY_TOLERANCE_M,
+  options?: RoutePointIndexRange,
 ): RoutePoint[] {
-  if (points.length <= 2) return points;
-  if (toleranceMeters <= 0 || !Number.isFinite(toleranceMeters)) return points;
+  const range = normalizedRoutePointRange(points, options);
+  if (range.pointCount === 0) return [];
 
-  const origin = points[0];
-  const projected = points.map((point) => projectedPoint(point, origin));
-  const keep = new Uint8Array(points.length);
+  // Mapbox never receives more than maxPoints, so pre-sample before RDP as well.
+  // This bounds the synchronous work for a single exceptionally dense segment.
+  const sourcePoints = sampledRoutePoints(points, range);
+  if (sourcePoints.length <= 2) return sourcePoints;
+  if (toleranceMeters <= 0 || !Number.isFinite(toleranceMeters)) {
+    return sourcePoints;
+  }
+
+  const origin = sourcePoints[0];
+  const projected = Array.from<{ x: number; y: number }>({ length: sourcePoints.length });
+  for (let index = 0; index < sourcePoints.length; index++) {
+    projected[index] = projectedPoint(sourcePoints[index], origin);
+  }
+  const keep = new Uint8Array(sourcePoints.length);
   keep[0] = 1;
-  keep[points.length - 1] = 1;
+  keep[sourcePoints.length - 1] = 1;
 
-  const stack: [number, number][] = [[0, points.length - 1]];
+  const stack: [number, number][] = [[0, sourcePoints.length - 1]];
   while (stack.length > 0) {
     const [start, end] = stack.pop()!;
     if (end <= start + 1) continue;
@@ -888,10 +1038,22 @@ export function simplifyRoutePointsForMap(
   }
 
   const simplified: RoutePoint[] = [];
-  for (let i = 0; i < points.length; i++) {
-    if (keep[i]) simplified.push(points[i]);
+  for (let index = 0; index < sourcePoints.length; index++) {
+    if (keep[index]) simplified.push(sourcePoints[index]);
   }
-  return simplified;
+  return capRouteMapPoints(simplified, range.maxPoints);
+}
+
+function capRouteMapPoints(points: RoutePoint[], maxPoints: number | null): RoutePoint[] {
+  if (maxPoints == null || points.length <= maxPoints) return points;
+
+  const capped = Array.from<RoutePoint>({ length: maxPoints });
+  const sourceSpan = points.length - 1;
+  const targetSpan = maxPoints - 1;
+  for (let index = 0; index < maxPoints; index++) {
+    capped[index] = points[Math.round((index * sourceSpan) / targetSpan)];
+  }
+  return capped;
 }
 
 /** Convert route points to zoom-sensitive, simplified, cached GeoJSON for Mapbox rendering. */
@@ -921,29 +1083,42 @@ export function routeToMapGeoJSONForKey(
   cacheKey: string,
   points: RoutePoint[],
   toleranceMeters = MAP_SIMPLIFY_TOLERANCE_M,
+  options?: RoutePointIndexRange,
 ): GeoJSON.Feature<GeoJSON.LineString> {
-  const key = `${cacheKey}:${toleranceMeters}`;
+  const key = keyedMapGeoJSONCacheKey(cacheKey, points, toleranceMeters, options);
   const cached = keyedMapGeoJSONCache.get(key);
-  if (cached?.points === points) return cached.geoJSON;
+  if (cached?.pointsRef?.deref() === points) {
+    touchKeyedMapGeoJSONCacheEntry(key, cached);
+    return cached.geoJSON;
+  }
 
-  const fingerprint = routePointArrayFingerprint(points);
-  if (cached?.fingerprint === fingerprint) return cached.geoJSON;
+  const fingerprint = routePointArrayFingerprint(points, options);
+  if (cached?.fingerprint === fingerprint) {
+    touchKeyedMapGeoJSONCacheEntry(key, cached);
+    return cached.geoJSON;
+  }
 
-  return prepareRouteMapGeoJSONForKey(cacheKey, points, toleranceMeters, fingerprint);
+  return prepareRouteMapGeoJSONForKey(cacheKey, points, toleranceMeters, fingerprint, options);
 }
 
 export function peekRouteMapGeoJSONForKey(
   cacheKey: string,
   points: RoutePoint[],
   toleranceMeters = MAP_SIMPLIFY_TOLERANCE_M,
+  options?: RoutePointIndexRange,
 ): GeoJSON.Feature<GeoJSON.LineString> | null {
-  const key = `${cacheKey}:${toleranceMeters}`;
+  const key = keyedMapGeoJSONCacheKey(cacheKey, points, toleranceMeters, options);
   const cached = keyedMapGeoJSONCache.get(key);
-  if (cached?.points === points) return cached.geoJSON;
+  if (cached?.pointsRef?.deref() === points) {
+    touchKeyedMapGeoJSONCacheEntry(key, cached);
+    return cached.geoJSON;
+  }
   if (!cached) return null;
 
-  const fingerprint = routePointArrayFingerprint(points);
-  return cached.fingerprint === fingerprint ? cached.geoJSON : null;
+  const fingerprint = routePointArrayFingerprint(points, options);
+  if (cached.fingerprint !== fingerprint) return null;
+  touchKeyedMapGeoJSONCacheEntry(key, cached);
+  return cached.geoJSON;
 }
 
 export function prepareRouteMapGeoJSONForKey(
@@ -951,16 +1126,60 @@ export function prepareRouteMapGeoJSONForKey(
   points: RoutePoint[],
   toleranceMeters = MAP_SIMPLIFY_TOLERANCE_M,
   knownFingerprint?: string,
+  options?: RoutePointIndexRange,
 ): GeoJSON.Feature<GeoJSON.LineString> {
-  const cached = peekRouteMapGeoJSONForKey(cacheKey, points, toleranceMeters);
+  const cached = peekRouteMapGeoJSONForKey(cacheKey, points, toleranceMeters, options);
   if (cached) return cached;
 
-  const fingerprint = knownFingerprint ?? routePointArrayFingerprint(points);
+  const fingerprint = knownFingerprint ?? routePointArrayFingerprint(points, options);
   const geoJSON = measureSync("map.routeGeoJSON", () => {
-    const simplified = simplifyRoutePointsForMap(points, toleranceMeters);
+    const simplified = simplifyRoutePointsForMap(points, toleranceMeters, options);
     return routeToGeoJSON(simplified);
   });
-  const key = `${cacheKey}:${toleranceMeters}`;
-  keyedMapGeoJSONCache.set(key, { points, fingerprint, geoJSON });
+  const key = keyedMapGeoJSONCacheKey(cacheKey, points, toleranceMeters, options);
+  setKeyedMapGeoJSONCacheEntry(key, {
+    pointsRef: typeof WeakRef === "undefined" ? null : new WeakRef(points),
+    fingerprint,
+    geoJSON,
+  });
   return geoJSON;
+}
+
+function keyedMapGeoJSONCacheKey(
+  cacheKey: string,
+  points: readonly RoutePoint[],
+  toleranceMeters: number,
+  options?: RoutePointIndexRange,
+): string {
+  const range = normalizedRoutePointRange(points, options);
+  return `${cacheKey}:${toleranceMeters}:${range.startPointIndex}:${range.endPointIndex}:${range.maxPoints ?? "all"}`;
+}
+
+function touchKeyedMapGeoJSONCacheEntry(
+  key: string,
+  entry: {
+    pointsRef: WeakRef<RoutePoint[]> | null;
+    fingerprint: string;
+    geoJSON: GeoJSON.Feature<GeoJSON.LineString>;
+  },
+): void {
+  keyedMapGeoJSONCache.delete(key);
+  keyedMapGeoJSONCache.set(key, entry);
+}
+
+function setKeyedMapGeoJSONCacheEntry(
+  key: string,
+  entry: {
+    pointsRef: WeakRef<RoutePoint[]> | null;
+    fingerprint: string;
+    geoJSON: GeoJSON.Feature<GeoJSON.LineString>;
+  },
+): void {
+  keyedMapGeoJSONCache.delete(key);
+  keyedMapGeoJSONCache.set(key, entry);
+  while (keyedMapGeoJSONCache.size > MAX_KEYED_MAP_GEOJSON_CACHE_ENTRIES) {
+    const oldestKey = keyedMapGeoJSONCache.keys().next().value;
+    if (oldestKey == null) break;
+    keyedMapGeoJSONCache.delete(oldestKey);
+  }
 }

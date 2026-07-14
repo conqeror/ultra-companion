@@ -1,5 +1,5 @@
 import React, { useRef, useCallback, useEffect, useState, useMemo } from "react";
-import { View, AppState, Platform, useWindowDimensions } from "react-native";
+import { ActivityIndicator, View, AppState, Platform, useWindowDimensions } from "react-native";
 import { useShallow } from "zustand/react/shallow";
 import { useMapStore } from "@/store/mapStore";
 import { useRouteStore } from "@/store/routeStore";
@@ -12,6 +12,9 @@ import { useMapStyle } from "@/hooks/useMapStyle";
 import { useRouteGeometryZoom } from "@/hooks/useRouteGeometryZoom";
 import { useActiveRouteTiming } from "@/hooks/useActiveRouteTiming";
 import {
+  isRouteGeometryRequestRenderable,
+  preparedRouteGeometryHasError,
+  preparedRouteGeometryMatchesRequest,
   usePreparedRouteGeometries,
   type PreparedRouteGeometryRequest,
 } from "@/hooks/usePreparedRouteGeometries";
@@ -38,13 +41,17 @@ import {
   collectionVariantKey,
   loadCollectionVariantDisplayData,
   type CollectionVariantMetric,
+  type CollectionVariantOverlayGeometry,
 } from "@/services/collectionVariantGeometry";
 import { routeEndDistance } from "@/services/stitchingService";
 import {
+  allocateMapCoordinateBudget,
   estimateMapVisibleSpanMeters,
   findFirstPointAtOrAfterDistance,
   haversineDistance,
+  MAX_ROUTE_MAP_GEOJSON_POINTS,
 } from "@/utils/geo";
+import { buildCollectionSegmentMapFeatureCollectionsFromPreparedLines } from "@/utils/collectionSegmentDisplay";
 import {
   buildDistanceMarkerDistances,
   getDistanceMarkerIntervalForZoom,
@@ -59,7 +66,9 @@ import {
 } from "@/utils/formatters";
 import { measureSync } from "@/utils/perfMarks";
 import { pickRouteRecords } from "@/utils/routeScopedRecords";
+import { yieldToUI } from "@/utils/yieldToUI";
 import type { CollectionSegmentWithRoute, RoutePoint, UnitSystem, UserPosition } from "@/types";
+import { Text } from "@/components/ui/text";
 
 interface MapCameraHandle {
   setCamera(options: {
@@ -79,6 +88,10 @@ interface MapCameraHandle {
 const ETA_MARKER_REFRESH_MS = 5 * 60_000;
 const MARKER_VIEWPORT_BUFFER_MULTIPLIER = 1.5;
 const MARKER_VIEWPORT_MIN_INTERVALS = 3;
+
+function collectionSegmentGeometryId(collectionId: string, segmentIndex: number): string {
+  return `collection:${collectionId}:segment:${segmentIndex}`;
+}
 
 interface MarkerCameraState {
   center: [number, number];
@@ -369,7 +382,7 @@ export default function MapScreen() {
   const mapOverlayMode: MapOverlayMode =
     panelTab === "climbs" ? "climbs" : !isWeb && panelTab === "weather" ? "weather" : "normal";
   const effectivePOIVisibility = isWeb ? "all" : panelTab === "pois" ? "all" : poiVisibility;
-  const { bottom: safeBottom } = useSafeAreaInsets();
+  const { top: safeTop, bottom: safeBottom } = useSafeAreaInsets();
   const compactPanelHeight = Math.round(screenHeight * SHEET_COMPACT_RATIO) + safeBottom;
 
   const routes = useRouteStore((s) => s.routes);
@@ -397,12 +410,13 @@ export default function MapScreen() {
   const [activeCollectionSegments, setActiveCollectionSegments] = useState<
     CollectionSegmentWithRoute[]
   >([]);
-  const [activeVariantOverlayPointsByKey, setActiveVariantOverlayPointsByKey] = useState<
-    Record<string, RoutePoint[]>
+  const [activeVariantOverlaysByKey, setActiveVariantOverlaysByKey] = useState<
+    Record<string, CollectionVariantOverlayGeometry>
   >({});
   const [activeVariantMetricsByKey, setActiveVariantMetricsByKey] = useState<
     Record<string, CollectionVariantMetric>
   >({});
+  const [isVariantDataPreparing, setIsVariantDataPreparing] = useState(false);
 
   // Unified active context — works for both standalone routes and collections
   const activeData = useActiveRouteData();
@@ -536,30 +550,41 @@ export default function MapScreen() {
     async function loadActiveCollectionVariants() {
       if (activeData?.type !== "collection") {
         setActiveCollectionSegments([]);
-        setActiveVariantOverlayPointsByKey({});
+        setActiveVariantOverlaysByKey({});
         setActiveVariantMetricsByKey({});
+        setIsVariantDataPreparing(false);
         return;
       }
 
-      const segments = await getCollectionSegmentsWithRoutes(activeData.id);
-      const { getRoutePoints } = await import("@/db/database");
-      const displayData = await loadCollectionVariantDisplayData(
-        segments,
-        powerConfig,
-        getRoutePoints,
-      );
-      if (cancelled) return;
+      setActiveCollectionSegments([]);
+      setActiveVariantOverlaysByKey({});
+      setActiveVariantMetricsByKey({});
+      setIsVariantDataPreparing(true);
+      await yieldToUI();
+      try {
+        const segments = await getCollectionSegmentsWithRoutes(activeData.id);
+        const { getRoutePoints } = await import("@/db/database");
+        const displayData = await loadCollectionVariantDisplayData(
+          segments,
+          powerConfig,
+          getRoutePoints,
+          { shouldCancel: () => cancelled },
+        );
+        if (cancelled) return;
 
-      setActiveCollectionSegments(segments);
-      setActiveVariantOverlayPointsByKey(displayData.overlayPointsByKey);
-      setActiveVariantMetricsByKey(displayData.metricsByKey);
+        setActiveCollectionSegments(segments);
+        setActiveVariantOverlaysByKey(displayData.overlaysByKey);
+        setActiveVariantMetricsByKey(displayData.metricsByKey);
+      } finally {
+        if (!cancelled) setIsVariantDataPreparing(false);
+      }
     }
 
     loadActiveCollectionVariants().catch((e) => {
       if (cancelled) return;
       console.warn("Failed to load active collection variants:", e);
       setActiveCollectionSegments([]);
-      setActiveVariantOverlayPointsByKey({});
+      setActiveVariantOverlaysByKey({});
       setActiveVariantMetricsByKey({});
     });
 
@@ -857,6 +882,10 @@ export default function MapScreen() {
   );
 
   const activeCollectionRouteId = activeData?.type === "collection" ? activeData.id : null;
+  const activeCollectionDisplaySegments =
+    activeData?.type === "collection" && activeData.segments && activeData.segments.length > 1
+      ? activeData.segments
+      : null;
   const routeGeometryRequests = useMemo<PreparedRouteGeometryRequest[]>(() => {
     const requests: PreparedRouteGeometryRequest[] = [];
     for (const route of renderedRoutes) {
@@ -865,26 +894,57 @@ export default function MapScreen() {
         cacheKey: route.id,
         points: visibleRoutePoints[route.id],
         toleranceMeters: routeGeometryToleranceMeters,
+        maxPoints: MAX_ROUTE_MAP_GEOJSON_POINTS,
       });
     }
     if (activeCollectionRouteId && activeRoutePoints) {
-      requests.push({
-        id: `collection:${activeCollectionRouteId}`,
-        cacheKey: `${activeCollectionRouteId}:${activeSegmentsKey}`,
-        points: activeRoutePoints,
-        toleranceMeters: routeGeometryToleranceMeters,
-      });
+      if (activeCollectionDisplaySegments) {
+        const segmentPointCounts = activeCollectionDisplaySegments.map((segment) =>
+          Math.max(0, segment.endPointIndex - segment.startPointIndex + 1),
+        );
+        const segmentPointBudgets = allocateMapCoordinateBudget(
+          segmentPointCounts,
+          MAX_ROUTE_MAP_GEOJSON_POINTS,
+        );
+        activeCollectionDisplaySegments.forEach((segment, segmentIndex) => {
+          requests.push({
+            id: collectionSegmentGeometryId(activeCollectionRouteId, segmentIndex),
+            cacheKey: `${activeCollectionRouteId}:${activeSegmentsKey}:segment:${segmentIndex}`,
+            points: activeRoutePoints,
+            toleranceMeters: routeGeometryToleranceMeters,
+            startPointIndex: segment.startPointIndex,
+            endPointIndex: segment.endPointIndex,
+            maxPoints: segmentPointBudgets[segmentIndex],
+          });
+        });
+      } else {
+        requests.push({
+          id: `collection:${activeCollectionRouteId}`,
+          cacheKey: `${activeCollectionRouteId}:${activeSegmentsKey}`,
+          points: activeRoutePoints,
+          toleranceMeters: routeGeometryToleranceMeters,
+          maxPoints: MAX_ROUTE_MAP_GEOJSON_POINTS,
+        });
+      }
     }
     return requests;
   }, [
     renderedRoutes,
     visibleRoutePoints,
     activeCollectionRouteId,
+    activeCollectionDisplaySegments,
     activeRoutePoints,
     activeSegmentsKey,
     routeGeometryToleranceMeters,
   ]);
   const preparedRouteGeometries = usePreparedRouteGeometries(routeGeometryRequests);
+  const isRouteGeometryPreparing = routeGeometryRequests.some((request) => {
+    if (!isRouteGeometryRequestRenderable(request)) return false;
+    return !preparedRouteGeometryMatchesRequest(preparedRouteGeometries[request.id], request);
+  });
+  const hasRouteGeometryError = routeGeometryRequests.some((request) =>
+    preparedRouteGeometryHasError(preparedRouteGeometries[request.id], request),
+  );
 
   const routeLayers = useMemo<MapCanvasRouteLayer[]>(() => {
     const layers: MapCanvasRouteLayer[] = [];
@@ -898,7 +958,7 @@ export default function MapScreen() {
         geoJSON: prepared.geoJSON,
       });
     }
-    if (activeCollectionRouteId) {
+    if (activeCollectionRouteId && !activeCollectionDisplaySegments) {
       const prepared = preparedRouteGeometries[`collection:${activeCollectionRouteId}`];
       if (prepared) {
         layers.push({
@@ -910,7 +970,44 @@ export default function MapScreen() {
       }
     }
     return layers;
-  }, [renderedRoutes, preparedRouteGeometries, activeCollectionRouteId, mapStyle.styleKey]);
+  }, [
+    renderedRoutes,
+    preparedRouteGeometries,
+    activeCollectionRouteId,
+    activeCollectionDisplaySegments,
+    mapStyle.styleKey,
+  ]);
+
+  const collectionSegmentFeatures = useMemo(() => {
+    const preparedLines =
+      activeCollectionRouteId && activeCollectionDisplaySegments
+        ? activeCollectionDisplaySegments.map(
+            (_, segmentIndex) =>
+              preparedRouteGeometries[
+                collectionSegmentGeometryId(activeCollectionRouteId, segmentIndex)
+              ]?.geoJSON ?? null,
+          )
+        : [];
+    return buildCollectionSegmentMapFeatureCollectionsFromPreparedLines(
+      activeRoutePoints,
+      activeCollectionDisplaySegments,
+      preparedLines,
+    );
+  }, [
+    activeCollectionDisplaySegments,
+    activeCollectionRouteId,
+    activeRoutePoints,
+    preparedRouteGeometries,
+  ]);
+  const mapPreparationLabel = isRouteGeometryPreparing
+    ? "Preparing route…"
+    : isVariantDataPreparing
+      ? "Preparing route options…"
+      : hasRouteGeometryError
+        ? "Couldn’t prepare part of the route display"
+        : null;
+  const mapPreparationError =
+    !isRouteGeometryPreparing && !isVariantDataPreparing && hasRouteGeometryError;
 
   const activeVariantOverlays = useMemo<VariantOverlay[]>(() => {
     if (activeData?.type !== "collection" || activeCollectionSegments.length === 0) return [];
@@ -923,13 +1020,13 @@ export default function MapScreen() {
 
       for (const sw of variants) {
         if (sw.segment.isSelected) continue;
-        const points = activeVariantOverlayPointsByKey[collectionVariantKey(sw)];
-        if (!points || points.length < 2) continue;
+        const overlayGeometry = activeVariantOverlaysByKey[collectionVariantKey(sw)];
+        if (!overlayGeometry || overlayGeometry.geoJSON.geometry.coordinates.length < 2) continue;
         const metric = activeVariantMetricsByKey[collectionVariantKey(sw)];
         if (!metric) continue;
         overlays.push({
           id: sw.route.id,
-          points,
+          ...overlayGeometry,
           label: variantDiffLabel(metric, referenceMetric, units),
         });
       }
@@ -938,7 +1035,7 @@ export default function MapScreen() {
   }, [
     activeData?.type,
     activeCollectionSegments,
-    activeVariantOverlayPointsByKey,
+    activeVariantOverlaysByKey,
     activeVariantMetricsByKey,
     units,
   ]);
@@ -954,6 +1051,8 @@ export default function MapScreen() {
         cameraPadding={cameraPadding}
         pulsingConfig={pulsingConfig}
         routeLayers={routeLayers}
+        collectionSegmentFeatures={collectionSegmentFeatures}
+        isRouteGeometryPreparing={isRouteGeometryPreparing}
         activeRoutePoints={activeRoutePoints}
         activeRouteIds={activeRouteIds}
         activeSegments={activeData?.segments ?? null}
@@ -977,6 +1076,31 @@ export default function MapScreen() {
         onClusterPress={handlePOIClusterPress}
         setFollowUser={setFollowUser}
       />
+
+      {mapPreparationLabel && (
+        <View
+          pointerEvents="none"
+          className="absolute left-0 right-0 z-20 items-center px-16"
+          style={{ top: safeTop + 12 }}
+        >
+          <View
+            className="flex-row items-center gap-2 rounded-full border border-border bg-card px-3 py-2 shadow-sm"
+            accessible
+            accessibilityRole={mapPreparationError ? "alert" : "progressbar"}
+            accessibilityLiveRegion="polite"
+            accessibilityLabel={mapPreparationLabel}
+          >
+            {!mapPreparationError && <ActivityIndicator size="small" color={themeColors.accent} />}
+            <Text
+              className={`text-[13px] font-barlow-medium ${
+                mapPreparationError ? "text-destructive" : "text-foreground"
+              }`}
+            >
+              {mapPreparationLabel}
+            </Text>
+          </View>
+        </View>
+      )}
 
       <MapControls onLocate={handleLocate} />
       <TabbedBottomPanel activeData={activeData} />

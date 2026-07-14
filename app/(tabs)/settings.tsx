@@ -1,5 +1,12 @@
 import React, { useState, useMemo, useCallback } from "react";
-import { Alert, View, TouchableOpacity, ScrollView, TextInput } from "react-native";
+import {
+  ActivityIndicator,
+  Alert,
+  View,
+  TouchableOpacity,
+  ScrollView,
+  TextInput,
+} from "react-native";
 import { Text } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
 import { Check, ChevronDown, ChevronUp } from "lucide-react-native";
@@ -14,6 +21,7 @@ import { refreshPlanningDataAfterImport } from "@/services/planningDataRefresh";
 import { POI_DISCOVERY_GROUPS } from "@/constants";
 import type { UnitSystem } from "@/types";
 import StorageSection from "@/components/offline/StorageSection";
+import { yieldToUI } from "@/utils/yieldToUI";
 
 const UNIT_OPTIONS: { value: UnitSystem; label: string }[] = [
   { value: "metric", label: "Metric (km)" },
@@ -179,6 +187,7 @@ export default function SettingsScreen() {
     setIsPlanningTransferBusy(true);
     setPlanningTransferMessage("Exporting planner database...");
     try {
+      await yieldToUI();
       const summary = await sharePlanningDatabase();
       setPlanningTransferMessage(
         `Exported ${summary.routeCount} routes and ${summary.collectionCount} collections.`,
@@ -202,7 +211,10 @@ export default function SettingsScreen() {
     setIsPlanningTransferBusy(true);
     setPlanningTransferMessage("Choose a .ultra-plan.db file...");
     try {
-      const summary = await pickAndImportPlanningDatabase();
+      const summary = await pickAndImportPlanningDatabase(async (fileName) => {
+        setPlanningTransferMessage(`Importing ${fileName || "planner database"}...`);
+        await yieldToUI();
+      });
       if (!summary) {
         setPlanningTransferMessage("Import canceled.");
         return;
@@ -359,9 +371,18 @@ export default function SettingsScreen() {
           label="Import Planner DB"
         />
         {planningTransferMessage ? (
-          <Text className="text-[13px] font-barlow text-muted-foreground">
-            {planningTransferMessage}
-          </Text>
+          <View
+            className="min-h-[32px] flex-row items-center gap-2"
+            accessible
+            accessibilityRole={isPlanningTransferBusy ? "progressbar" : "text"}
+            accessibilityLiveRegion="polite"
+            accessibilityLabel={planningTransferMessage}
+          >
+            {isPlanningTransferBusy && <ActivityIndicator size="small" color={colors.accent} />}
+            <Text className="flex-1 text-[13px] font-barlow text-muted-foreground">
+              {planningTransferMessage}
+            </Text>
+          </View>
         ) : null}
       </View>
 

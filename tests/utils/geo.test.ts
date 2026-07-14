@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  allocateMapCoordinateBudget,
   buildRouteSegmentSpatialIndex,
   computeElevationProgressAtDistance,
   computeSliceAscentFromDistance,
@@ -13,8 +14,10 @@ import {
   getMapSimplifyToleranceForVisibleSpan,
   getMapSimplifyToleranceForZoom,
   interpolateRoutePointAtDistance,
+  MAX_KEYED_MAP_GEOJSON_CACHE_ENTRIES,
   peekRouteMapGeoJSONForKey,
   prepareRouteMapGeoJSONForKey,
+  routePointArrayFingerprint,
   routeToMapGeoJSONForKey,
   routeToMapGeoJSON,
   simplifyRoutePointsForMap,
@@ -33,6 +36,17 @@ function point(idx: number, distanceFromStartMeters: number, latitude = 0): Rout
 }
 
 describe("geo route performance helpers", () => {
+  it("keeps multiple renderable lines within a shared coordinate budget", () => {
+    const allocations = allocateMapCoordinateBudget([300_000, 2, 2, 50_000], 60_000);
+
+    expect(allocations).toHaveLength(4);
+    expect(allocations.every((allocation) => allocation >= 2)).toBe(true);
+    expect(allocations.reduce((total, allocation) => total + allocation, 0)).toBeLessThanOrEqual(
+      60_000,
+    );
+    expect(allocations[0]).toBeGreaterThan(allocations[3]);
+  });
+
   it("downsamples route points by distance with caller-defined output shape", () => {
     const points = [point(0, 0), point(1, 400), point(2, 1_000), point(3, 1_600), point(4, 2_100)];
 
@@ -153,6 +167,27 @@ describe("geo route performance helpers", () => {
     });
   });
 
+  it("bounds elevation-total work to the requested route window", () => {
+    let distanceReads = 0;
+    const points = Array.from({ length: 10_000 }, (_, index) => {
+      const routePoint = {
+        ...point(index, index * 10),
+        elevationMeters: index % 2 === 0 ? 100 : 110,
+      };
+      return new Proxy(routePoint, {
+        get(target, property, receiver) {
+          if (property === "distanceFromStartMeters") distanceReads++;
+          return Reflect.get(target, property, receiver);
+        },
+      });
+    });
+
+    const totals = computeSliceElevationTotalsFromDistance(points, 50_000, 50_100);
+
+    expect(totals).toEqual({ ascent: 50, descent: 50 });
+    expect(distanceReads).toBeLessThan(200);
+  });
+
   it("interpolates exact duplicate-distance joins from the forward segment", () => {
     const points = [point(0, 0, 0), point(1, 100, 0), point(2, 100, 1), point(3, 200, 2)];
 
@@ -267,6 +302,53 @@ describe("geo route performance helpers", () => {
     expect(routeToMapGeoJSONForKey("route-a", points, 20)).not.toBe(
       routeToMapGeoJSONForKey("route-a", points, 8),
     );
+  });
+
+  it("uses a compact deterministic fingerprint without per-point string growth", () => {
+    const points = Array.from({ length: 10_000 }, (_, index) => point(index, index * 10));
+    const equivalent = points.map((routePoint) => ({ ...routePoint }));
+    const changed = equivalent.map((routePoint, index) =>
+      index === 5_000 ? { ...routePoint, longitude: routePoint.longitude + 0.00001 } : routePoint,
+    );
+
+    const fingerprint = routePointArrayFingerprint(points);
+
+    expect(fingerprint.length).toBeLessThan(40);
+    expect(routePointArrayFingerprint(equivalent)).toBe(fingerprint);
+    expect(routePointArrayFingerprint(changed)).not.toBe(fingerprint);
+  });
+
+  it("prepares a bounded point range for long collection segments", () => {
+    const points = Array.from({ length: 20 }, (_, index) => point(index, index * 100));
+
+    const prepared = prepareRouteMapGeoJSONForKey("bounded-segment", points, 0, undefined, {
+      startPointIndex: 4,
+      endPointIndex: 15,
+      maxPoints: 5,
+    });
+
+    expect(prepared.geometry.coordinates).toHaveLength(5);
+    expect(prepared.geometry.coordinates[0]).toEqual([points[4].longitude, points[4].latitude]);
+    expect(prepared.geometry.coordinates.at(-1)).toEqual([
+      points[15].longitude,
+      points[15].latitude,
+    ]);
+  });
+
+  it("bounds the keyed map geometry cache with least-recently-used eviction", () => {
+    const points = [point(0, 0), point(1, 100), point(2, 200)];
+    const firstKey = "bounded-cache-0";
+    prepareRouteMapGeoJSONForKey(firstKey, points, 20);
+
+    let newest: GeoJSON.Feature<GeoJSON.LineString> | null = null;
+    for (let index = 1; index <= MAX_KEYED_MAP_GEOJSON_CACHE_ENTRIES; index++) {
+      newest = prepareRouteMapGeoJSONForKey(`bounded-cache-${index}`, points, 20);
+    }
+
+    expect(peekRouteMapGeoJSONForKey(firstKey, points, 20)).toBeNull();
+    expect(
+      peekRouteMapGeoJSONForKey(`bounded-cache-${MAX_KEYED_MAP_GEOJSON_CACHE_ENTRIES}`, points, 20),
+    ).toBe(newest);
   });
 
   it("prepares and peeks keyed map GeoJSON without render-time generation", () => {

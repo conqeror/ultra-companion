@@ -2,11 +2,11 @@ import React, { useMemo } from "react";
 import { ShapeSource, LineLayer, SymbolLayer } from "@rnmapbox/maps";
 import { INACTIVE_ROUTE_COLOR } from "@/constants";
 import { useThemeColors } from "@/theme";
-import type { RoutePoint } from "@/types";
 
 export interface VariantOverlay {
   id: string;
-  points: RoutePoint[];
+  geoJSON: GeoJSON.Feature<GeoJSON.LineString>;
+  labelCoordinate: [number, number] | null;
   label: string;
 }
 
@@ -14,15 +14,6 @@ interface VariantOverlayLayerProps {
   overlays: VariantOverlay[];
   lineAboveLayerID?: string;
   symbolAboveLayerID?: string;
-}
-
-function labelCoordinate(points: RoutePoint[]): [number, number] | null {
-  if (points.length === 0) return null;
-  const targetDistance = (points[points.length - 1]?.distanceFromStartMeters ?? 0) / 2;
-  const point =
-    points.find((pt) => pt.distanceFromStartMeters >= targetDistance) ??
-    points[Math.floor(points.length / 2)];
-  return point ? [point.longitude, point.latitude] : null;
 }
 
 export default function VariantOverlayLayer({
@@ -33,17 +24,14 @@ export default function VariantOverlayLayer({
   const colors = useThemeColors();
 
   const { lineGeoJSON, labelGeoJSON } = useMemo(() => {
-    const visible = overlays.filter((overlay) => overlay.points.length >= 2);
+    const visible = overlays.filter((overlay) => overlay.geoJSON.geometry.coordinates.length >= 2);
     const lines: GeoJSON.Feature<GeoJSON.LineString>[] = visible.map((overlay) => ({
       type: "Feature",
       properties: { id: overlay.id },
-      geometry: {
-        type: "LineString",
-        coordinates: overlay.points.map((point) => [point.longitude, point.latitude]),
-      },
+      geometry: overlay.geoJSON.geometry,
     }));
     const labels: GeoJSON.Feature<GeoJSON.Point>[] = visible.flatMap((overlay) => {
-      const coordinates = labelCoordinate(overlay.points);
+      const coordinates = overlay.labelCoordinate;
       if (!coordinates) return [];
       return [
         {

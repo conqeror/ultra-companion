@@ -4,6 +4,7 @@ import {
   PLANNING_EXPORT_FILE_NAME,
   PLANNING_SQLITE_MIME_TYPE,
 } from "@/services/planningTransportCore";
+import { measureAsync } from "@/utils/perfMarks";
 export {
   importPlanningDatabase,
   PLANNER_FETCHED_SOURCES_METADATA_KEY,
@@ -41,10 +42,17 @@ function pickFile(): Promise<File | null> {
   });
 }
 
+async function importPlanningDatabaseMeasured(readBytes: () => Promise<Uint8Array>) {
+  return measureAsync("planning.importDatabase", async () => {
+    const bytes = await readBytes();
+    return importPlanningDatabaseFromBytes(bytes);
+  });
+}
+
 export async function sharePlanningDatabase() {
   ensureBrowser();
   console.info("[planning-transport] Export started");
-  const exported = await createPlanningDatabaseExport();
+  const exported = await measureAsync("planning.exportDatabase", createPlanningDatabaseExport);
   const buffer = new ArrayBuffer(exported.bytes.byteLength);
   new Uint8Array(buffer).set(exported.bytes);
   const blob = new Blob([buffer], { type: PLANNING_SQLITE_MIME_TYPE });
@@ -65,7 +73,9 @@ export async function sharePlanningDatabase() {
   return summary;
 }
 
-export async function pickAndImportPlanningDatabase() {
+export async function pickAndImportPlanningDatabase(
+  onFileSelected?: (fileName: string) => void | Promise<void>,
+) {
   console.info("[planning-transport] Opening planning DB picker");
   const file = await pickFile();
   if (!file) {
@@ -77,17 +87,20 @@ export async function pickAndImportPlanningDatabase() {
     size: file.size,
     type: file.type,
   });
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  const summary = await importPlanningDatabaseFromBytes(bytes);
+  await onFileSelected?.(file.name);
+  const summary = await importPlanningDatabaseMeasured(
+    async () => new Uint8Array(await file.arrayBuffer()),
+  );
   console.info("[planning-transport] Import finished", summary);
   return summary;
 }
 
 export async function importPlanningDatabaseFromUri(uri: string) {
   console.info("[planning-transport] Import from URI started", uri);
-  const response = await fetch(uri);
-  const bytes = new Uint8Array(await response.arrayBuffer());
-  const summary = await importPlanningDatabaseFromBytes(bytes);
+  const summary = await importPlanningDatabaseMeasured(async () => {
+    const response = await fetch(uri);
+    return new Uint8Array(await response.arrayBuffer());
+  });
   console.info("[planning-transport] Import from URI finished", summary);
   return summary;
 }

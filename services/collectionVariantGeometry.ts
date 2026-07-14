@@ -1,10 +1,16 @@
-import { computeCachedRouteTotalETA } from "@/services/etaCalculator";
+import { computeCachedRouteTotalETAInChunks } from "@/services/etaCalculator";
 import {
   buildPatchVariantRoutePoints,
   routeEndDistance,
   sliceRoutePointsByDistance,
 } from "@/services/stitchingService";
-import { computeSliceAscentFromDistance } from "@/utils/geo";
+import {
+  allocateMapCoordinateBudget,
+  computeSliceAscentFromDistance,
+  interpolateRoutePointAtDistance,
+  MAX_VARIANT_MAP_GEOJSON_POINTS,
+  prepareRouteMapGeoJSONForKey,
+} from "@/utils/geo";
 import type { CollectionSegmentWithRoute, PowerModelConfig, RoutePoint } from "@/types";
 
 export interface CollectionVariantMetric {
@@ -15,10 +21,19 @@ export interface CollectionVariantMetric {
 
 export interface CollectionVariantDisplayData {
   metricsByKey: Record<string, CollectionVariantMetric>;
-  overlayPointsByKey: Record<string, RoutePoint[]>;
+  overlaysByKey: Record<string, CollectionVariantOverlayGeometry>;
+}
+
+export interface CollectionVariantOverlayGeometry {
+  geoJSON: GeoJSON.Feature<GeoJSON.LineString>;
+  labelCoordinate: [number, number] | null;
 }
 
 export type LoadRoutePoints = (routeId: string) => Promise<RoutePoint[]>;
+
+export interface LoadCollectionVariantDisplayDataOptions {
+  shouldCancel?: () => boolean;
+}
 
 export function collectionVariantKey(sw: CollectionSegmentWithRoute): string {
   return `${sw.segment.collectionId}:${sw.segment.position}:${sw.route.id}:${sw.segment.variantKind}`;
@@ -89,17 +104,30 @@ function effectiveVariantAscentMeters(
 
 /**
  * Fetch only variant positions. Raw arrays exist only while their metrics are
- * calculated; returned arrays are the exact geometry the overlay draws.
+ * calculated; returned overlays are bounded GeoJSON ready for Mapbox.
  */
 export async function loadCollectionVariantDisplayData(
   segments: CollectionSegmentWithRoute[],
   powerConfig: PowerModelConfig,
   loadRoutePoints: LoadRoutePoints,
+  options: LoadCollectionVariantDisplayDataOptions = {},
 ): Promise<CollectionVariantDisplayData> {
   const metricsByKey: Record<string, CollectionVariantMetric> = {};
-  const overlayPointsByKey: Record<string, RoutePoint[]> = {};
+  const overlaysByKey: Record<string, CollectionVariantOverlayGeometry> = {};
+  const groupedSegments = groupCollectionSegments(segments);
+  const overlayCount = groupedSegments.reduce(
+    (count, variants) =>
+      count +
+      (variants.length > 1 ? variants.filter((variant) => !variant.segment.isSelected).length : 0),
+    0,
+  );
+  const overlayBudgets = allocateMapCoordinateBudget(
+    Array.from({ length: overlayCount }, () => 2),
+    MAX_VARIANT_MAP_GEOJSON_POINTS,
+  );
+  let overlayIndex = 0;
 
-  for (const variants of groupCollectionSegments(segments)) {
+  for (const variants of groupedSegments) {
     if (variants.length <= 1) continue;
 
     const routeIds = new Set<string>();
@@ -114,19 +142,29 @@ export async function loadCollectionVariantDisplayData(
     // large collection's variants are being prepared.
     const pointsByRouteId: Record<string, RoutePoint[]> = {};
     for (const routeId of routeIds) {
+      if (options.shouldCancel?.()) return { metricsByKey: {}, overlaysByKey: {} };
       pointsByRouteId[routeId] = await loadRoutePoints(routeId);
     }
 
     for (const sw of variants) {
+      if (options.shouldCancel?.()) return { metricsByKey: {}, overlaysByKey: {} };
       const points = effectiveVariantPoints(sw, pointsByRouteId);
       if (!points || points.length < 2) continue;
       metricsByKey[collectionVariantKey(sw)] = {
         distanceMeters: routeEndDistance(points),
         ascentMeters: effectiveVariantAscentMeters(sw, pointsByRouteId),
-        ridingTime: computeCachedRouteTotalETA(collectionVariantKey(sw), points, powerConfig),
+        ridingTime: await computeCachedRouteTotalETAInChunks(
+          collectionVariantKey(sw),
+          points,
+          powerConfig,
+          {
+            shouldCancel: options.shouldCancel,
+          },
+        ),
       };
     }
 
+    if (options.shouldCancel?.()) return { metricsByKey: {}, overlaysByKey: {} };
     const reference = variants.find((sw) => sw.segment.isSelected) ?? variants[0];
     for (const sw of variants) {
       if (sw.segment.isSelected) continue;
@@ -144,9 +182,28 @@ export async function loadCollectionVariantDisplayData(
               reference.segment.replaceEndDistanceMeters,
             )
           : rawPoints;
-      if (points?.length >= 2) overlayPointsByKey[collectionVariantKey(sw)] = points;
+      if (points?.length >= 2) {
+        const key = collectionVariantKey(sw);
+        const firstDistance = points[0].distanceFromStartMeters;
+        const lastDistance = routeEndDistance(points);
+        const labelPoint = interpolateRoutePointAtDistance(
+          points,
+          firstDistance + (lastDistance - firstDistance) / 2,
+        );
+        const geoJSON = prepareRouteMapGeoJSONForKey(
+          `variant-overlay:${key}`,
+          points,
+          20,
+          undefined,
+          { maxPoints: overlayBudgets[overlayIndex++] },
+        );
+        overlaysByKey[key] = {
+          geoJSON,
+          labelCoordinate: labelPoint ? [labelPoint.longitude, labelPoint.latitude] : null,
+        };
+      }
     }
   }
 
-  return { metricsByKey, overlayPointsByKey };
+  return { metricsByKey, overlaysByKey };
 }

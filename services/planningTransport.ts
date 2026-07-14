@@ -7,6 +7,7 @@ import {
   PLANNING_EXPORT_FILE_NAME,
   PLANNING_SQLITE_MIME_TYPE,
 } from "@/services/planningTransportCore";
+import { measureAsync } from "@/utils/perfMarks";
 export {
   importPlanningDatabase,
   PLANNER_FETCHED_SOURCES_METADATA_KEY,
@@ -19,7 +20,7 @@ export type {
 } from "@/services/planningTransportCore";
 
 export async function sharePlanningDatabase() {
-  const exported = await createPlanningDatabaseExport();
+  const exported = await measureAsync("planning.exportDatabase", createPlanningDatabaseExport);
   const file = new File(Paths.cache, PLANNING_EXPORT_FILE_NAME);
   file.write(exported.bytes);
 
@@ -32,7 +33,9 @@ export async function sharePlanningDatabase() {
   return summary;
 }
 
-export async function pickAndImportPlanningDatabase() {
+export async function pickAndImportPlanningDatabase(
+  onFileSelected?: (fileName: string) => void | Promise<void>,
+) {
   const result = await DocumentPicker.getDocumentAsync({
     type: [PLANNING_SQLITE_MIME_TYPE, "application/octet-stream", "*/*"],
     copyToCacheDirectory: true,
@@ -40,10 +43,13 @@ export async function pickAndImportPlanningDatabase() {
   });
 
   if (result.canceled || !result.assets?.[0]) return null;
+  await onFileSelected?.(result.assets[0].name ?? "planner database");
   return importPlanningDatabaseFromUri(result.assets[0].uri);
 }
 
 export async function importPlanningDatabaseFromUri(uri: string) {
-  const bytes = await new File(uri).bytes();
-  return importPlanningDatabaseFromBytes(bytes);
+  return measureAsync("planning.importDatabase", async () => {
+    const bytes = await new File(uri).bytes();
+    return importPlanningDatabaseFromBytes(bytes);
+  });
 }

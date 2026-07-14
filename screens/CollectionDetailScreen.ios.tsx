@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo, useCallback } from "react";
+import React, { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import {
   View,
   useWindowDimensions,
@@ -47,6 +47,14 @@ import type { SavedPOITarget } from "@/services/savedPOIService";
 import { serializeCollectionToGPX } from "@/services/gpxSerializer";
 import { shareGPXFile } from "@/utils/gpxExportShare";
 import { buildCollectionSegmentProfileBoundaries } from "@/utils/collectionSegmentDisplay";
+import { measureSync } from "@/utils/perfMarks";
+import { yieldToUI } from "@/utils/yieldToUI";
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === "string" && error.trim()) return error;
+  return fallback;
+}
 
 function formatPlannedStart(plannedStartMs: number | null): string {
   if (plannedStartMs == null) return "Not set";
@@ -71,25 +79,35 @@ interface VariantRouteOverlay {
   points: RoutePoint[];
 }
 
+interface CollectionDetailData {
+  collection: Collection | null;
+  segmentsWithRoutes: CollectionSegmentWithRoute[];
+  stitched: StitchedCollection | null;
+}
+
 export default function CollectionDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { width: screenWidth } = useWindowDimensions();
   const colors = useThemeColors();
 
-  const [collection, setCollection] = useState<Collection | null>(null);
-  const [segmentsWithRoutes, setSegmentsWithRoutes] = useState<CollectionSegmentWithRoute[]>([]);
-  const [stitched, setStitched] = useState<StitchedCollection | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [isBusy, setIsBusy] = useState(false);
+  const [detailData, setDetailData] = useState<CollectionDetailData>({
+    collection: null,
+    segmentsWithRoutes: [],
+    stitched: null,
+  });
+  const { collection, segmentsWithRoutes, stitched } = detailData;
+  const [initialLoadStage, setInitialLoadStage] = useState<string | null>("Loading collection…");
+  const [busyLabel, setBusyLabel] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [showAddSheet, setShowAddSheet] = useState(false);
   const [patchBaseSelection, setPatchBaseSelection] = useState<PatchBaseSelection | null>(null);
   const [showAddPOI, setShowAddPOI] = useState(false);
   const [showStartSheet, setShowStartSheet] = useState(false);
   const [startDraftDate, setStartDraftDate] = useState(() => new Date());
+  const loadGenerationRef = useRef(0);
+  const busyOperationRef = useRef(false);
 
-  const collections = useCollectionStore((s) => s.collections);
   const getCollectionSegmentsWithRoutes = useCollectionStore(
     (s) => s.getCollectionSegmentsWithRoutes,
   );
@@ -106,47 +124,117 @@ export default function CollectionDetailScreen() {
   const starredPOIIds = usePoiStore((s) => s.starredPOIIds);
   const setSelectedPOI = usePoiStore((s) => s.setSelectedPOI);
 
-  const loadData = useCallback(async () => {
-    if (!id) return;
-    const collectionData = collections.find((c) => c.id === id);
-    setCollection(collectionData ?? null);
+  const loadData = useCallback(
+    async (showInitialStages = false) => {
+      const generation = ++loadGenerationRef.current;
+      const isCurrent = () => loadGenerationRef.current === generation;
+      if (!id) {
+        if (showInitialStages && isCurrent()) setInitialLoadStage(null);
+        return;
+      }
 
-    const segs = await getCollectionSegmentsWithRoutes(id);
-    setSegmentsWithRoutes(segs);
+      const setStage = (stage: string) => {
+        if (showInitialStages && isCurrent()) setInitialLoadStage(stage);
+      };
 
-    if (segs.length > 0) {
       try {
-        const s = await stitchCollection(id);
-        // Also load points for unselected variants (for ETA display)
-        const { getRoutePoints } = await import("@/db/database");
-        const stitchedSourceRouteIds = new Set(getStitchedSourceRouteIds(s.segments));
-        const unselectedRouteIds = segs
-          .filter((sw) => !sw.segment.isSelected && !s.pointsByRouteId[sw.route.id])
+        setStage("Loading collection…");
+        const { getAllCollections, getRoutePoints } = await import("@/db/database");
+        const collectionData = (await getAllCollections()).find((candidate) => candidate.id === id);
+        if (!isCurrent()) return;
+        if (!collectionData) {
+          setDetailData({ collection: null, segmentsWithRoutes: [], stitched: null });
+          return;
+        }
+
+        setStage("Loading segments…");
+        const segs = await getCollectionSegmentsWithRoutes(id);
+        if (!isCurrent()) return;
+
+        if (segs.length === 0) {
+          setDetailData({ collection: collectionData, segmentsWithRoutes: segs, stitched: null });
+          return;
+        }
+
+        setStage("Building collection route…");
+        const nextStitched = await stitchCollection(id);
+        if (!isCurrent()) return;
+
+        setStage("Loading route variants…");
+        // Selected raw arrays are retained by stitching and reused directly for
+        // segment metrics. Only missing/unselected variant geometry is loaded here.
+        const stitchedSourceRouteIds = new Set(getStitchedSourceRouteIds(nextStitched.segments));
+        const missingRouteIds = segs
+          .filter((sw) => !sw.segment.isSelected && !nextStitched.pointsByRouteId[sw.route.id])
           .map((sw) => sw.route.id);
         for (const routeId of stitchedSourceRouteIds) {
-          if (!s.pointsByRouteId[routeId] && !unselectedRouteIds.includes(routeId)) {
-            unselectedRouteIds.push(routeId);
+          if (!nextStitched.pointsByRouteId[routeId] && !missingRouteIds.includes(routeId)) {
+            missingRouteIds.push(routeId);
           }
         }
-        const unselectedPoints = await Promise.all(
-          unselectedRouteIds.map((rid) => getRoutePoints(rid)),
+        const missingPoints = await Promise.all(
+          missingRouteIds.map((routeId) => getRoutePoints(routeId)),
         );
-        for (let i = 0; i < unselectedRouteIds.length; i++) {
-          s.pointsByRouteId[unselectedRouteIds[i]] = unselectedPoints[i];
+        if (!isCurrent()) return;
+        for (let index = 0; index < missingRouteIds.length; index++) {
+          nextStitched.pointsByRouteId[missingRouteIds[index]] = missingPoints[index];
         }
-        setStitched(s);
-      } catch {
-        setStitched(null);
+        setDetailData({
+          collection: collectionData,
+          segmentsWithRoutes: segs,
+          stitched: nextStitched,
+        });
+      } catch (error) {
+        if (isCurrent()) throw error;
+      } finally {
+        if (showInitialStages && isCurrent()) setInitialLoadStage(null);
       }
-    } else {
-      setStitched(null);
-    }
-    setLoading(false);
-  }, [id, collections, getCollectionSegmentsWithRoutes]);
+    },
+    [id, getCollectionSegmentsWithRoutes],
+  );
 
   useEffect(() => {
-    loadData();
+    let cancelled = false;
+    const generationRef = loadGenerationRef;
+    const loadPromise = loadData(true);
+    const generation = generationRef.current;
+    void loadPromise.catch((error: unknown) => {
+      if (cancelled || generationRef.current !== generation) return;
+      setDetailData({ collection: null, segmentsWithRoutes: [], stitched: null });
+      Alert.alert(
+        "Collection Load Failed",
+        getErrorMessage(error, "Could not load this collection."),
+      );
+    });
+    return () => {
+      cancelled = true;
+      generationRef.current++;
+    };
   }, [loadData]);
+
+  const runBusyOperation = useCallback(
+    async <T,>(
+      label: string,
+      operation: () => Promise<T>,
+      errorTitle = "Collection Update Failed",
+      fallbackMessage = "Could not update this collection.",
+    ): Promise<T | undefined> => {
+      if (busyOperationRef.current) return undefined;
+      busyOperationRef.current = true;
+      setBusyLabel(label);
+      try {
+        await yieldToUI();
+        return await operation();
+      } catch (error: unknown) {
+        Alert.alert(errorTitle, getErrorMessage(error, fallbackMessage));
+        return undefined;
+      } finally {
+        busyOperationRef.current = false;
+        setBusyLabel(null);
+      }
+    },
+    [],
+  );
 
   const screenOptions = useMemo(
     () => ({ title: collection?.name ?? "Collection" }),
@@ -214,23 +302,6 @@ export default function CollectionDetailScreen() {
     return layers;
   }, [selectedRouteLayerId, stitched?.points, variantRouteOverlays]);
 
-  const resolvedSegmentPointsByRouteId = useMemo(() => {
-    const out: Record<string, RoutePoint[]> = {};
-    if (!stitched) return out;
-    for (const segment of stitched.segments) {
-      const points = stitched.points
-        .slice(segment.startPointIndex, segment.endPointIndex + 1)
-        .map((point, idx) =>
-          Object.assign({}, point, {
-            idx,
-            distanceFromStartMeters: point.distanceFromStartMeters - segment.distanceOffsetMeters,
-          }),
-        );
-      out[segment.routeId] = points;
-    }
-    return out;
-  }, [stitched]);
-
   const existingRouteIds = useMemo(
     () => new Set(segmentsWithRoutes.map((sw) => sw.route.id)),
     [segmentsWithRoutes],
@@ -266,12 +337,17 @@ export default function CollectionDetailScreen() {
       if (!id) return;
       setShowAddSheet(false);
       setPatchBaseSelection(null);
-      setIsBusy(true);
-      await addSegment(id, routeId);
-      await loadData();
-      setIsBusy(false);
+      await runBusyOperation(
+        "Adding segment…",
+        async () => {
+          await addSegment(id, routeId);
+          await loadData();
+        },
+        "Add Segment Failed",
+        "Could not add this segment.",
+      );
     },
-    [id, addSegment, loadData],
+    [id, addSegment, loadData, runBusyOperation],
   );
 
   const handleAddPatchVariant = useCallback(
@@ -279,72 +355,84 @@ export default function CollectionDetailScreen() {
       if (!id) return;
       setShowAddSheet(false);
       setPatchBaseSelection(null);
-      setIsBusy(true);
-      try {
-        const { getRouteWithPoints } = await import("@/db/database");
-        const [baseRoute, patchRoute] = await Promise.all([
-          getRouteWithPoints(baseRouteId),
-          getRouteWithPoints(routeId),
-        ]);
-        if (!baseRoute || !patchRoute) {
-          Alert.alert("Patch Variant Failed", "Could not load both route geometries.");
-          return;
-        }
-
-        const proposal = proposePatchVariantFromPoints(
-          baseRoute.id,
-          patchRoute.id,
-          baseRoute.points,
-          patchRoute.points,
-        );
-        if (!proposal) {
-          Alert.alert("Patch Variant Failed", "Could not match this route onto the base segment.");
-          return;
-        }
-        if (proposal.isReversed) {
-          Alert.alert(
-            "Patch Variant Reversed",
-            "This route snaps onto the base segment in the opposite direction. Reverse the route before adding it as a patch variant.",
-          );
-          return;
-        }
-
-        const warning = isPatchVariantProposalPoorMatch(proposal)
-          ? "\n\nReview carefully: one or both endpoints are far from the base route."
-          : "";
-        Alert.alert(
-          "Add Patch Variant?",
-          `${patchRoute.name} will replace ${formatDistance(
-            proposal.replaceStartDistanceMeters,
-            units,
-          )}-${formatDistance(proposal.replaceEndDistanceMeters, units)} of ${
-            baseRoute.name
-          }.${warning}`,
-          [
-            { text: "Cancel", style: "cancel" },
-            {
-              text: "Add Variant",
-              onPress: async () => {
-                setIsBusy(true);
-                await addPatchVariant(
-                  id,
-                  routeId,
-                  baseRouteId,
-                  position,
-                  proposal.replaceStartDistanceMeters,
-                  proposal.replaceEndDistanceMeters,
-                );
-                await loadData();
-                setIsBusy(false);
-              },
-            },
-          ],
-        );
-      } finally {
-        setIsBusy(false);
+      const patchCheck = await runBusyOperation(
+        "Checking patch variant…",
+        async () => {
+          const { getRouteWithPoints } = await import("@/db/database");
+          const [baseRoute, patchRoute] = await Promise.all([
+            getRouteWithPoints(baseRouteId),
+            getRouteWithPoints(routeId),
+          ]);
+          const proposal =
+            baseRoute && patchRoute
+              ? measureSync("collection.proposePatchVariant", () =>
+                  proposePatchVariantFromPoints(
+                    baseRoute.id,
+                    patchRoute.id,
+                    baseRoute.points,
+                    patchRoute.points,
+                  ),
+                )
+              : null;
+          return { baseRoute, patchRoute, proposal };
+        },
+        "Patch Variant Failed",
+        "Could not load both route geometries.",
+      );
+      if (!patchCheck) return;
+      const { baseRoute, patchRoute, proposal } = patchCheck;
+      if (!baseRoute || !patchRoute) {
+        Alert.alert("Patch Variant Failed", "Could not load both route geometries.");
+        return;
       }
+      if (!proposal) {
+        Alert.alert("Patch Variant Failed", "Could not match this route onto the base segment.");
+        return;
+      }
+      if (proposal.isReversed) {
+        Alert.alert(
+          "Patch Variant Reversed",
+          "This route snaps onto the base segment in the opposite direction. Reverse the route before adding it as a patch variant.",
+        );
+        return;
+      }
+
+      const warning = isPatchVariantProposalPoorMatch(proposal)
+        ? "\n\nReview carefully: one or both endpoints are far from the base route."
+        : "";
+      Alert.alert(
+        "Add Patch Variant?",
+        `${patchRoute.name} will replace ${formatDistance(
+          proposal.replaceStartDistanceMeters,
+          units,
+        )}-${formatDistance(proposal.replaceEndDistanceMeters, units)} of ${baseRoute.name}.${warning}`,
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Add Variant",
+            onPress: () => {
+              void runBusyOperation(
+                "Adding patch variant…",
+                async () => {
+                  await addPatchVariant(
+                    id,
+                    routeId,
+                    baseRouteId,
+                    position,
+                    proposal.replaceStartDistanceMeters,
+                    proposal.replaceEndDistanceMeters,
+                  );
+                  await loadData();
+                },
+                "Patch Variant Failed",
+                "Could not add this patch variant.",
+              );
+            },
+          },
+        ],
+      );
     },
-    [id, addPatchVariant, loadData, units],
+    [id, addPatchVariant, loadData, runBusyOperation, units],
   );
 
   const handleAddRouteFromSheet = useCallback(
@@ -370,47 +458,74 @@ export default function CollectionDetailScreen() {
         {
           text: "Remove",
           style: "destructive",
-          onPress: async () => {
-            setIsBusy(true);
-            await removeSegment(id, routeId);
-            await loadData();
-            setIsBusy(false);
+          onPress: () => {
+            void runBusyOperation(
+              "Removing segment…",
+              async () => {
+                await removeSegment(id, routeId);
+                await loadData();
+              },
+              "Remove Segment Failed",
+              "Could not remove this segment.",
+            );
           },
         },
       ]);
     },
-    [id, removeSegment, loadData],
+    [id, removeSegment, loadData, runBusyOperation],
   );
 
   const handleSelectVariant = useCallback(
     async (routeId: string) => {
       if (!id) return;
-      setIsBusy(true);
-      await selectVariant(id, routeId);
-      await loadData();
-      setIsBusy(false);
+      await runBusyOperation(
+        "Switching variant…",
+        async () => {
+          await selectVariant(id, routeId);
+          await loadData();
+        },
+        "Switch Variant Failed",
+        "Could not switch to this route variant.",
+      );
     },
-    [id, selectVariant, loadData],
+    [id, selectVariant, loadData, runBusyOperation],
   );
 
   const handleReorder = useCallback(
     async (positions: { routeId: string; position: number }[]) => {
       if (!id) return;
-      setIsBusy(true);
-      const { updateSegmentPositions } = await import("@/db/database");
-      await updateSegmentPositions(id, positions);
-      await loadData();
-      setIsBusy(false);
+      await runBusyOperation(
+        "Saving segment order…",
+        async () => {
+          const { updateSegmentPositions } = await import("@/db/database");
+          await updateSegmentPositions(id, positions);
+          await loadData();
+        },
+        "Reorder Failed",
+        "Could not save the segment order.",
+      );
     },
-    [id, loadData],
+    [id, loadData, runBusyOperation],
   );
 
   const handleSetActive = useCallback(async () => {
     if (!id) return;
-    setIsBusy(true);
-    await setActiveCollection(id);
-    setIsBusy(false);
-  }, [id, setActiveCollection]);
+    await runBusyOperation(
+      "Activating collection…",
+      async () => {
+        await setActiveCollection(id);
+        setDetailData((current) => {
+          if (current.collection?.id !== id) return current;
+          return {
+            ...current,
+            collection: { ...current.collection, isActive: true },
+          };
+        });
+      },
+      "Activation Failed",
+      "Could not activate this collection.",
+    );
+  }, [id, runBusyOperation, setActiveCollection]);
 
   const openStartSheet = useCallback(() => {
     setStartDraftDate(new Date(collection?.plannedStartMs ?? Date.now()));
@@ -420,29 +535,43 @@ export default function CollectionDetailScreen() {
   const handleSavePlannedStart = useCallback(async () => {
     if (!id) return;
     const plannedStartMs = startDraftDate.getTime();
-    setIsBusy(true);
-    try {
-      await updateCollectionPlannedStart(id, plannedStartMs);
-      setCollection((current) => (current?.id === id ? { ...current, plannedStartMs } : current));
-      setShowStartSheet(false);
-    } finally {
-      setIsBusy(false);
-    }
-  }, [id, startDraftDate, updateCollectionPlannedStart]);
+    await runBusyOperation(
+      "Saving race start…",
+      async () => {
+        await updateCollectionPlannedStart(id, plannedStartMs);
+        setDetailData((current) => {
+          if (current.collection?.id !== id) return current;
+          return {
+            ...current,
+            collection: { ...current.collection, plannedStartMs },
+          };
+        });
+        setShowStartSheet(false);
+      },
+      "Save Failed",
+      "Could not save the race start.",
+    );
+  }, [id, runBusyOperation, startDraftDate, updateCollectionPlannedStart]);
 
   const handleClearPlannedStart = useCallback(async () => {
     if (!id) return;
-    setIsBusy(true);
-    try {
-      await updateCollectionPlannedStart(id, null);
-      setCollection((current) =>
-        current?.id === id ? { ...current, plannedStartMs: null } : current,
-      );
-      setShowStartSheet(false);
-    } finally {
-      setIsBusy(false);
-    }
-  }, [id, updateCollectionPlannedStart]);
+    await runBusyOperation(
+      "Clearing race start…",
+      async () => {
+        await updateCollectionPlannedStart(id, null);
+        setDetailData((current) => {
+          if (current.collection?.id !== id) return current;
+          return {
+            ...current,
+            collection: { ...current.collection, plannedStartMs: null },
+          };
+        });
+        setShowStartSheet(false);
+      },
+      "Clear Failed",
+      "Could not clear the race start.",
+    );
+  }, [id, runBusyOperation, updateCollectionPlannedStart]);
 
   const handleDelete = useCallback(() => {
     if (!id || !collection) return;
@@ -451,13 +580,20 @@ export default function CollectionDetailScreen() {
       {
         text: "Delete",
         style: "destructive",
-        onPress: async () => {
-          await deleteCollection(id);
-          router.back();
+        onPress: () => {
+          void runBusyOperation(
+            "Deleting collection…",
+            async () => {
+              await deleteCollection(id);
+              router.back();
+            },
+            "Delete Failed",
+            "Could not delete this collection.",
+          );
         },
       },
     ]);
-  }, [id, collection, deleteCollection, router]);
+  }, [id, collection, deleteCollection, router, runBusyOperation]);
 
   // Load climbs for all segments
   const loadClimbs = useClimbStore((s) => s.loadClimbs);
@@ -496,9 +632,12 @@ export default function CollectionDetailScreen() {
     if (!collection || !stitched) return;
     setIsExporting(true);
     try {
-      const gpx = serializeCollectionToGPX(collection.name, stitched, {
-        poisAsWaypoints: collectionPOIs,
-      });
+      await yieldToUI();
+      const gpx = measureSync("gpx.serializeCollection", () =>
+        serializeCollectionToGPX(collection.name, stitched, {
+          poisAsWaypoints: collectionPOIs,
+        }),
+      );
       await shareGPXFile(gpx, collection.name);
     } catch {
       Alert.alert("Export Failed", "Could not export this collection as GPX.");
@@ -529,10 +668,18 @@ export default function CollectionDetailScreen() {
     return buildCollectionSegmentProfileBoundaries(stitched?.segments);
   }, [stitched?.segments]);
 
-  if (loading) {
+  if (initialLoadStage) {
     return (
-      <View className="flex-1 items-center justify-center bg-background">
+      <View
+        className="flex-1 items-center justify-center bg-background px-6"
+        accessible
+        accessibilityRole="progressbar"
+        accessibilityLabel={initialLoadStage}
+      >
         <ActivityIndicator size="large" color={colors.accent} />
+        <Text className="mt-3 text-center text-[15px] font-barlow-medium text-muted-foreground">
+          {initialLoadStage}
+        </Text>
       </View>
     );
   }
@@ -606,8 +753,7 @@ export default function CollectionDetailScreen() {
         <View className="px-4">
           <SegmentList
             segmentsWithRoutes={segmentsWithRoutes}
-            pointsByRouteId={stitched?.pointsByRouteId ?? {}}
-            resolvedPointsByRouteId={resolvedSegmentPointsByRouteId}
+            pointsByRouteId={stitched?.pointsByRouteId}
             stitchedSegments={stitched?.segments}
             onSelectVariant={handleSelectVariant}
             onAddPatchVariant={handleOpenPatchVariant}
@@ -688,11 +834,15 @@ export default function CollectionDetailScreen() {
         visible={showStartSheet}
         transparent
         animationType="fade"
-        onRequestClose={() => setShowStartSheet(false)}
+        onRequestClose={() => {
+          if (!busyLabel) setShowStartSheet(false);
+        }}
       >
         <Pressable
           className="flex-1 justify-end bg-black/40"
-          onPress={() => setShowStartSheet(false)}
+          onPress={() => {
+            if (!busyLabel) setShowStartSheet(false);
+          }}
         >
           <Pressable className="rounded-t-2xl bg-surface px-4 pt-4 pb-8">
             <View className="items-center pb-3">
@@ -724,28 +874,54 @@ export default function CollectionDetailScreen() {
             <Text className="mt-2 text-[13px] font-barlow-medium text-muted-foreground">
               {formatPlannedStart(startDraftDate.getTime())}
             </Text>
+            {busyLabel && (
+              <View
+                className="mt-3 flex-row items-center gap-2 rounded-lg bg-muted px-3 py-2"
+                accessible
+                accessibilityRole="progressbar"
+                accessibilityLabel={busyLabel}
+              >
+                <ActivityIndicator size="small" color={colors.accent} />
+                <Text className="text-[13px] font-barlow-medium text-foreground">{busyLabel}</Text>
+              </View>
+            )}
             <View className="mt-4 flex-row gap-2">
               <Button
                 variant="secondary"
                 label="Clear"
                 onPress={handleClearPlannedStart}
+                disabled={busyLabel != null}
                 className="h-12 flex-1"
               />
               <Button
                 variant="secondary"
                 label="Cancel"
                 onPress={() => setShowStartSheet(false)}
+                disabled={busyLabel != null}
                 className="h-12 flex-1"
               />
-              <Button label="Save" onPress={handleSavePlannedStart} className="h-12 flex-1" />
+              <Button
+                label="Save"
+                onPress={handleSavePlannedStart}
+                disabled={busyLabel != null}
+                className="h-12 flex-1"
+              />
             </View>
           </Pressable>
         </Pressable>
       </Modal>
 
-      {isBusy && (
-        <View className="absolute inset-0 items-center justify-center z-40 bg-background/60">
+      {busyLabel && (
+        <View
+          className="absolute inset-0 items-center justify-center z-40 bg-background/70 px-6"
+          accessible
+          accessibilityRole="progressbar"
+          accessibilityLabel={busyLabel}
+        >
           <ActivityIndicator size="large" color={colors.accent} />
+          <Text className="mt-3 text-center text-[15px] font-barlow-semibold text-foreground">
+            {busyLabel}
+          </Text>
         </View>
       )}
     </>

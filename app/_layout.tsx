@@ -3,8 +3,8 @@ import { ThemeProvider, type Theme } from "@react-navigation/native";
 import * as SplashScreen from "expo-splash-screen";
 import * as Linking from "expo-linking";
 import { useFonts } from "expo-font";
-import { useEffect, useRef, useCallback } from "react";
-import { Alert } from "react-native";
+import { useEffect, useRef, useCallback, useState } from "react";
+import { ActivityIndicator, Alert, View } from "react-native";
 import { useColorScheme } from "nativewind";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider, initialWindowMetrics } from "react-native-safe-area-context";
@@ -17,6 +17,8 @@ import { usePoiStore } from "@/store/poiStore";
 import { COLORS } from "@/theme";
 import { IncomingUrlImportGate } from "@/utils/incomingUrlImport";
 import { refreshPlanningDataAfterImport } from "@/services/planningDataRefresh";
+import { Text } from "@/components/ui/text";
+import { yieldToUI } from "@/utils/yieldToUI";
 
 export { ErrorBoundary } from "expo-router";
 
@@ -38,6 +40,7 @@ export default function RootLayout() {
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === "dark";
   const colors = COLORS[isDark ? "dark" : "light"];
+  const [incomingImportLabel, setIncomingImportLabel] = useState<string | null>(null);
 
   const navTheme: Theme = {
     dark: isDark,
@@ -112,22 +115,32 @@ export default function RootLayout() {
 
     try {
       await incomingUrlGate.current.run(url, async () => {
-        if (isPlanningDb) {
-          const { importPlanningDatabaseFromUri } = await import("@/services/planningTransport");
-          const summary = await importPlanningDatabaseFromUri(url);
-          await refreshPlanningDataAfterImport();
-          Alert.alert(
-            "Planner Import Complete",
-            `Merged ${summary.routes} routes, ${summary.collections} collections, and ${summary.pois} POIs.`,
-          );
-          router.replace("/settings");
-          return;
-        }
+        setIncomingImportLabel(
+          isPlanningDb ? "Importing planner database…" : `Importing ${fileName}…`,
+        );
+        await yieldToUI();
+        try {
+          if (isPlanningDb) {
+            const { importPlanningDatabaseFromUri } = await import("@/services/planningTransport");
+            const summary = await importPlanningDatabaseFromUri(url);
+            setIncomingImportLabel("Refreshing route data…");
+            await yieldToUI();
+            await refreshPlanningDataAfterImport();
+            Alert.alert(
+              "Planner Import Complete",
+              `Merged ${summary.routes} routes, ${summary.collections} collections, and ${summary.pois} POIs.`,
+            );
+            router.replace("/settings");
+            return;
+          }
 
-        const route = await useRouteStore.getState().importFromUri(url, fileName);
-        // Replace (not push) so the +not-found screen Expo Router briefly lands on
-        // for the incoming file:// URL doesn't stay in the back stack.
-        router.replace(`/route/${route.id}`);
+          const route = await useRouteStore.getState().importFromUri(url, fileName);
+          // Replace (not push) so the +not-found screen Expo Router briefly lands on
+          // for the incoming file:// URL doesn't stay in the back stack.
+          router.replace(`/route/${route.id}`);
+        } finally {
+          setIncomingImportLabel(null);
+        }
       });
     } catch (e: any) {
       Alert.alert("Import Failed", e.message || "Could not import the file.");
@@ -154,26 +167,45 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider initialMetrics={initialWindowMetrics}>
         <ThemeProvider value={navTheme}>
-          <Stack
-            screenOptions={{
-              autoHideHomeIndicator: true,
-              headerBackTitle: "Routes",
-              headerTitleStyle: { fontFamily: "Barlow-SemiBold" },
-            }}
-          >
-            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-            <Stack.Screen name="+not-found" options={{ headerShown: false, animation: "none" }} />
-            <Stack.Screen
-              name="menu"
-              options={{
-                presentation: "fullScreenModal",
-                headerShown: false,
-                gestureEnabled: false,
+          <View className="flex-1">
+            <Stack
+              screenOptions={{
+                autoHideHomeIndicator: true,
+                headerBackTitle: "Routes",
+                headerTitleStyle: { fontFamily: "Barlow-SemiBold" },
               }}
-            />
-            <Stack.Screen name="route/[id]" options={{ title: "Route" }} />
-            <Stack.Screen name="collection/[id]" options={{ title: "Collection" }} />
-          </Stack>
+            >
+              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+              <Stack.Screen name="+not-found" options={{ headerShown: false, animation: "none" }} />
+              <Stack.Screen
+                name="menu"
+                options={{
+                  presentation: "fullScreenModal",
+                  headerShown: false,
+                  gestureEnabled: false,
+                }}
+              />
+              <Stack.Screen name="route/[id]" options={{ title: "Route" }} />
+              <Stack.Screen name="collection/[id]" options={{ title: "Collection" }} />
+            </Stack>
+            {incomingImportLabel && (
+              <View
+                className="absolute inset-0 z-50 items-center justify-center bg-background/85 px-6"
+                accessible
+                accessibilityRole="progressbar"
+                accessibilityLiveRegion="polite"
+                accessibilityLabel={incomingImportLabel}
+              >
+                <ActivityIndicator size="large" color={colors.accent} />
+                <Text className="mt-3 text-center text-[17px] font-barlow-semibold text-foreground">
+                  {incomingImportLabel}
+                </Text>
+                <Text className="mt-1 text-center text-[13px] font-barlow text-muted-foreground">
+                  Keep Ultra Companion open until this finishes.
+                </Text>
+              </View>
+            )}
+          </View>
         </ThemeProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

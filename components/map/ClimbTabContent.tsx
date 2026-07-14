@@ -176,21 +176,22 @@ export default function ClimbTabContent({
       climb.effectiveEndDistanceMeters,
     );
     if (sliced.length < 2) return null;
-    let currentDistanceInSliceMeters: number | undefined;
-    if (currentDist != null) {
-      const relativeDistance = currentDist - climb.effectiveStartDistanceMeters;
-      const sliceEndDistance = sliced[sliced.length - 1].distanceFromStartMeters;
-      if (relativeDistance >= 0 && relativeDistance <= sliceEndDistance) {
-        currentDistanceInSliceMeters = relativeDistance;
-      }
-    }
     return {
       points: sliced,
       offsetMeters: climb.effectiveStartDistanceMeters,
-      currentDistanceInSliceMeters,
       gradientSegments: buildClimbProfileSegments(sliced),
     };
-  }, [climb, activeRoutePoints, currentDist]);
+  }, [climb, activeRoutePoints]);
+
+  const climbProfileCurrentDistanceMeters = (() => {
+    if (!climbProfile || currentDist == null) return undefined;
+    const relativeDistance = currentDist - climbProfile.offsetMeters;
+    const sliceEndDistance =
+      climbProfile.points[climbProfile.points.length - 1].distanceFromStartMeters;
+    return relativeDistance >= 0 && relativeDistance <= sliceEndDistance
+      ? relativeDistance
+      : undefined;
+  })();
 
   const climbProfilePOIs = useMemo(() => {
     if (!climbProfile) return undefined;
@@ -495,7 +496,7 @@ export default function ClimbTabContent({
                     xTickIntervalMeters={expandedUsesOneKmScroll ? 1000 : undefined}
                     axisStyle="climb"
                     minPixelsPerKm={expandedUsesOneKmScroll ? 28 : 2}
-                    currentDistanceMeters={climbProfile.currentDistanceInSliceMeters}
+                    currentDistanceMeters={climbProfileCurrentDistanceMeters}
                     pois={climbProfilePOIs}
                     onPOIPress={setSelectedPOI}
                     gradientSegments={climbProfile.gradientSegments}
@@ -615,7 +616,7 @@ export default function ClimbTabContent({
                 xTickIntervalMeters={expandedUsesOneKmScroll ? 1000 : undefined}
                 axisStyle="climb"
                 minPixelsPerKm={expandedUsesOneKmScroll ? 28 : 2}
-                currentDistanceMeters={climbProfile.currentDistanceInSliceMeters}
+                currentDistanceMeters={climbProfileCurrentDistanceMeters}
                 pois={climbProfilePOIs}
                 onPOIPress={setSelectedPOI}
                 gradientSegments={climbProfile.gradientSegments}
