@@ -5,6 +5,7 @@ import {
   getPlannedStopDurationMinutes,
 } from "@/services/plannedStops";
 import type { UpcomingEvent, UpcomingEventKind } from "@/services/upcomingTimeline";
+import type { FerryDeparture } from "@/services/ferryTimetable";
 import { isOpenAt } from "@/services/openingHoursParser";
 import {
   formatDistance,
@@ -75,6 +76,7 @@ export interface BuildUpcomingRowModelsInput {
   currentDistanceMeters: number | null;
   units: UnitSystem;
   ferries?: readonly DisplayFerryCrossing[];
+  ferryDepartures?: Readonly<Record<string, FerryDeparture | undefined>>;
 }
 
 export interface BuildUpcomingListItemsInput {
@@ -87,6 +89,7 @@ interface BuildUpcomingRowModelInput {
   currentDistanceMeters: number | null;
   units: UnitSystem;
   ferries: readonly DisplayFerryCrossing[];
+  ferryDepartures: Readonly<Record<string, FerryDeparture | undefined>>;
 }
 
 export function buildUpcomingRowModels({
@@ -94,9 +97,10 @@ export function buildUpcomingRowModels({
   currentDistanceMeters,
   units,
   ferries = [],
+  ferryDepartures = {},
 }: BuildUpcomingRowModelsInput): UpcomingRowModel[] {
   return events.map((event) =>
-    buildUpcomingRowModel({ event, currentDistanceMeters, units, ferries }),
+    buildUpcomingRowModel({ event, currentDistanceMeters, units, ferries, ferryDepartures }),
   );
 }
 
@@ -154,6 +158,7 @@ function buildUpcomingRowModel({
   currentDistanceMeters,
   units,
   ferries,
+  ferryDepartures,
 }: BuildUpcomingRowModelInput): UpcomingRowModel {
   const geometricDistanceAhead =
     currentDistanceMeters != null
@@ -181,19 +186,29 @@ function buildUpcomingRowModel({
     event.kind === "poi" ? departureTimeAfterPlannedStop(eta, plannedStopMinutes) : null;
   const hasStopInterval = plannedStopMinutes > 0 && eta != null && departureTime != null;
   const hasClimbInterval = event.kind === "climb-span" && !event.isActive && event.endEta != null;
-  const hasFerryInterval = event.kind === "ferry" && event.landingEta != null;
+  const ferryDeparture = event.kind === "ferry" ? ferryDepartures[event.ferry.id] : undefined;
+  const concreteDepartureDate = validTimetableDate(ferryDeparture?.departureTime);
+  const concreteArrivalDate = validTimetableDate(ferryDeparture?.arrivalTime);
+  const hasFerryInterval =
+    event.kind === "ferry" && (concreteArrivalDate != null || event.landingEta != null);
   const clockLabel = eta ? formatETA(eta.eta) : "--:--";
   const departureLabel = departureTime ? formatETA(departureTime) : null;
   const climbEndLabel =
     event.kind === "climb-span" && event.endEta ? formatETA(event.endEta.eta) : null;
   const ferryLandingLabel =
-    event.kind === "ferry" && event.landingEta ? formatETA(event.landingEta.eta) : null;
+    event.kind === "ferry"
+      ? concreteArrivalDate
+        ? formatETA(concreteArrivalDate)
+        : event.landingEta
+          ? formatETA(event.landingEta.eta)
+          : null
+      : null;
   const primaryRidingTime = eta ?? (event.kind === "climb-span" ? event.endEta : null);
   const ridingTimeLabel =
     primaryRidingTime && primaryRidingTime.ridingTimeSeconds > 0
       ? `~${formatDuration(primaryRidingTime.ridingTimeSeconds)}`
       : "no ETA";
-  const content = upcomingEventContent(event, units);
+  const content = upcomingEventContent(event, units, ferryDeparture);
   const subtitleNumberOfLines: UpcomingRowModel["subtitleNumberOfLines"] =
     event.kind === "ferry" ? (event.isActive ? 3 : 2) : 1;
   const isPressable = event.kind === "poi" || event.kind === "climb-span";
@@ -203,6 +218,7 @@ function buildUpcomingRowModel({
     eta ? `ETA ${clockLabel}` : null,
     hasStopInterval && departureLabel ? `depart ${departureLabel}` : null,
     hasClimbInterval && climbEndLabel ? `end ${climbEndLabel}` : null,
+    concreteDepartureDate ? `next scheduled departure ${formatETA(concreteDepartureDate)}` : null,
     hasFerryInterval && ferryLandingLabel ? `land ${ferryLandingLabel}` : null,
     `${distanceLabel} ${distanceDirectionLabel}`,
   ]
@@ -237,6 +253,7 @@ function buildUpcomingRowModel({
 function upcomingEventContent(
   event: UpcomingEvent,
   units: UnitSystem,
+  ferryDeparture?: FerryDeparture,
 ): Pick<UpcomingRowModel, "title" | "subtitle" | "subtitleColor" | "accentColor" | "icon"> {
   switch (event.kind) {
     case "poi": {
@@ -277,7 +294,24 @@ function upcomingEventContent(
         icon: { kind: "climb" },
       };
     }
-    case "ferry":
+    case "ferry": {
+      const departureDate = validTimetableDate(ferryDeparture?.departureTime);
+      const arrivalDate = validTimetableDate(ferryDeparture?.arrivalTime);
+      if (departureDate) {
+        const concreteDurationMinutes = arrivalDate
+          ? Math.max(0, Math.round((arrivalDate.getTime() - departureDate.getTime()) / 60_000))
+          : event.ferry.durationMinutes;
+        return {
+          title: event.ferry.name,
+          subtitle: [
+            `Next ${formatETA(departureDate)}${arrivalDate ? ` → ${formatETA(arrivalDate)}` : ""}`,
+            `${concreteDurationMinutes} min crossing · Entur schedule`,
+          ].join("\n"),
+          subtitleColor: { kind: "theme", key: "info" },
+          accentColor: { kind: "theme", key: "info" },
+          icon: { kind: "ferry" },
+        };
+      }
       return {
         title: event.ferry.name,
         subtitle: [
@@ -291,6 +325,7 @@ function upcomingEventContent(
         accentColor: { kind: "theme", key: "info" },
         icon: { kind: "ferry" },
       };
+    }
     case "segment-transition":
       return {
         title: `End ${event.fromSegment.routeName}`,
@@ -308,4 +343,10 @@ function upcomingEventContent(
         icon: { kind: "finish" },
       };
   }
+}
+
+function validTimetableDate(value: string | null | undefined): Date | null {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
 }

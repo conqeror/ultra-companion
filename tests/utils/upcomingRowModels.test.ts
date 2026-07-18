@@ -9,6 +9,7 @@ import { stitchedSegmentsFixture } from "@/tests/fixtures/collection";
 import { buildPoi } from "@/tests/fixtures/poi";
 import { buildRoutePoint } from "@/tests/fixtures/route";
 import { bucketDistanceForDerivedWork } from "@/utils/distanceBuckets";
+import { formatETA } from "@/utils/formatters";
 import {
   buildUpcomingListItems,
   buildUpcomingRowModels,
@@ -219,6 +220,34 @@ describe("upcomingRowModels", () => {
       subtitle: "On ferry\n5 min crossing\n3 min assumed wait",
       subtitleNumberOfLines: 3,
     });
+
+    const departureTime = "2026-01-01T06:20:00.000Z";
+    const arrivalTime = "2026-01-01T06:55:00.000Z";
+    const [enturRow] = buildUpcomingRowModels({
+      events: [ferryEvent],
+      currentDistanceMeters: 0,
+      units: "metric",
+      ferries: [ferry],
+      ferryDepartures: {
+        [ferry.id]: {
+          departureTime,
+          arrivalTime,
+          serviceName: "Test service",
+        },
+      },
+    });
+    expect(enturRow).toMatchObject({
+      subtitle: `Next ${formatETA(new Date(departureTime))} → ${formatETA(
+        new Date(arrivalTime),
+      )}\n35 min crossing · Entur schedule`,
+      subtitleNumberOfLines: 2,
+      ferryLandingLabel: formatETA(new Date(arrivalTime)),
+      hasFerryInterval: true,
+    });
+    expect(enturRow.subtitle).not.toContain("assumed wait");
+    expect(enturRow.accessibilityLabel).toContain(
+      `next scheduled departure ${formatETA(new Date(departureTime))}`,
+    );
   });
 
   it("uses opening status at ETA for POI subtitles", () => {

@@ -225,7 +225,17 @@ describe("ferry-aware elevation and profile projection", () => {
 
 describe("ferry display mapping and timing", () => {
   it("maps raw ferry bounds into display space and refreshes endpoint coordinates", () => {
-    const raw = crossing({ startDistanceMeters: 100, endDistanceMeters: 300 });
+    const raw = crossing({
+      name: "Horten – Moss",
+      startDistanceMeters: 100,
+      endDistanceMeters: 300,
+      providerRefs: {
+        enturFromStopPlaceId: "from",
+        enturToStopPlaceId: "to",
+        enturFromStopPlaceName: "Moss ferjekai",
+        enturToStopPlaceName: "Horten ferjekai",
+      },
+    });
     const points = [routePoint(0, 0), routePoint(1, 200), routePoint(2, 400)];
 
     const displayed = toDisplayFerryCrossing(raw, 100, 300, 2_000, points);
@@ -236,7 +246,9 @@ describe("ferry display mapping and timing", () => {
     expect(displayed.effectiveEndDistanceMeters).toBe(2_300);
     expect(displayed.startLatitude).toBeCloseTo(0.001);
     expect(displayed.endLongitude).toBeCloseTo(0.006);
+    expect(displayed.name).toBe("Moss – Horten");
     expect(raw.startLatitude).toBe(60);
+    expect(raw.name).toBe("Horten – Moss");
   });
 
   it("maps only crossings fully contained in a source span and supports repeated route spans", () => {

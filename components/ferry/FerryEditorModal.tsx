@@ -17,12 +17,13 @@ import { useThemeColors } from "@/theme";
 import { useFerryStore } from "@/store/ferryStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import {
+  directionalFerryCandidateName,
   lookupFerriesNearPoint,
   matchFerryCandidateToRoute,
   type FerryLookupCandidate,
   type MatchedFerrySpan,
 } from "@/services/ferryLookup";
-import { validateFerryCrossing } from "@/services/ferryCrossings";
+import { ferryDisplayName, validateFerryCrossing } from "@/services/ferryCrossings";
 import {
   encodeOSMFerryGeometry,
   ferryMapGeometrySignature,
@@ -30,6 +31,14 @@ import {
   orientFerryGeometry,
   resolveFerryMapGeometry,
 } from "@/services/ferryGeometry";
+import {
+  directionalEnturFerryName,
+  enturProviderRefsForPair,
+  pickEnturFerryProviderRefs,
+  readLinkedEnturFerryStops,
+  resolveEnturFerryStopPair,
+  withoutEnturFerryProviderRefs,
+} from "@/services/enturFerry";
 import {
   buildRouteSegmentSpatialIndex,
   computePOIRouteAssociation,
@@ -138,6 +147,7 @@ export default function FerryEditorModal({
   const units = useSettingsStore((state) => state.units);
   const saveFerry = useFerryStore((state) => state.saveFerry);
   const abortRef = useRef<AbortController | null>(null);
+  const enturAbortRef = useRef<AbortController | null>(null);
   const routeSpatialIndexRef = useRef<{
     points: RoutePoint[];
     index: RouteSegmentSpatialIndex | null;
@@ -156,8 +166,16 @@ export default function FerryEditorModal({
   const [operator, setOperator] = useState("");
   const [sourceCandidate, setSourceCandidate] = useState<FerryLookupCandidate | null>(null);
   const [isManualSpan, setIsManualSpan] = useState(false);
+  const [enturProviderRefs, setEnturProviderRefs] = useState<Record<string, string>>({});
+  const [enturError, setEnturError] = useState<string | null>(null);
+  const [isEnturSearching, setIsEnturSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+
+  const linkedEnturStops = useMemo(
+    () => readLinkedEnturFerryStops(enturProviderRefs),
+    [enturProviderRefs],
+  );
 
   const previewProviderRefs = useMemo(() => {
     if (isManualSpan) return {};
@@ -184,7 +202,7 @@ export default function FerryEditorModal({
       routeId: route.id,
       // Text edits do not change preview geometry. Keeping the geometry model
       // independent avoids re-preparing and refitting the map while typing.
-      name: crossing?.name ?? "Ferry crossing",
+      name: crossing ? ferryDisplayName(crossing) : "Ferry crossing",
       ...span,
       effectiveStartDistanceMeters: toDisplayDistanceMeters(span.startDistanceMeters),
       effectiveEndDistanceMeters: toDisplayDistanceMeters(span.endDistanceMeters),
@@ -275,6 +293,7 @@ export default function FerryEditorModal({
   useEffect(() => {
     if (!visible) {
       abortRef.current?.abort();
+      enturAbortRef.current?.abort();
       return;
     }
     setCandidates([]);
@@ -284,11 +303,14 @@ export default function FerryEditorModal({
     setIsSaving(false);
     setSourceCandidate(null);
     setIsManualSpan(false);
+    setEnturError(null);
+    setIsEnturSearching(false);
+    setEnturProviderRefs(pickEnturFerryProviderRefs(crossing?.providerRefs ?? {}));
     if (crossing) {
       const existingSpan = crossingSpan(crossing);
       setSpan(existingSpan);
       setBoardingHint(crossing.startDistanceMeters);
-      setName(crossing.name);
+      setName(ferryDisplayName(crossing));
       setDuration(String(crossing.durationMinutes));
       setAssumedWait(String(crossing.assumedWaitMinutes));
       setBoardingBuffer(String(crossing.boardingBufferMinutes));
@@ -316,7 +338,21 @@ export default function FerryEditorModal({
     }
   }, [crossing, refreshMetadata, runLookup, visible]);
 
-  useEffect(() => () => abortRef.current?.abort(), []);
+  useEffect(
+    () => () => {
+      abortRef.current?.abort();
+      enturAbortRef.current?.abort();
+    },
+    [],
+  );
+
+  const clearEnturLink = useCallback(() => {
+    enturAbortRef.current?.abort();
+    enturAbortRef.current = null;
+    setEnturProviderRefs({});
+    setEnturError(null);
+    setIsEnturSearching(false);
+  }, []);
 
   const handleMapPress = useCallback(
     ({ latitude, longitude }: { latitude: number; longitude: number }) => {
@@ -355,9 +391,10 @@ export default function FerryEditorModal({
       });
       setSourceCandidate(null);
       setIsManualSpan(true);
+      clearEnturLink();
       setStage("confirm");
     },
-    [route.points, runLookup, span, stage],
+    [clearEnturLink, route.points, runLookup, span, stage],
   );
 
   const chooseCandidate = useCallback(
@@ -381,14 +418,15 @@ export default function FerryEditorModal({
       setSpan(matched);
       setSourceCandidate(candidate);
       setIsManualSpan(false);
-      setName(candidate.name);
+      if (candidate.id !== crossing?.sourceId) clearEnturLink();
+      setName(directionalFerryCandidateName(candidate, matched));
       if (candidate.durationMinutes != null) setDuration(String(candidate.durationMinutes));
       setTimetableUrl(candidate.timetableUrl ?? candidate.sourceUrl);
       setOperator(candidate.operator ?? "");
       setStage("confirm");
       setError(null);
     },
-    [boardingHint, candidateMatches, route.points],
+    [boardingHint, candidateMatches, clearEnturLink, crossing?.sourceId, route.points],
   );
 
   const chooseManual = useCallback(() => {
@@ -412,8 +450,41 @@ export default function FerryEditorModal({
     setLookupMessage(null);
     setError(null);
     setIsManualSpan(false);
+    clearEnturLink();
     setStage("boarding");
-  }, []);
+  }, [clearEnturLink]);
+
+  const handleEnturLookup = useCallback(async () => {
+    if (!span) return;
+    enturAbortRef.current?.abort();
+    const controller = new AbortController();
+    enturAbortRef.current = controller;
+    setIsEnturSearching(true);
+    setEnturError(null);
+    try {
+      const pair = await resolveEnturFerryStopPair(
+        { latitude: span.startLatitude, longitude: span.startLongitude },
+        { latitude: span.endLatitude, longitude: span.endLongitude },
+        controller.signal,
+      );
+      if (controller.signal.aborted) return;
+      const providerRefs = enturProviderRefsForPair(pair);
+      setEnturProviderRefs(providerRefs);
+      setName(directionalEnturFerryName(providerRefs) ?? name);
+    } catch (lookupError) {
+      if (controller.signal.aborted) return;
+      setEnturError(
+        lookupError instanceof Error
+          ? lookupError.message
+          : "Entur ferry stops could not be matched.",
+      );
+    } finally {
+      if (enturAbortRef.current === controller) {
+        enturAbortRef.current = null;
+        setIsEnturSearching(false);
+      }
+    }
+  }, [name, span]);
 
   const handleSave = useCallback(async () => {
     if (!span) return;
@@ -430,21 +501,29 @@ export default function FerryEditorModal({
     const encodedCandidateGeometry = orientedCandidateGeometry
       ? encodeOSMFerryGeometry(orientedCandidateGeometry)
       : null;
-    const existingProviderRefsWithoutGeometry = Object.fromEntries(
-      Object.entries(crossing?.providerRefs ?? {}).filter(
+    const reusableProviderRefs =
+      candidate == null
+        ? isManualSpan
+          ? {}
+          : (crossing?.providerRefs ?? {})
+        : candidate.id === crossing?.sourceId
+          ? (crossing?.providerRefs ?? {})
+          : {};
+    const reusableProviderRefsWithoutManagedGeometry = Object.fromEntries(
+      Object.entries(withoutEnturFerryProviderRefs(reusableProviderRefs)).filter(
         ([key]) => key !== OSM_FERRY_GEOMETRY_PROVIDER_REF,
       ),
     );
-    const providerRefs = candidate
-      ? {
-          ...(candidate.id === crossing?.sourceId ? existingProviderRefsWithoutGeometry : {}),
-          ...(encodedCandidateGeometry
-            ? { [OSM_FERRY_GEOMETRY_PROVIDER_REF]: encodedCandidateGeometry }
-            : {}),
-        }
-      : isManualSpan
-        ? {}
-        : (crossing?.providerRefs ?? {});
+    const providerGeometry =
+      encodedCandidateGeometry ??
+      (!candidate && !isManualSpan
+        ? (crossing?.providerRefs[OSM_FERRY_GEOMETRY_PROVIDER_REF] ?? null)
+        : null);
+    const providerRefs = {
+      ...reusableProviderRefsWithoutManagedGeometry,
+      ...(providerGeometry ? { [OSM_FERRY_GEOMETRY_PROVIDER_REF]: providerGeometry } : {}),
+      ...enturProviderRefs,
+    };
     const next: FerryCrossing = {
       id: crossing?.id ?? generateId(),
       routeId: route.id,
@@ -491,6 +570,7 @@ export default function FerryEditorModal({
     boardingBuffer,
     crossing,
     duration,
+    enturProviderRefs,
     isManualSpan,
     name,
     onClose,
@@ -595,6 +675,45 @@ export default function FerryEditorModal({
               onChangeText={setBoardingBuffer}
               keyboardType="numeric"
             />
+            <View className="mb-4 rounded-xl border border-border bg-card p-3">
+              <Text className="text-[16px] font-barlow-semibold text-foreground">
+                Entur departures
+              </Text>
+              {linkedEnturStops ? (
+                <Text className="mt-1 text-[14px] font-barlow-medium text-info">
+                  {linkedEnturStops.fromName} → {linkedEnturStops.toName}
+                </Text>
+              ) : (
+                <Text className="mt-1 text-[13px] leading-5 text-muted-foreground">
+                  Match the nearest ferry stops to show the next departure at your ETA.
+                </Text>
+              )}
+              {enturError && (
+                <Text className="mt-2 text-[13px] leading-5 text-destructive">{enturError}</Text>
+              )}
+              <View className="mt-3 flex-row items-center gap-3">
+                {isEnturSearching && <ActivityIndicator color={colors.accent} />}
+                <Button
+                  className="flex-1"
+                  variant="secondary"
+                  label={
+                    isEnturSearching
+                      ? "Searching Entur…"
+                      : linkedEnturStops
+                        ? "Refresh Entur link"
+                        : "Find Entur timetable"
+                  }
+                  disabled={isEnturSearching}
+                  onPress={handleEnturLookup}
+                  accessibilityLabel={
+                    linkedEnturStops ? "Refresh Entur ferry stops" : "Find Entur ferry stops"
+                  }
+                />
+              </View>
+              <Text className="mt-2 text-[12px] leading-4 text-muted-foreground">
+                Requires internet. Manual crossing and wait times remain the offline fallback.
+              </Text>
+            </View>
             <Field
               label="Operator (optional)"
               value={operator}

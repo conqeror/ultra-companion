@@ -10,6 +10,7 @@ import {
   computeSliceElevationTotalsFromDistance,
   interpolateRoutePointAtDistance,
 } from "@/utils/geo";
+import { directionalEnturFerryName } from "./enturFerry";
 
 export interface FerryDistanceSpan {
   startDistanceMeters: number;
@@ -17,6 +18,12 @@ export interface FerryDistanceSpan {
 }
 
 export type FerryTimingCrossing = FerryCrossing | DisplayFerryCrossing;
+
+export function ferryDisplayName(crossing: Pick<FerryCrossing, "name" | "providerRefs">): string {
+  return (
+    directionalEnturFerryName(crossing.providerRefs) ?? (crossing.name.trim() || "Ferry crossing")
+  );
+}
 
 export function ferryStartDistanceMeters(crossing: FerryTimingCrossing): number {
   return "effectiveStartDistanceMeters" in crossing
@@ -311,6 +318,7 @@ export function toDisplayFerryCrossing(
     : null;
   return {
     ...crossing,
+    name: ferryDisplayName(crossing),
     startDistanceMeters,
     endDistanceMeters,
     startLatitude: startPoint?.latitude ?? crossing.startLatitude,

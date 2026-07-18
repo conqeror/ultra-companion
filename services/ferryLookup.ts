@@ -293,3 +293,23 @@ export function matchFerryCandidateToRoute(
     endLongitude: endPoint.longitude,
   };
 }
+
+export function directionalFerryCandidateName(
+  candidate: FerryLookupCandidate,
+  span: MatchedFerrySpan,
+): string {
+  const first = candidate.geometry[0];
+  const last = candidate.geometry[candidate.geometry.length - 1];
+  if (!first || !last) return candidate.name;
+  const firstIsBoarding =
+    haversineDistance(span.startLatitude, span.startLongitude, first.latitude, first.longitude) <=
+    haversineDistance(span.startLatitude, span.startLongitude, last.latitude, last.longitude);
+  const fromName = firstIsBoarding ? candidate.fromName : candidate.toName;
+  const toName = firstIsBoarding ? candidate.toName : candidate.fromName;
+  if (fromName && toName) return `${fromName} – ${toName}`;
+  if (!firstIsBoarding) {
+    const nameParts = candidate.name.split(/\s+[–—-]\s+/u);
+    if (nameParts.length === 2) return `${nameParts[1]} – ${nameParts[0]}`;
+  }
+  return candidate.name;
+}

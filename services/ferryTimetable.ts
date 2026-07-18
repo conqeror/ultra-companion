@@ -1,22 +1,8 @@
-/**
- * Provider-neutral boundary for a later timetable integration. Ferry editing
- * stores only opaque providerRefs; concrete departures belong in a short-lived
- * cache so seasonal schedules are never mistaken for durable route data.
- */
+/** Provider-neutral scheduled ferry departure. */
 export interface FerryDeparture {
   departureTime: string;
   arrivalTime: string | null;
   serviceName: string | null;
-  realtime: boolean;
-}
-
-export interface FerryDepartureCacheRecord {
-  ferryId: string;
-  provider: string;
-  directionKey: string;
-  departures: FerryDeparture[];
-  fetchedAt: string;
-  expiresAt: string;
 }
 
 export interface FerryTimetableProvider {
