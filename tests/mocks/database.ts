@@ -4,11 +4,14 @@ import type {
   deletePOI,
   deletePOIsForRoute,
   deletePatchVariantsForBaseRoute,
+  deleteFerryCrossing,
   deleteRoute,
   getAllRoutes,
   getAllCollections,
   getAllAssignedRouteIds,
   getClimbsForRoute,
+  getFerryCrossingsForRoute,
+  getFerryCrossingsForRoutes,
   getCollectionSegments,
   getPOICountsBySource,
   getPOIsForRoute,
@@ -23,6 +26,7 @@ import type {
   insertPOIs,
   insertRoute,
   upsertRelativeETACache,
+  upsertFerryCrossing,
   setActiveRoute,
   setRoutesVisible,
   setActiveCollection,
@@ -47,6 +51,7 @@ export const databaseMocks = {
   deletePOIsBySource: vi.fn<typeof deletePOIsBySource>(),
   deletePOIsForRoute: vi.fn<typeof deletePOIsForRoute>(),
   deletePatchVariantsForBaseRoute: vi.fn<typeof deletePatchVariantsForBaseRoute>(),
+  deleteFerryCrossing: vi.fn<typeof deleteFerryCrossing>(),
   deleteRoute: vi.fn<typeof deleteRoute>(),
   deleteCollection: vi.fn<typeof deleteCollection>(),
   deleteCollectionSegment: vi.fn<typeof deleteCollectionSegment>(),
@@ -54,6 +59,8 @@ export const databaseMocks = {
   getAllCollections: vi.fn<typeof getAllCollections>(),
   getAllAssignedRouteIds: vi.fn<typeof getAllAssignedRouteIds>(),
   getClimbsForRoute: vi.fn<typeof getClimbsForRoute>(),
+  getFerryCrossingsForRoute: vi.fn<typeof getFerryCrossingsForRoute>(),
+  getFerryCrossingsForRoutes: vi.fn<typeof getFerryCrossingsForRoutes>(),
   getCollectionSegments: vi.fn<typeof getCollectionSegments>(),
   getPOICountsBySource: vi.fn<typeof getPOICountsBySource>(),
   getPOIsForRoute: vi.fn<typeof getPOIsForRoute>(),
@@ -69,6 +76,7 @@ export const databaseMocks = {
   insertPOIs: vi.fn<typeof insertPOIs>(),
   insertRoute: vi.fn<typeof insertRoute>(),
   upsertRelativeETACache: vi.fn<typeof upsertRelativeETACache>(),
+  upsertFerryCrossing: vi.fn<typeof upsertFerryCrossing>(),
   setActiveRoute: vi.fn<typeof setActiveRoute>(),
   setActiveCollection: vi.fn<typeof setActiveCollection>(),
   setRoutesVisible: vi.fn<typeof setRoutesVisible>(),
@@ -90,6 +98,7 @@ export function resetDatabaseMocks(): void {
   databaseMocks.deletePOIsBySource.mockResolvedValue(undefined);
   databaseMocks.deletePOIsForRoute.mockResolvedValue(undefined);
   databaseMocks.deletePatchVariantsForBaseRoute.mockResolvedValue(undefined);
+  databaseMocks.deleteFerryCrossing.mockResolvedValue(undefined);
   databaseMocks.deleteRoute.mockResolvedValue(undefined);
   databaseMocks.deleteCollection.mockResolvedValue(undefined);
   databaseMocks.deleteCollectionSegment.mockResolvedValue(undefined);
@@ -97,6 +106,8 @@ export function resetDatabaseMocks(): void {
   databaseMocks.getAllCollections.mockResolvedValue([]);
   databaseMocks.getAllAssignedRouteIds.mockResolvedValue(new Set());
   databaseMocks.getClimbsForRoute.mockResolvedValue([]);
+  databaseMocks.getFerryCrossingsForRoute.mockResolvedValue([]);
+  databaseMocks.getFerryCrossingsForRoutes.mockResolvedValue([]);
   databaseMocks.getCollectionSegments.mockResolvedValue([]);
   databaseMocks.getPOICountsBySource.mockResolvedValue({ osm: 0, google: 0 });
   databaseMocks.getPOIsForRoute.mockResolvedValue([]);
@@ -112,6 +123,7 @@ export function resetDatabaseMocks(): void {
   databaseMocks.insertPOIs.mockResolvedValue(undefined);
   databaseMocks.insertRoute.mockResolvedValue(undefined);
   databaseMocks.upsertRelativeETACache.mockResolvedValue(undefined);
+  databaseMocks.upsertFerryCrossing.mockResolvedValue(undefined);
   databaseMocks.setActiveRoute.mockResolvedValue(undefined);
   databaseMocks.setActiveCollection.mockResolvedValue(undefined);
   databaseMocks.setRoutesVisible.mockResolvedValue(undefined);

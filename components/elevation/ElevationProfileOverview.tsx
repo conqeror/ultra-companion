@@ -10,7 +10,14 @@ import Svg, { Circle, Defs, LinearGradient, Path, Rect, Stop } from "react-nativ
 import { Text } from "@/components/ui/text";
 import { useThemeColors } from "@/theme";
 import { formatDistance } from "@/utils/formatters";
-import type { ElevationProfileSample } from "@/utils/elevationProfileSampling";
+import {
+  buildElevationProfileFerryMarkers,
+  type ElevationProfileFerrySpan,
+} from "@/utils/elevationProfileFerries";
+import {
+  splitElevationProfileSamplesAtBreaks,
+  type ElevationProfileSample,
+} from "@/utils/elevationProfileSampling";
 import type { UnitSystem } from "@/types";
 
 const PADDING = { left: 48, right: 16 };
@@ -28,6 +35,8 @@ interface ElevationProfileOverviewProps {
   contentWidth: number;
   viewportWidth: number;
   currentDistanceMeters?: number;
+  ferries?: readonly ElevationProfileFerrySpan[];
+  distanceOffsetMeters: number;
   xAxisLabelOffsetMeters: number;
   units: UnitSystem;
   scrollRef: React.RefObject<ScrollView | null>;
@@ -43,9 +52,25 @@ function buildPath(
   for (let index = 0; index < samples.length; index++) {
     const x = xScale(samples[index].distanceMeters);
     const y = yScale(samples[index].elevationMeters);
-    path += index === 0 ? `M${x},${y}` : ` L${x},${y}`;
+    path += index === 0 || samples[index].breakBefore ? `M${x},${y}` : ` L${x},${y}`;
   }
   return path;
+}
+
+function buildFillPath(
+  samples: readonly ElevationProfileSample[],
+  xScale: (distanceMeters: number) => number,
+  yScale: (elevationMeters: number) => number,
+  axisY: number,
+): string {
+  return splitElevationProfileSamplesAtBreaks(samples)
+    .map((segment) => {
+      const line = buildPath(segment, xScale, yScale);
+      const firstX = xScale(segment[0].distanceMeters);
+      const lastX = xScale(segment[segment.length - 1].distanceMeters);
+      return `${line} L${lastX},${axisY} L${firstX},${axisY} Z`;
+    })
+    .join(" ");
 }
 
 export default function ElevationProfileOverview({
@@ -55,6 +80,8 @@ export default function ElevationProfileOverview({
   contentWidth,
   viewportWidth,
   currentDistanceMeters,
+  ferries,
+  distanceOffsetMeters,
   xAxisLabelOffsetMeters,
   units,
   scrollRef,
@@ -63,6 +90,16 @@ export default function ElevationProfileOverview({
   const colors = useThemeColors();
   const innerWidth = Math.max(0, width - PADDING.left - PADDING.right);
   const plotHeight = OVERVIEW_BAR_HEIGHT - OVERVIEW_PADDING_V * 2;
+  const ferryMarkers = useMemo(
+    () =>
+      buildElevationProfileFerryMarkers(ferries, {
+        totalDistanceMeters: totalMeters,
+        contentWidthPixels: innerWidth,
+        distanceOffsetMeters,
+        minimumWidthPixels: 3,
+      }),
+    [distanceOffsetMeters, ferries, innerWidth, totalMeters],
+  );
 
   const { linePath, fillPath } = useMemo(() => {
     if (samples.length < 2 || innerWidth <= 0 || totalMeters <= 0) {
@@ -90,7 +127,7 @@ export default function ElevationProfileOverview({
     const axisY = OVERVIEW_PADDING_V + plotHeight;
     return {
       linePath: line,
-      fillPath: `${line} L${xScale(totalMeters)},${axisY} L${xScale(0)},${axisY} Z`,
+      fillPath: buildFillPath(samples, xScale, yScale, axisY),
     };
   }, [innerWidth, plotHeight, samples, totalMeters]);
 
@@ -154,6 +191,18 @@ export default function ElevationProfileOverview({
         </Defs>
         <Path d={fillPath} fill="url(#profile-overview-fill)" />
         <Path d={linePath} stroke={colors.textTertiary} strokeWidth={1} fill="none" />
+        {ferryMarkers.map((marker) => (
+          <Rect
+            key={`overview-ferry-${marker.id}-${marker.centerXPixels}`}
+            x={PADDING.left + marker.leftPixels}
+            y={OVERVIEW_PADDING_V}
+            width={marker.widthPixels}
+            height={plotHeight}
+            rx={1}
+            fill={colors.info}
+            opacity={0.72}
+          />
+        ))}
         <AnimatedRect
           animatedProps={viewportIndicatorAnimatedProps}
           y={OVERVIEW_PADDING_V - 2}

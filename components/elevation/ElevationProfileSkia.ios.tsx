@@ -16,12 +16,14 @@ import Animated, {
   useSharedValue,
   type SharedValue,
 } from "react-native-reanimated";
+import { Ship } from "lucide-react-native";
 
 import { POI_ICON_MAP } from "@/constants/poiIcons";
 import { getCategoryMeta } from "@/constants/poiHelpers";
 import { Text } from "@/components/ui/text";
 import { ELEVATION_STOPS, useThemeColors } from "@/theme";
 import { formatDistance } from "@/utils/formatters";
+import { buildElevationProfileFerryMarkers } from "@/utils/elevationProfileFerries";
 import {
   buildElevationPOIMarkers,
   buildElevationXTicks,
@@ -178,16 +180,29 @@ function progressPercentage(progress: PreparationProgress): number | undefined {
 }
 
 function buildBoundedSvgFallbackPoints(samples: readonly ElevationProfileSample[]): RoutePoint[] {
-  return downsampleElevationExtrema(
+  const boundedSamples = downsampleElevationExtrema(
     samples,
     Math.max(2, Math.min(MAX_SVG_FALLBACK_SAMPLES, samples.length)),
-  ).map((sample, index) => ({
-    latitude: 0,
-    longitude: 0,
-    elevationMeters: sample.elevationMeters,
-    distanceFromStartMeters: sample.distanceMeters,
-    idx: index,
-  }));
+  );
+  const points: RoutePoint[] = [];
+  for (const sample of boundedSamples) {
+    if (sample.breakBefore && points.length > 0) {
+      const previous = points[points.length - 1];
+      points.push({
+        ...previous,
+        elevationMeters: null,
+        idx: points.length,
+      });
+    }
+    points.push({
+      latitude: 0,
+      longitude: 0,
+      elevationMeters: sample.elevationMeters,
+      distanceFromStartMeters: sample.distanceMeters,
+      idx: points.length,
+    });
+  }
+  return points;
 }
 
 function PreparationState({
@@ -480,11 +495,82 @@ function POIMarkers({
   });
 }
 
+function FerryMarkers({
+  ferries,
+  distanceOffsetMeters,
+  layout,
+  ferryColor,
+  surfaceColor,
+}: {
+  ferries: ElevationProfileProps["ferries"];
+  distanceOffsetMeters: number;
+  layout: ElevationProfileLayout;
+  ferryColor: string;
+  surfaceColor: string;
+}) {
+  const markers = useMemo(
+    () =>
+      buildElevationProfileFerryMarkers(ferries, {
+        totalDistanceMeters: layout.totalDistanceMeters,
+        contentWidthPixels: layout.contentWidthPixels,
+        distanceOffsetMeters,
+      }),
+    [distanceOffsetMeters, ferries, layout.contentWidthPixels, layout.totalDistanceMeters],
+  );
+
+  return markers.map((marker) => (
+    <View
+      key={`ferry-${marker.id}-${marker.centerXPixels}`}
+      pointerEvents="none"
+      accessible
+      accessibilityRole="image"
+      accessibilityLabel={`${marker.name}, ferry crossing; elevation excluded`}
+      style={{
+        position: "absolute",
+        left: marker.leftPixels,
+        top: layout.plotTopPixels,
+        width: marker.widthPixels,
+        height: Math.max(0, layout.axisYPixels - layout.plotTopPixels),
+        overflow: "visible",
+        backgroundColor: surfaceColor,
+        borderLeftColor: ferryColor,
+        borderRightColor: ferryColor,
+        borderLeftWidth: 1,
+        borderRightWidth: 1,
+      }}
+    >
+      <View
+        style={[StyleSheet.absoluteFillObject, { backgroundColor: ferryColor, opacity: 0.14 }]}
+      />
+      <View
+        style={{
+          position: "absolute",
+          left: marker.widthPixels / 2 - 8,
+          top: 2,
+          width: 16,
+          height: 16,
+          borderRadius: 8,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: surfaceColor,
+          borderColor: ferryColor,
+          borderWidth: 1,
+        }}
+      >
+        <Ship color={ferryColor} size={11} strokeWidth={2.3} />
+      </View>
+    </View>
+  ));
+}
+
 interface ElevationContentOverlayProps {
   prepared: PreparedElevationProfile;
   segmentBoundaries: ElevationProfileProps["segmentBoundaries"];
+  ferries: ElevationProfileProps["ferries"];
   distanceOffsetMeters: number;
   segmentColor: string;
+  ferryColor: string;
+  surfaceColor: string;
   textColor: string;
   poiMarkers: readonly ElevationPOIMarker[];
   units: ElevationProfileProps["units"];
@@ -494,8 +580,11 @@ interface ElevationContentOverlayProps {
 const ElevationContentOverlay = memo(function ElevationContentOverlay({
   prepared,
   segmentBoundaries,
+  ferries,
   distanceOffsetMeters,
   segmentColor,
+  ferryColor,
+  surfaceColor,
   textColor,
   poiMarkers,
   units,
@@ -504,6 +593,13 @@ const ElevationContentOverlay = memo(function ElevationContentOverlay({
   const { layout } = prepared;
   return (
     <View style={{ width: layout.contentWidthPixels, height: layout.mainChartHeightPixels }}>
+      <FerryMarkers
+        ferries={ferries}
+        distanceOffsetMeters={distanceOffsetMeters}
+        layout={layout}
+        ferryColor={ferryColor}
+        surfaceColor={surfaceColor}
+      />
       <XAxisLabels ticks={prepared.xTicks} layout={layout} />
       <SegmentLabels
         boundaries={segmentBoundaries}
@@ -542,6 +638,7 @@ export default function ElevationProfileSkia(props: ElevationProfileProps) {
     onPOIPress,
     segmentBoundaries,
     climbs,
+    ferries,
     fitToWidth = false,
     showScrollOverview = true,
     gradientAreaFill = false,
@@ -827,8 +924,11 @@ export default function ElevationProfileSkia(props: ElevationProfileProps) {
     <ElevationContentOverlay
       prepared={prepared}
       segmentBoundaries={segmentBoundaries}
+      ferries={ferries}
       distanceOffsetMeters={distanceOffsetMeters}
       segmentColor={colors.info}
+      ferryColor={colors.info}
+      surfaceColor={colors.surface}
       textColor={colors.textPrimary}
       poiMarkers={poiMarkers}
       units={units}
@@ -851,14 +951,6 @@ export default function ElevationProfileSkia(props: ElevationProfileProps) {
         heightPixels={layout.mainChartHeightPixels}
         scrollX={scrollX}
       />
-      {currentPosition && (
-        <CurrentMarkerCanvas
-          position={currentPosition}
-          layout={layout}
-          color={colors.accent}
-          scrollX={scrollX}
-        />
-      )}
       {layout.isScrollable ? (
         <Animated.ScrollView
           ref={scrollRef}
@@ -875,6 +967,14 @@ export default function ElevationProfileSkia(props: ElevationProfileProps) {
       ) : (
         <View style={StyleSheet.absoluteFill}>{contentOverlay}</View>
       )}
+      {currentPosition && (
+        <CurrentMarkerCanvas
+          position={currentPosition}
+          layout={layout}
+          color={colors.accent}
+          scrollX={scrollX}
+        />
+      )}
     </View>
   );
 
@@ -888,6 +988,8 @@ export default function ElevationProfileSkia(props: ElevationProfileProps) {
           contentWidth={layout.contentWidthPixels}
           viewportWidth={layout.viewportWidthPixels}
           currentDistanceMeters={currentPosition?.distanceMeters}
+          ferries={ferries}
+          distanceOffsetMeters={distanceOffsetMeters}
           xAxisLabelOffsetMeters={xAxisLabelOffsetMeters}
           units={units}
           scrollRef={scrollRef}

@@ -13,11 +13,19 @@ import { useThemeColors } from "@/theme";
 import { useRouter } from "expo-router";
 import { useSettingsStore } from "@/store/settingsStore";
 import { useEtaStore } from "@/store/etaStore";
+import { useFerryStore } from "@/store/ferryStore";
 import { computeRouteTotalETAInChunks } from "@/services/etaCalculator";
 import { buildPatchVariantRoutePoints, routeEndDistance } from "@/services/stitchingService";
 import { formatDistance, formatElevation, formatDuration } from "@/utils/formatters";
 import { computeSliceAscentFromDistance } from "@/utils/geo";
 import { yieldToUI } from "@/utils/yieldToUI";
+import { getFerryCrossingsForRoute } from "@/db/database";
+import { getEffectiveVariantFerries } from "@/services/collectionVariantGeometry";
+import {
+  computeRidingElevationTotals,
+  ferrySignature,
+  totalRidingDistanceMeters,
+} from "@/services/ferryCrossings";
 import type {
   CollectionSegmentWithRoute,
   PowerModelConfig,
@@ -40,6 +48,7 @@ interface SegmentTimeCacheEntry {
   variantKind: "full" | "patch";
   replaceStartDistanceMeters: number | null;
   replaceEndDistanceMeters: number | null;
+  ferryKey: string;
   distanceMeters: number;
   ascentMeters: number;
   ridingTime: number | null;
@@ -110,6 +119,7 @@ function cacheEntryMatches(
   routePoints: RoutePoint[],
   basePoints: RoutePoint[] | null,
   configKey: string,
+  ferryKey: string,
 ): cached is SegmentTimeCacheEntry {
   return (
     cached?.routePoints === routePoints &&
@@ -117,7 +127,8 @@ function cacheEntryMatches(
     cached.configKey === configKey &&
     cached.variantKind === sw.segment.variantKind &&
     cached.replaceStartDistanceMeters === sw.segment.replaceStartDistanceMeters &&
-    cached.replaceEndDistanceMeters === sw.segment.replaceEndDistanceMeters
+    cached.replaceEndDistanceMeters === sw.segment.replaceEndDistanceMeters &&
+    cached.ferryKey === ferryKey
   );
 }
 
@@ -215,6 +226,7 @@ function SegmentRow({
   hasVariants,
   posIdx,
   ridingTime,
+  metrics,
   stitchedInfo,
   variantDiff,
   drag,
@@ -226,6 +238,7 @@ function SegmentRow({
   hasVariants: boolean;
   posIdx: number;
   ridingTime: number | null;
+  metrics?: SegmentMetrics;
   stitchedInfo?: StitchedSegmentInfo;
   variantDiff?: VariantDiff;
   drag?: () => void;
@@ -235,8 +248,10 @@ function SegmentRow({
   const colors = useThemeColors();
   const units = useSettingsStore((s) => s.units);
   const router = useRouter();
-  const displayDistanceMeters = stitchedInfo?.segmentDistanceMeters ?? sw.route.totalDistanceMeters;
-  const displayAscentMeters = stitchedInfo?.segmentAscentMeters ?? sw.route.totalAscentMeters;
+  const displayDistanceMeters =
+    metrics?.distanceMeters ?? stitchedInfo?.segmentDistanceMeters ?? sw.route.totalDistanceMeters;
+  const displayAscentMeters =
+    metrics?.ascentMeters ?? stitchedInfo?.segmentAscentMeters ?? sw.route.totalAscentMeters;
   const etaDiff = variantDiff ? formatSignedDurationDelta(variantDiff.ridingTime) : null;
   const variantDiffText = variantDiff
     ? [
@@ -366,6 +381,7 @@ export default function SegmentList({
 }: SegmentListProps) {
   const colors = useThemeColors();
   const powerConfig = useEtaStore((s) => s.powerConfig);
+  const ferryCache = useFerryStore((s) => s.ferries);
   const segmentTimeCacheRef = useRef(new Map<string, SegmentTimeCacheEntry>());
 
   // Local order state for drag reordering
@@ -406,6 +422,18 @@ export default function SegmentList({
 
         const activeRouteIds = new Set<string>();
         const metrics: Record<string, SegmentMetrics> = {};
+        const ferryRouteIds = new Set<string>();
+        for (const sw of segmentsWithRoutes) {
+          ferryRouteIds.add(sw.route.id);
+          if (sw.segment.baseRouteId) ferryRouteIds.add(sw.segment.baseRouteId);
+        }
+        const ferryEntries = await Promise.all(
+          [...ferryRouteIds].map(
+            async (routeId) => [routeId, await getFerryCrossingsForRoute(routeId)] as const,
+          ),
+        );
+        const ferriesByRouteId = Object.fromEntries(ferryEntries);
+        if (cancelled) return;
 
         for (const sw of segmentsWithRoutes) {
           const routeId = sw.route.id;
@@ -417,9 +445,15 @@ export default function SegmentList({
             ? (pointsByRouteId[sw.segment.baseRouteId] ?? null)
             : null;
           const cached = routePoints ? cache.get(routeId) : undefined;
+          const effectiveFerries = getEffectiveVariantFerries(
+            sw,
+            pointsByRouteId,
+            ferriesByRouteId,
+          );
+          const ferryKey = ferrySignature(effectiveFerries);
           if (
             routePoints &&
-            cacheEntryMatches(cached, sw, routePoints, basePoints, powerConfigKey)
+            cacheEntryMatches(cached, sw, routePoints, basePoints, powerConfigKey, ferryKey)
           ) {
             metrics[routeId] = {
               distanceMeters: cached.distanceMeters,
@@ -430,12 +464,20 @@ export default function SegmentList({
           }
 
           const points = getSegmentMetricPoints(sw, pointsByRouteId);
-          const distanceMeters = getSegmentDistanceMeters(sw, points);
-          const ascentMeters = getSegmentAscentMeters(sw, pointsByRouteId);
+          const rawDistanceMeters = getSegmentDistanceMeters(sw, points);
+          const ferrySpans = effectiveFerries.map((ferry) => ({
+            startDistanceMeters: ferry.effectiveStartDistanceMeters,
+            endDistanceMeters: ferry.effectiveEndDistanceMeters,
+          }));
+          const distanceMeters = totalRidingDistanceMeters(rawDistanceMeters, ferrySpans);
+          const ascentMeters = points
+            ? computeRidingElevationTotals(points, ferrySpans).ascent
+            : getSegmentAscentMeters(sw, pointsByRouteId);
           const ridingTime =
             points && points.length >= 2
               ? await computeRouteTotalETAInChunks(points, powerConfig, {
                   shouldCancel: () => cancelled,
+                  ferries: effectiveFerries,
                 })
               : null;
           if (cancelled) return;
@@ -449,6 +491,7 @@ export default function SegmentList({
               variantKind: sw.segment.variantKind,
               replaceStartDistanceMeters: sw.segment.replaceStartDistanceMeters,
               replaceEndDistanceMeters: sw.segment.replaceEndDistanceMeters,
+              ferryKey,
               distanceMeters,
               ascentMeters,
               ridingTime,
@@ -470,7 +513,7 @@ export default function SegmentList({
     return () => {
       cancelled = true;
     };
-  }, [segmentsWithRoutes, pointsByRouteId, powerConfig, powerConfigKey]);
+  }, [segmentsWithRoutes, pointsByRouteId, powerConfig, powerConfigKey, ferryCache]);
 
   useEffect(() => {
     setLocalGroups(serverGroups);
@@ -559,6 +602,7 @@ export default function SegmentList({
                         hasVariants
                         posIdx={posIdx}
                         ridingTime={metricsByRouteId[sw.route.id]?.ridingTime ?? null}
+                        metrics={metricsByRouteId[sw.route.id]}
                         stitchedInfo={isSelected ? stitchedInfoByRouteId[sw.route.id] : undefined}
                         variantDiff={
                           sw.route.id === referenceVariant?.route.id
@@ -581,6 +625,7 @@ export default function SegmentList({
                   hasVariants={false}
                   posIdx={posIdx}
                   ridingTime={metricsByRouteId[sw.route.id]?.ridingTime ?? null}
+                  metrics={metricsByRouteId[sw.route.id]}
                   stitchedInfo={
                     sw.segment.isSelected ? stitchedInfoByRouteId[sw.route.id] : undefined
                   }

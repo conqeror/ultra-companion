@@ -14,8 +14,12 @@ import {
   type PreparedRouteGeometryRequest,
 } from "@/hooks/usePreparedRouteGeometries";
 import { allocateMapCoordinateBudget, MAX_ROUTE_MAP_GEOJSON_POINTS } from "@/utils/geo";
+import {
+  buildFerryMapFeatureCollections,
+  type FerryMapFeatureCollections,
+} from "@/utils/ferryMapFeatures";
 import { Text } from "@/components/ui/text";
-import type { RoutePoint } from "@/types";
+import type { DisplayFerryCrossing, RoutePoint } from "@/types";
 
 mapboxgl.accessToken = Constants.expoConfig?.extra?.mapboxAccessToken ?? "";
 
@@ -24,6 +28,8 @@ export interface RoutePreviewMapLayer {
   points: RoutePoint[];
   isActive: boolean;
   cacheKey?: string;
+  /** Already bounded display geometry, used for collection variant overlays. */
+  geoJSON?: GeoJSON.Feature<GeoJSON.LineString>;
 }
 
 interface PreparedPreviewLayer {
@@ -34,6 +40,10 @@ interface PreparedPreviewLayer {
 
 interface RoutePreviewMapProps {
   layers: RoutePreviewMapLayer[];
+  ferries?: readonly DisplayFerryCrossing[];
+  onMapPress?: (coordinate: { latitude: number; longitude: number }) => void;
+  selectionPoints?: RoutePoint[];
+  accessibilityLabel?: string;
 }
 
 type AnyLayer = Record<string, any> & { id: string };
@@ -42,6 +52,8 @@ type PreviewThemeColors = ReturnType<typeof useThemeColors>;
 const PREVIEW_TOLERANCE_METERS = 20;
 const FIT_PADDING = 40;
 const MAX_FIT_ZOOM = 13;
+const EMPTY_SELECTION_POINTS: RoutePoint[] = [];
+const EMPTY_FERRIES: DisplayFerryCrossing[] = [];
 
 function parseStyle(styleJSON: string): mapboxgl.Style {
   try {
@@ -64,11 +76,21 @@ function isFiniteCoordinate(coordinate: unknown): coordinate is [number, number]
   );
 }
 
-function routeLayersBounds(layers: PreparedPreviewLayer[]): mapboxgl.LngLatBounds | null {
+function routeLayersBounds(
+  layers: PreparedPreviewLayer[],
+  ferryFeatures: FerryMapFeatureCollections,
+): mapboxgl.LngLatBounds | null {
   const bounds = new mapboxgl.LngLatBounds();
   let hasPoint = false;
   for (const layer of layers) {
     for (const coordinate of layer.geoJSON.geometry.coordinates) {
+      if (!isFiniteCoordinate(coordinate)) continue;
+      bounds.extend(coordinate);
+      hasPoint = true;
+    }
+  }
+  for (const feature of ferryFeatures.lines.features) {
+    for (const coordinate of feature.geometry.coordinates) {
       if (!isFiniteCoordinate(coordinate)) continue;
       bounds.extend(coordinate);
       hasPoint = true;
@@ -158,21 +180,153 @@ function addPreviewRoute(
   });
 }
 
-export default function RoutePreviewMap({ layers }: RoutePreviewMapProps) {
+function removePreviewFerries(map: mapboxgl.Map): void {
+  for (const layerId of [
+    "ferry-preview-endpoint-role-labels",
+    "ferry-preview-endpoint-labels",
+    "ferry-preview-endpoints",
+    "ferry-preview-name-labels",
+    "ferry-preview-line",
+    "ferry-preview-outline",
+  ]) {
+    removeLayer(map, layerId);
+  }
+  removeSource(map, "ferry-preview-endpoint-source");
+  removeSource(map, "ferry-preview-name-source");
+  removeSource(map, "ferry-preview-line-source");
+}
+
+function addPreviewFerries(
+  map: mapboxgl.Map,
+  features: FerryMapFeatureCollections,
+  colors: PreviewThemeColors,
+): void {
+  if (features.lines.features.length === 0) return;
+
+  map.addSource("ferry-preview-line-source", { type: "geojson", data: features.lines });
+  addLayer(map, {
+    id: "ferry-preview-outline",
+    type: "line",
+    source: "ferry-preview-line-source",
+    layout: { "line-cap": "round", "line-join": "round", "line-sort-key": ["get", "sortKey"] },
+    paint: { "line-color": colors.surface, "line-width": 10, "line-opacity": 0.9 },
+  });
+  addLayer(map, {
+    id: "ferry-preview-line",
+    type: "line",
+    source: "ferry-preview-line-source",
+    layout: { "line-cap": "round", "line-join": "round", "line-sort-key": ["get", "sortKey"] },
+    paint: {
+      "line-color": colors.info,
+      "line-width": 6,
+      "line-opacity": 0.98,
+      "line-dasharray": [1.25, 1],
+    },
+  });
+
+  map.addSource("ferry-preview-name-source", { type: "geojson", data: features.labels });
+  addLayer(map, {
+    id: "ferry-preview-name-labels",
+    type: "symbol",
+    source: "ferry-preview-name-source",
+    minzoom: 9,
+    layout: {
+      "text-field": ["get", "label"],
+      "text-size": 12,
+      "text-offset": [0, -1.15],
+      "text-max-width": 14,
+      "text-allow-overlap": false,
+      "text-ignore-placement": false,
+      "symbol-sort-key": ["get", "sortKey"],
+    },
+    paint: {
+      "text-color": colors.textPrimary,
+      "text-halo-color": colors.surface,
+      "text-halo-width": 2.5,
+    },
+  });
+
+  map.addSource("ferry-preview-endpoint-source", { type: "geojson", data: features.endpoints });
+  addLayer(map, {
+    id: "ferry-preview-endpoints",
+    type: "circle",
+    source: "ferry-preview-endpoint-source",
+    minzoom: 7,
+    layout: { "circle-sort-key": ["get", "sortKey"] },
+    paint: {
+      "circle-color": colors.info,
+      "circle-radius": 9,
+      "circle-opacity": 0.96,
+      "circle-stroke-color": colors.surface,
+      "circle-stroke-width": 3,
+    },
+  });
+  addLayer(map, {
+    id: "ferry-preview-endpoint-labels",
+    type: "symbol",
+    source: "ferry-preview-endpoint-source",
+    minzoom: 7,
+    layout: {
+      "text-field": ["get", "label"],
+      "text-size": 11,
+      "text-allow-overlap": true,
+      "text-ignore-placement": true,
+      "symbol-sort-key": ["get", "sortKey"],
+    },
+    paint: { "text-color": colors.surface },
+  });
+  addLayer(map, {
+    id: "ferry-preview-endpoint-role-labels",
+    type: "symbol",
+    source: "ferry-preview-endpoint-source",
+    minzoom: 12,
+    layout: {
+      "text-field": ["get", "roleLabel"],
+      "text-size": 11,
+      "text-offset": [0, 1.45],
+      "text-anchor": "top",
+      "text-allow-overlap": false,
+      "text-ignore-placement": false,
+      "symbol-sort-key": ["get", "sortKey"],
+    },
+    paint: {
+      "text-color": colors.textPrimary,
+      "text-halo-color": colors.surface,
+      "text-halo-width": 2.5,
+    },
+  });
+}
+
+export default function RoutePreviewMap({
+  layers,
+  ferries = EMPTY_FERRIES,
+  onMapPress,
+  selectionPoints = EMPTY_SELECTION_POINTS,
+  accessibilityLabel = "Route preview map",
+}: RoutePreviewMapProps) {
   const colors = useThemeColors();
   const mapStyle = useMapStyle();
   const containerRef = useRef<HTMLElement | null>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const renderedIdsRef = useRef<string[]>([]);
   const [mapReady, setMapReady] = useState(false);
-  const visibleLayers = useMemo(() => layers.filter((layer) => layer.points.length >= 2), [layers]);
+  const visibleLayers = useMemo(
+    () =>
+      layers.filter(
+        (layer) =>
+          layer.points.length >= 2 || (layer.geoJSON?.geometry.coordinates.length ?? 0) >= 2,
+      ),
+    [layers],
+  );
+  const ferryMapFeatures = useMemo(() => buildFerryMapFeatureCollections(ferries), [ferries]);
 
   const routeGeometryRequests = useMemo<PreparedRouteGeometryRequest[]>(() => {
+    const layersToPrepare = visibleLayers.filter((layer) => !layer.geoJSON);
     const budgets = allocateMapCoordinateBudget(
-      visibleLayers.map((layer) => layer.points.length),
+      layersToPrepare.map((layer) => layer.points.length),
       MAX_ROUTE_MAP_GEOJSON_POINTS,
     );
-    return visibleLayers.map((layer, index) => ({
+    return layersToPrepare.map((layer, index) => ({
       id: layer.id,
       cacheKey: layer.cacheKey ?? layer.id,
       points: layer.points,
@@ -194,13 +348,13 @@ export default function RoutePreviewMap({ layers }: RoutePreviewMapProps) {
     () =>
       visibleLayers
         .map((layer, index) => {
-          const prepared = preparedRouteGeometries[layer.id];
-          if (!prepared) return null;
+          const geoJSON = layer.geoJSON ?? preparedRouteGeometries[layer.id]?.geoJSON;
+          if (!geoJSON) return null;
           const safeId = safeLayerId(layer.id, index);
           return {
             safeId,
             isActive: layer.isActive,
-            geoJSON: prepared.geoJSON,
+            geoJSON,
           };
         })
         .filter((layer): layer is PreparedPreviewLayer => layer != null),
@@ -241,13 +395,15 @@ export default function RoutePreviewMap({ layers }: RoutePreviewMapProps) {
     for (const safeId of idsToRemove) {
       removePreviewRoute(map, safeId);
     }
+    removePreviewFerries(map);
 
     for (const layer of preparedLayers) {
       addPreviewRoute(map, layer, colors);
     }
+    addPreviewFerries(map, ferryMapFeatures, colors);
     renderedIdsRef.current = preparedLayers.map((layer) => layer.safeId);
 
-    const bounds = routeLayersBounds(preparedLayers);
+    const bounds = routeLayersBounds(preparedLayers, ferryMapFeatures);
     if (!bounds) return;
     map.resize();
     map.fitBounds(bounds, {
@@ -255,12 +411,104 @@ export default function RoutePreviewMap({ layers }: RoutePreviewMapProps) {
       duration: 0,
       maxZoom: MAX_FIT_ZOOM,
     });
-  }, [colors, mapReady, preparedLayers]);
+  }, [colors, ferryMapFeatures, mapReady, preparedLayers]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    const sourceId = "ferry-selection-source";
+    removeLayer(map, "ferry-selection-endpoint-labels");
+    removeLayer(map, "ferry-selection-endpoints");
+    removeLayer(map, "ferry-selection-line");
+    removeSource(map, sourceId);
+    if (selectionPoints.length === 0) return;
+
+    const coordinates = selectionPoints.map((point) => [point.longitude, point.latitude]);
+    const endpoints =
+      coordinates.length === 1
+        ? coordinates
+        : [coordinates[0], coordinates[coordinates.length - 1]];
+    map.addSource(sourceId, {
+      type: "geojson",
+      data: {
+        type: "FeatureCollection",
+        features: [
+          ...(coordinates.length >= 2
+            ? [
+                {
+                  type: "Feature" as const,
+                  properties: { kind: "span" },
+                  geometry: { type: "LineString" as const, coordinates },
+                },
+              ]
+            : []),
+          ...endpoints.map((coordinate, index) => ({
+            type: "Feature" as const,
+            properties: { kind: "endpoint", order: index + 1, label: index === 0 ? "B" : "L" },
+            geometry: { type: "Point" as const, coordinates: coordinate },
+          })),
+        ],
+      },
+    });
+    addLayer(map, {
+      id: "ferry-selection-line",
+      type: "line",
+      source: sourceId,
+      filter: ["==", ["get", "kind"], "span"],
+      layout: { "line-cap": "round", "line-join": "round" },
+      paint: {
+        "line-color": colors.info,
+        "line-width": 7,
+        "line-dasharray": [1.2, 1.2],
+      },
+    });
+    addLayer(map, {
+      id: "ferry-selection-endpoints",
+      type: "circle",
+      source: sourceId,
+      filter: ["==", ["get", "kind"], "endpoint"],
+      paint: {
+        "circle-color": colors.info,
+        "circle-radius": 7,
+        "circle-stroke-color": colors.surface,
+        "circle-stroke-width": 3,
+      },
+    });
+    addLayer(map, {
+      id: "ferry-selection-endpoint-labels",
+      type: "symbol",
+      source: sourceId,
+      filter: ["==", ["get", "kind"], "endpoint"],
+      layout: {
+        "text-field": ["get", "label"],
+        "text-size": 11,
+        "text-allow-overlap": true,
+        "text-ignore-placement": true,
+      },
+      paint: { "text-color": colors.surface },
+    });
+  }, [colors, mapReady, selectionPoints]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady || !onMapPress) return;
+    const handleClick = (event: mapboxgl.MapMouseEvent) => {
+      onMapPress({ latitude: event.lngLat.lat, longitude: event.lngLat.lng });
+    };
+    map.getCanvas().style.cursor = "crosshair";
+    map.on("click", handleClick);
+    return () => {
+      map.off("click", handleClick);
+      map.getCanvas().style.cursor = "";
+    };
+  }, [mapReady, onMapPress]);
 
   return (
     <View className="flex-1" style={{ backgroundColor: colors.background }}>
       <View
         ref={containerRef as unknown as React.RefObject<View>}
+        accessible
+        accessibilityLabel={accessibilityLabel}
         style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0 }}
       />
       {(isPreparing || hasPreparationError) && (

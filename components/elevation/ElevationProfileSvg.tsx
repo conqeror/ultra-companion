@@ -6,6 +6,7 @@ import Animated, {
   useAnimatedScrollHandler,
   useSharedValue,
 } from "react-native-reanimated";
+import { Ship } from "lucide-react-native";
 import Svg, {
   Path,
   Circle,
@@ -26,7 +27,11 @@ import { climbDifficultyColor } from "@/constants/climbHelpers";
 import { POI_ICON_MAP } from "@/constants/poiIcons";
 import { measureSync } from "@/utils/perfMarks";
 import { buildClimbTickBoundaries, buildClimbTickDistances } from "@/utils/climbProfile";
-import { getElevationIntervalForSampleLimit } from "@/utils/elevationProfileSampling";
+import {
+  getElevationIntervalForSampleLimit,
+  sampleElevationProfileForPixels,
+} from "@/utils/elevationProfileSampling";
+import { buildElevationProfileFerryMarkers } from "@/utils/elevationProfileFerries";
 import type { ElevationProfileProps } from "./elevationProfileTypes";
 import type { RoutePoint, UnitSystem, DisplayPOI } from "@/types";
 
@@ -67,7 +72,7 @@ const GRADIENT_SEGMENT_LABEL_MIN_HEIGHT = 18;
 
 const AnimatedRect = createAnimatedComponent(Rect);
 
-type Sample = { distance: number; elevation: number };
+type Sample = { distance: number; elevation: number; breakBefore?: boolean };
 const sampleCache = new WeakMap<RoutePoint[], Map<number, Sample[]>>();
 
 interface ElevationProfileSvgProps extends ElevationProfileProps {
@@ -78,37 +83,21 @@ interface ElevationProfileSvgProps extends ElevationProfileProps {
 function resampleAtInterval(points: RoutePoint[], intervalM: number): Sample[] {
   if (points.length === 0) return [];
 
-  const result: Sample[] = [];
-  const totalDist = points[points.length - 1].distanceFromStartMeters;
-
-  let ptIdx = 0;
-  for (let d = 0; d <= totalDist; d += intervalM) {
-    while (ptIdx < points.length - 1 && points[ptIdx + 1].distanceFromStartMeters < d) {
-      ptIdx++;
-    }
-
-    if (ptIdx >= points.length - 1) {
-      const last = points[points.length - 1];
-      result.push({ distance: d, elevation: last.elevationMeters ?? 0 });
-      continue;
-    }
-
-    const p1 = points[ptIdx];
-    const p2 = points[ptIdx + 1];
-    const segDist = p2.distanceFromStartMeters - p1.distanceFromStartMeters;
-    const t = segDist > 0 ? (d - p1.distanceFromStartMeters) / segDist : 0;
-    const e1 = p1.elevationMeters ?? 0;
-    const e2 = p2.elevationMeters ?? 0;
-    result.push({ distance: d, elevation: e1 + t * (e2 - e1) });
-  }
-
-  const lastSample = result[result.length - 1];
-  if (lastSample && lastSample.distance < totalDist - 1) {
-    const last = points[points.length - 1];
-    result.push({ distance: totalDist, elevation: last.elevationMeters ?? 0 });
-  }
-
-  return result;
+  const totalDistanceMeters = Math.max(0, points[points.length - 1].distanceFromStartMeters);
+  const safeIntervalMeters = Number.isFinite(intervalM) && intervalM > 0 ? intervalM : 1;
+  const requestedSamples = Math.max(2, Math.ceil(totalDistanceMeters / safeIntervalMeters) + 1);
+  return sampleElevationProfileForPixels(points, {
+    pixelWidth: requestedSamples,
+    maxSamples: requestedSamples,
+  }).map((sample) =>
+    sample.breakBefore
+      ? {
+          distance: sample.distanceMeters,
+          elevation: sample.elevationMeters,
+          breakBefore: true,
+        }
+      : { distance: sample.distanceMeters, elevation: sample.elevationMeters },
+  );
 }
 
 function resampleAtIntervalCached(points: RoutePoint[], intervalM: number): Sample[] {
@@ -136,13 +125,18 @@ function interpolateElevation(samples: Sample[], distance: number): number {
   if (distance <= first) return samples[0].elevation;
   if (distance >= last) return samples[samples.length - 1].elevation;
 
-  const i = Math.min(
-    Math.floor(((distance - first) / (last - first)) * (samples.length - 1)),
-    samples.length - 2,
-  );
-  const segDist = samples[i + 1].distance - samples[i].distance;
-  const t = segDist > 0 ? (distance - samples[i].distance) / segDist : 0;
-  return samples[i].elevation + t * (samples[i + 1].elevation - samples[i].elevation);
+  const nextIndex = findFirstSampleAtOrAfter(samples, distance);
+  const next = samples[nextIndex];
+  if (next.distance === distance) return next.elevation;
+  const previous = samples[nextIndex - 1];
+  if (next.breakBefore) {
+    return distance - previous.distance <= next.distance - distance
+      ? previous.elevation
+      : next.elevation;
+  }
+  const segDist = next.distance - previous.distance;
+  const t = segDist > 0 ? (distance - previous.distance) / segDist : 0;
+  return previous.elevation + t * (next.elevation - previous.elevation);
 }
 
 /** First index in `samples` with distance >= target. Binary search (O(log n)). */
@@ -222,9 +216,36 @@ function buildLinePath(
   for (let i = 0; i < samples.length; i++) {
     const x = xs(samples[i].distance);
     const y = ys(samples[i].elevation);
-    d += i === 0 ? `M${x},${y}` : ` L${x},${y}`;
+    d += i === 0 || samples[i].breakBefore ? `M${x},${y}` : ` L${x},${y}`;
   }
   return d;
+}
+
+function buildFillPath(
+  samples: Sample[],
+  xs: (distanceMeters: number) => number,
+  ys: (elevationMeters: number) => number,
+  axisY: number,
+): string {
+  const paths: string[] = [];
+  let segmentStartIndex = 0;
+
+  const appendSegment = (endIndexExclusive: number) => {
+    if (endIndexExclusive <= segmentStartIndex) return;
+    const segment = samples.slice(segmentStartIndex, endIndexExclusive);
+    const line = buildLinePath(segment, xs, ys);
+    const firstX = xs(segment[0].distance);
+    const lastX = xs(segment[segment.length - 1].distance);
+    paths.push(`${line} L${lastX},${axisY} L${firstX},${axisY} Z`);
+  };
+
+  for (let index = 1; index < samples.length; index++) {
+    if (!samples[index].breakBefore) continue;
+    appendSegment(index);
+    segmentStartIndex = index;
+  }
+  appendSegment(samples.length);
+  return paths.join(" ");
 }
 
 interface POIMarkerPos {
@@ -267,6 +288,7 @@ export default function ElevationProfile({
   onPOIPress,
   segmentBoundaries,
   climbs,
+  ferries,
   fitToWidth = false,
   showScrollOverview = true,
   gradientAreaFill = false,
@@ -390,6 +412,16 @@ export default function ElevationProfile({
     [chartPlotHeight, yMin, yMax],
   );
 
+  const ferryMarkers = useMemo(
+    () =>
+      buildElevationProfileFerryMarkers(ferries, {
+        totalDistanceMeters: totalMeters,
+        contentWidthPixels: innerWidth,
+        distanceOffsetMeters,
+      }),
+    [distanceOffsetMeters, ferries, innerWidth, totalMeters],
+  );
+
   const { linePath, fillPath, gradientStops } = useMemo(() => {
     if (samples.length < 2) {
       return {
@@ -399,15 +431,21 @@ export default function ElevationProfile({
       };
     }
     const lineD = buildLinePath(samples, xScale, yScale);
-    const fillD = lineD + ` L${xScale(totalMeters)},${axisY} L${xScale(0)},${axisY} Z`;
+    const fillD = buildFillPath(samples, xScale, yScale, axisY);
 
     // Decimated gradient stops, smoothed by step interval.
     const n = samples.length;
     const step = Math.max(1, Math.floor(n / MAX_GRADIENT_STOPS));
     const stops: { offset: string; color: string }[] = [];
     for (let i = 0; i < n; i += step) {
-      const prev = samples[Math.max(0, i - step)];
       const cur = samples[i];
+      let previousIndex = Math.max(0, i - step);
+      for (let candidate = i; candidate > previousIndex; candidate--) {
+        if (!samples[candidate].breakBefore) continue;
+        previousIndex = candidate;
+        break;
+      }
+      const prev = samples[previousIndex];
       const dist = cur.distance - prev.distance;
       const grad = dist > 0 ? ((cur.elevation - prev.elevation) / dist) * 100 : 0;
       const fraction = totalMeters > 0 ? cur.distance / totalMeters : 0;
@@ -415,7 +453,13 @@ export default function ElevationProfile({
     }
     if (stops.length === 0 || stops[stops.length - 1].offset !== "1.0000") {
       const last = samples[n - 1];
-      const prev = samples[Math.max(0, n - 1 - step)];
+      let previousIndex = Math.max(0, n - 1 - step);
+      for (let candidate = n - 1; candidate > previousIndex; candidate--) {
+        if (!samples[candidate].breakBefore) continue;
+        previousIndex = candidate;
+        break;
+      }
+      const prev = samples[previousIndex];
       const dist = last.distance - prev.distance;
       const grad = dist > 0 ? ((last.elevation - prev.elevation) / dist) * 100 : 0;
       stops.push({ offset: "1.0000", color: gradientColor(grad) });
@@ -622,6 +666,16 @@ export default function ElevationProfile({
   const overviewWidth = width;
   const overviewInnerWidth = Math.max(0, overviewWidth - PADDING.left - PADDING.right);
   const overviewPlotHeight = OVERVIEW_BAR_HEIGHT - OVERVIEW_PADDING_V * 2;
+  const overviewFerryMarkers = useMemo(
+    () =>
+      buildElevationProfileFerryMarkers(ferries, {
+        totalDistanceMeters: totalMeters,
+        contentWidthPixels: overviewInnerWidth,
+        distanceOffsetMeters,
+        minimumWidthPixels: 3,
+      }),
+    [distanceOffsetMeters, ferries, overviewInnerWidth, totalMeters],
+  );
 
   const { overviewLinePath, overviewFillPath } = useMemo(() => {
     if (!overviewShown || overviewSamples.length < 2 || overviewInnerWidth === 0) {
@@ -646,7 +700,7 @@ export default function ElevationProfile({
 
     const d = buildLinePath(overviewSamples, oxs, oys);
     const ay = OVERVIEW_PADDING_V + overviewPlotHeight;
-    const fillD = d + ` L${oxs(totalMeters)},${ay} L${oxs(0)},${ay} Z`;
+    const fillD = buildFillPath(overviewSamples, oxs, oys, ay);
     return { overviewLinePath: d, overviewFillPath: fillD };
   }, [overviewShown, overviewSamples, overviewInnerWidth, overviewPlotHeight, totalMeters]);
 
@@ -888,6 +942,63 @@ export default function ElevationProfile({
           strokeLinejoin="round"
         />
 
+        {ferryMarkers.map((marker) => {
+          const markerCenterX = marker.leftPixels + marker.widthPixels / 2;
+          const markerRightX = marker.leftPixels + marker.widthPixels;
+          return (
+            <G key={`ferry-${marker.id}-${marker.centerXPixels}`} pointerEvents="none">
+              <Rect
+                x={marker.leftPixels}
+                y={PADDING.top}
+                width={marker.widthPixels}
+                height={Math.max(0, axisY - PADDING.top)}
+                rx={2}
+                fill={colors.surface}
+              />
+              <Rect
+                x={marker.leftPixels}
+                y={PADDING.top}
+                width={marker.widthPixels}
+                height={Math.max(0, axisY - PADDING.top)}
+                rx={2}
+                fill={colors.info}
+                opacity={0.14}
+              />
+              <Line
+                x1={marker.leftPixels + 0.5}
+                y1={PADDING.top}
+                x2={marker.leftPixels + 0.5}
+                y2={axisY}
+                stroke={colors.info}
+                strokeWidth={1}
+                strokeDasharray="3,3"
+                opacity={0.85}
+              />
+              <Line
+                x1={markerRightX - 0.5}
+                y1={PADDING.top}
+                x2={markerRightX - 0.5}
+                y2={axisY}
+                stroke={colors.info}
+                strokeWidth={1}
+                strokeDasharray="3,3"
+                opacity={0.85}
+              />
+              <Circle
+                cx={markerCenterX}
+                cy={PADDING.top + 10}
+                r={8}
+                fill={colors.surface}
+                stroke={colors.info}
+                strokeWidth={1}
+              />
+              <G transform={`translate(${markerCenterX - 5.5}, ${PADDING.top + 4.5})`}>
+                <Ship color={colors.info} size={11} strokeWidth={2.3} />
+              </G>
+            </G>
+          );
+        })}
+
         {currentPos && (
           <>
             <Line
@@ -978,6 +1089,7 @@ export default function ElevationProfile({
       linePath,
       lineStrokeColor,
       lineStrokeWidth,
+      ferryMarkers,
       currentPos,
       axisY,
       axisStyle,
@@ -1089,6 +1201,18 @@ export default function ElevationProfile({
             </Defs>
             <Path d={overviewFillPath} fill="url(#ovFill)" />
             <Path d={overviewLinePath} stroke={colors.textTertiary} strokeWidth={1} fill="none" />
+            {overviewFerryMarkers.map((marker) => (
+              <Rect
+                key={`overview-ferry-${marker.id}-${marker.centerXPixels}`}
+                x={PADDING.left + marker.leftPixels}
+                y={OVERVIEW_PADDING_V}
+                width={marker.widthPixels}
+                height={overviewPlotHeight}
+                rx={1}
+                fill={colors.info}
+                opacity={0.72}
+              />
+            ))}
             {overviewShown && (
               <AnimatedRect
                 animatedProps={viewportIndicatorAnimatedProps}

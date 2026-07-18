@@ -7,20 +7,21 @@ import StatBox from "@/components/common/StatBox";
 import { useThemeColors } from "@/theme";
 import { useCollectionStore } from "@/store/collectionStore";
 import { useSettingsStore } from "@/store/settingsStore";
-import {
-  getStitchedSourceRouteIds,
-  sliceRoutePointsByDistance,
-  stitchCollection,
-} from "@/services/stitchingService";
+import { getStitchedSourceRouteIds, stitchCollection } from "@/services/stitchingService";
 import { formatDistance, formatElevation } from "@/utils/formatters";
-import type {
-  Collection,
-  CollectionSegmentWithRoute,
-  Route,
-  RoutePoint,
-  StitchedCollection,
-} from "@/types";
+import type { Collection, CollectionSegmentWithRoute, StitchedCollection } from "@/types";
 import RoutePreviewMap, { type RoutePreviewMapLayer } from "@/components/map/RoutePreviewMap";
+import { useFerryStore } from "@/store/ferryStore";
+import {
+  computeRidingElevationTotals,
+  mapFerryCrossingsToSourceSpans,
+  totalRidingDistanceMeters,
+} from "@/services/ferryCrossings";
+import { buildFerryAwarePreviewLayers } from "@/utils/ferryMapRoute";
+import {
+  buildCollectionVariantPreviewOverlays,
+  collectionVariantKey,
+} from "@/services/collectionVariantGeometry";
 
 function formatPlannedStart(plannedStartMs: number | null): string {
   if (plannedStartMs == null) return "Not set";
@@ -30,11 +31,6 @@ function formatPlannedStart(plannedStartMs: number | null): string {
     hour: "2-digit",
     minute: "2-digit",
   });
-}
-
-interface VariantRouteOverlay {
-  route: Route;
-  points: RoutePoint[];
 }
 
 export default function CollectionDetailWebScreen() {
@@ -51,6 +47,8 @@ export default function CollectionDetailWebScreen() {
   const [segments, setSegments] = useState<CollectionSegmentWithRoute[]>([]);
   const [stitched, setStitched] = useState<StitchedCollection | null>(null);
   const [loading, setLoading] = useState(true);
+  const loadFerries = useFerryStore((state) => state.loadFerries);
+  const allFerries = useFerryStore((state) => state.ferries);
 
   useEffect(() => {
     let cancelled = false;
@@ -110,6 +108,43 @@ export default function CollectionDetailWebScreen() {
     };
   }, [id, loadCollectionMetadata, getCollectionSegmentsWithRoutes]);
 
+  const previewFerryRouteIds = useMemo(() => {
+    const routeIds = new Set(stitched ? getStitchedSourceRouteIds(stitched.segments) : []);
+    for (const segment of segments) {
+      routeIds.add(segment.route.id);
+      if (segment.segment.variantKind === "patch" && segment.segment.baseRouteId) {
+        routeIds.add(segment.segment.baseRouteId);
+      }
+    }
+    return [...routeIds];
+  }, [segments, stitched]);
+
+  useEffect(() => {
+    for (const routeId of previewFerryRouteIds) void loadFerries(routeId);
+  }, [loadFerries, previewFerryRouteIds]);
+
+  const displayFerries = useMemo(() => {
+    if (!stitched) return [];
+    const routeIds = getStitchedSourceRouteIds(stitched.segments);
+    return mapFerryCrossingsToSourceSpans(
+      routeIds.flatMap((routeId) => allFerries[routeId] ?? []),
+      stitched.sourceSpans,
+      stitched.pointsByRouteId,
+    );
+  }, [allFerries, stitched]);
+  const ridingStats = useMemo(() => {
+    if (!stitched) return null;
+    const ferrySpans = displayFerries.map((ferry) => ({
+      startDistanceMeters: ferry.effectiveStartDistanceMeters,
+      endDistanceMeters: ferry.effectiveEndDistanceMeters,
+    }));
+    const elevation = computeRidingElevationTotals(stitched.points, ferrySpans);
+    return {
+      distance: totalRidingDistanceMeters(stitched.totalDistanceMeters, ferrySpans),
+      ascent: elevation.ascent,
+    };
+  }, [displayFerries, stitched]);
+
   const screenOptions = useMemo(
     () => ({ title: collection?.name ?? "Collection" }),
     [collection?.name],
@@ -120,43 +155,13 @@ export default function CollectionDetailWebScreen() {
     [segments],
   );
 
-  const variantRouteOverlays = useMemo<VariantRouteOverlay[]>(() => {
-    if (!stitched) return [];
-    const selectedByPosition = new Map<number, CollectionSegmentWithRoute>();
-    for (const segment of segments) {
-      if (segment.segment.isSelected) selectedByPosition.set(segment.segment.position, segment);
-    }
-    return segments
-      .filter((segment) => !segment.segment.isSelected)
-      .map((segment) => {
-        const rawPoints = stitched.pointsByRouteId[segment.route.id] ?? null;
-        const selectedVariant = selectedByPosition.get(segment.segment.position);
-        const points =
-          rawPoints &&
-          segment.segment.variantKind === "full" &&
-          selectedVariant?.segment.variantKind === "patch" &&
-          selectedVariant.segment.baseRouteId === segment.route.id &&
-          selectedVariant.segment.replaceStartDistanceMeters != null &&
-          selectedVariant.segment.replaceEndDistanceMeters != null
-            ? sliceRoutePointsByDistance(
-                rawPoints,
-                selectedVariant.segment.replaceStartDistanceMeters,
-                selectedVariant.segment.replaceEndDistanceMeters,
-              )
-            : rawPoints;
-        if (!points || points.length < 2) return null;
-        return {
-          route: {
-            ...segment.route,
-            id: `variant-${segment.route.id}`,
-            isActive: false,
-            isVisible: true,
-          },
-          points,
-        };
-      })
-      .filter((overlay): overlay is VariantRouteOverlay => overlay != null);
-  }, [segments, stitched]);
+  const variantPreviewOverlays = useMemo(
+    () =>
+      stitched
+        ? buildCollectionVariantPreviewOverlays(segments, stitched.pointsByRouteId, allFerries)
+        : {},
+    [allFerries, segments, stitched],
+  );
 
   const selectedRouteLayerId = useMemo(
     () => (collection ? `collection-${collection.id}` : "collection"),
@@ -164,12 +169,20 @@ export default function CollectionDetailWebScreen() {
   );
 
   const previewLayers = useMemo<RoutePreviewMapLayer[]>(() => {
-    const layers = variantRouteOverlays.map((overlay) => ({
-      id: overlay.route.id,
-      cacheKey: overlay.route.id,
-      points: overlay.points,
-      isActive: false,
-    }));
+    const layers = segments.flatMap((segment): RoutePreviewMapLayer[] => {
+      if (segment.segment.isSelected) return [];
+      const overlay = variantPreviewOverlays[collectionVariantKey(segment)];
+      if (!overlay) return [];
+      return [
+        {
+          id: `variant-${segment.route.id}`,
+          cacheKey: overlay.cacheKey,
+          points: [],
+          geoJSON: overlay.geoJSON,
+          isActive: false,
+        },
+      ];
+    });
     if (stitched?.points.length) {
       layers.push({
         id: selectedRouteLayerId,
@@ -178,8 +191,8 @@ export default function CollectionDetailWebScreen() {
         isActive: true,
       });
     }
-    return layers;
-  }, [selectedRouteLayerId, stitched?.points, variantRouteOverlays]);
+    return buildFerryAwarePreviewLayers(layers, displayFerries);
+  }, [displayFerries, segments, selectedRouteLayerId, stitched?.points, variantPreviewOverlays]);
 
   const handleOpenOnMap = useCallback(async () => {
     if (!collection) return;
@@ -218,19 +231,13 @@ export default function CollectionDetailWebScreen() {
 
         {previewLayers.length > 0 && (
           <View className="overflow-hidden rounded-xl" style={{ height: 250 }}>
-            <RoutePreviewMap layers={previewLayers} />
+            <RoutePreviewMap layers={previewLayers} ferries={displayFerries} />
           </View>
         )}
 
         <View className="flex-row gap-3">
-          <StatBox
-            label="Distance"
-            value={formatDistance(stitched?.totalDistanceMeters ?? 0, units)}
-          />
-          <StatBox
-            label="Ascent"
-            value={formatElevation(stitched?.totalAscentMeters ?? 0, units)}
-          />
+          <StatBox label="Distance" value={formatDistance(ridingStats?.distance ?? 0, units)} />
+          <StatBox label="Ascent" value={formatElevation(ridingStats?.ascent ?? 0, units)} />
           <StatBox label="Segments" value={String(selectedSegments.length)} />
         </View>
 

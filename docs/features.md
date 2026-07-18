@@ -24,6 +24,9 @@ What's implemented. For the "why" behind these, see `usage-context.md`.
 - Route list with toggle visibility, set active, delete
 - Route metadata: total distance, ascent, descent
 - Route snapping — snap GPS position to nearest point on active route
+- Point-assisted ferry crossings: tap a known boarding point, choose a nearby OSM ferry, or mark boarding and landing manually when offline
+- Ferry crossings keep the stored imported route geometry intact while excluding water distance and elevation from riding metrics
+- OSM-assisted crossings replace the displayed route span with the saved OSM ferry geometry; manual crossings retain the terminal-to-terminal fallback
 
 ## Collections
 
@@ -40,6 +43,7 @@ What's implemented. For the "why" behind these, see `usage-context.md`.
 - Pinch-to-zoom, tap to highlight on map
 - Elevation profile follows the global riding horizon
 - Segment boundary markers for stitched collections
+- Ferry breaks are masked with a compact ship marker without adding water distance or elevation
 
 ## Upcoming Timeline
 
@@ -50,6 +54,7 @@ What's implemented. For the "why" behind these, see `usage-context.md`.
 - Displays clock ETA and riding time when available, with distance-first fallback when ETA is unavailable
 - Includes POIs with planned stop durations even when unstarred, so downstream ETA shifts are visible
 - Models climbs as one span row with start and end ETA when available
+- Shows saved ferries in route order with quay ETA, readable stacked wait/crossing timing, and landing ETA
 
 ## Climb Detection
 
@@ -84,6 +89,7 @@ What's implemented. For the "why" behind these, see `usage-context.md`.
 - Configurable: power output, total weight, advanced params (CdA, Crr, max descent speed)
 - ETA displayed on POI cards, POI list items, and climb list
 - Downstream ETAs include prior planned POI stop durations while preserving arrival ETA to the stop itself
+- Ferry ETA skips cycling time on the water and applies boarding buffer, assumed wait, and crossing duration once at landing
 - Fully offline — pure math on elevation data
 
 ## Weather
@@ -102,12 +108,12 @@ What's implemented. For the "why" behind these, see `usage-context.md`.
 - Download size estimator, progress UI, cancel/retry
 - "Prepare for offline" per route/collection
 - Storage management — space used per route, cleanup
-- Imported/prepared route, POI, climb, ETA, collection, export, and tile data work offline; weather uses cached data when available and requires connectivity to refresh
+- Imported/prepared route, POI, climb, ferry, ETA, collection, export, and tile data work offline; weather uses cached data when available and requires connectivity to refresh
 
 ## Export
 
 - Export standalone routes and stitched collections as GPX tracks
 - Include starred and saved custom POIs as on-route GPX waypoint cues for bike-computer workflows
 - Share exported GPX files through the native iOS share sheet
-- Export and import the complete planning workspace as a versioned `.ultra-plan.db` file
+- Export and import the complete planning workspace, including saved ferry spans, as a versioned `.ultra-plan.db` file
 - Move planning data between the browser workspace and iOS without requiring a hosted account or backend

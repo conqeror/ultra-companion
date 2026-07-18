@@ -6,7 +6,7 @@ import {
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from "react-native";
-import { Clock3, Flag, GitBranch, MapPin, Mountain } from "lucide-react-native";
+import { Clock3, Flag, GitBranch, MapPin, Mountain, Ship } from "lucide-react-native";
 import { useShallow } from "zustand/react/shallow";
 import { Text } from "@/components/ui/text";
 import { POI_ICON_MAP } from "@/constants/poiIcons";
@@ -46,6 +46,9 @@ import {
   type UpcomingRowModel,
 } from "@/utils/upcomingRowModels";
 import type { ActiveRouteData, PanelMode } from "@/types";
+import type { DisplayFerryCrossing } from "@/types";
+
+const EMPTY_FERRIES: DisplayFerryCrossing[] = [];
 
 interface UpcomingTabContentProps {
   activeData: ActiveRouteData | null;
@@ -81,6 +84,15 @@ export default function UpcomingTabContent({ activeData }: UpcomingTabContentPro
   const totalDistanceMeters = activeData?.totalDistanceMeters ?? 0;
   const routePois = usePoiStore(useShallow((s) => pickRouteRecords(s.pois, routeIds)));
   const routeClimbs = useClimbStore(useShallow((s) => pickRouteRecords(s.climbs, routeIds)));
+  const displayFerries = activeData?.ferries ?? EMPTY_FERRIES;
+  const ferrySpans = useMemo(
+    () =>
+      displayFerries.map((ferry) => ({
+        startDistanceMeters: ferry.effectiveStartDistanceMeters,
+        endDistanceMeters: ferry.effectiveEndDistanceMeters,
+      })),
+    [displayFerries],
+  );
   const activeRouteProgress = useMemo(
     () =>
       resolveActiveRouteProgress(activeData, snappedPosition, {
@@ -95,8 +107,9 @@ export default function UpcomingTabContent({ activeData }: UpcomingTabContentPro
     () =>
       createRidingHorizonWindow(derivedCurrentDistanceMeters, ridingHorizonMeters, {
         totalDistanceMeters,
+        ferrySpans,
       }),
-    [derivedCurrentDistanceMeters, ridingHorizonMeters, totalDistanceMeters],
+    [derivedCurrentDistanceMeters, ferrySpans, ridingHorizonMeters, totalDistanceMeters],
   );
 
   const displayPOIs = useMemo(() => {
@@ -106,10 +119,20 @@ export default function UpcomingTabContent({ activeData }: UpcomingTabContentPro
   }, [routeIds, segments, routePois]);
 
   const displayClimbs = useMemo(
-    () => measureSync("upcoming.displayClimbs", () => getClimbsForDisplay(routeIds, segments)),
+    () =>
+      measureSync("upcoming.displayClimbs", () =>
+        getClimbsForDisplay(routeIds, segments).filter(
+          (climb) =>
+            !displayFerries.some(
+              (ferry) =>
+                climb.effectiveEndDistanceMeters > ferry.effectiveStartDistanceMeters &&
+                climb.effectiveStartDistanceMeters < ferry.effectiveEndDistanceMeters,
+            ),
+        ),
+      ),
     // routeClimbs is a route-scoped reactivity trigger: getClimbsForDisplay reads store via get()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [routeIds, segments, routeClimbs, getClimbsForDisplay],
+    [routeIds, segments, routeClimbs, getClimbsForDisplay, displayFerries],
   );
   const plannedStops = useMemo(() => plannedStopsFromPOIs(displayPOIs), [displayPOIs]);
 
@@ -120,6 +143,7 @@ export default function UpcomingTabContent({ activeData }: UpcomingTabContentPro
           pois: displayPOIs,
           starredPOIIds,
           climbs: displayClimbs,
+          ferries: displayFerries,
           segments,
           totalDistanceMeters,
           currentDistanceMeters: derivedCurrentDistanceMeters,
@@ -134,6 +158,7 @@ export default function UpcomingTabContent({ activeData }: UpcomingTabContentPro
       displayPOIs,
       starredPOIIds,
       displayClimbs,
+      displayFerries,
       segments,
       totalDistanceMeters,
       derivedCurrentDistanceMeters,
@@ -152,9 +177,10 @@ export default function UpcomingTabContent({ activeData }: UpcomingTabContentPro
           events,
           currentDistanceMeters: derivedCurrentDistanceMeters,
           units,
+          ferries: displayFerries,
         }),
       ),
-    [events, derivedCurrentDistanceMeters, units],
+    [events, derivedCurrentDistanceMeters, displayFerries, units],
   );
   const upcomingEtaBaseTimeMs = timing.futureStartMs ?? Date.now();
   const listItems = useMemo(
@@ -178,6 +204,7 @@ export default function UpcomingTabContent({ activeData }: UpcomingTabContentPro
         cumulativeTime,
         etaStartTimeMs: timing.futureStartMs,
         plannedStops,
+        ferries: displayFerries,
       }),
     [
       totalDistanceMeters,
@@ -187,6 +214,7 @@ export default function UpcomingTabContent({ activeData }: UpcomingTabContentPro
       cumulativeTime,
       timing.futureStartMs,
       plannedStops,
+      displayFerries,
     ],
   );
 
@@ -350,6 +378,11 @@ const UpcomingEventRow = React.memo(function UpcomingEventRow({
             {model.climbEndLabel}
           </Text>
         )}
+        {model.hasFerryInterval && model.ferryLandingLabel && (
+          <Text className="text-[20px] font-barlow-sc-semibold text-foreground" numberOfLines={1}>
+            {model.ferryLandingLabel}
+          </Text>
+        )}
         <Text className="text-[12px] font-barlow-sc-medium text-muted-foreground" numberOfLines={1}>
           {model.ridingTimeLabel}
         </Text>
@@ -369,7 +402,7 @@ const UpcomingEventRow = React.memo(function UpcomingEventRow({
         <Text
           className="text-[13px] font-barlow-medium"
           style={{ color: subtitleColor }}
-          numberOfLines={1}
+          numberOfLines={model.subtitleNumberOfLines}
         >
           {model.subtitle}
         </Text>
@@ -400,6 +433,8 @@ function RenderUpcomingRowIcon({ icon, color }: { icon: UpcomingRowIcon; color: 
     }
     case "climb":
       return <Mountain size={20} color={color} />;
+    case "ferry":
+      return <Ship size={20} color={color} />;
     case "segment":
       return <GitBranch size={20} color={color} />;
     case "finish":

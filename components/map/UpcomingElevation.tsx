@@ -12,6 +12,7 @@ import { bucketDistanceForDerivedWork } from "@/utils/distanceBuckets";
 import { LOOK_BACK_RATIO } from "@/constants";
 import type { RoutePoint, UnitSystem, DisplayPOI, DisplayClimb } from "@/types";
 import type { CollectionSegmentProfileBoundary } from "@/utils/collectionSegmentDisplay";
+import type { ElevationProfileFerrySpan } from "@/utils/elevationProfileFerries";
 
 interface UpcomingElevationProps {
   points: RoutePoint[];
@@ -27,6 +28,8 @@ interface UpcomingElevationProps {
   onPOIPress?: (poi: DisplayPOI) => void;
   /** Climbs to render as shading */
   climbs?: DisplayClimb[];
+  /** Ferry intervals in the same absolute distance space as points. */
+  ferries?: readonly ElevationProfileFerrySpan[];
   /** Absolute-distance collection segment boundaries to render on the chart */
   segmentBoundaries?: CollectionSegmentProfileBoundary[];
   /** Force fit-to-width — disables horizontal scrolling and the overview minimap */
@@ -43,6 +46,7 @@ export default function UpcomingElevation({
   pois,
   onPOIPress,
   climbs,
+  ferries,
   segmentBoundaries,
   fitToWidth,
 }: UpcomingElevationProps) {
@@ -116,6 +120,14 @@ export default function UpcomingElevation({
     );
   }, [climbs, offsetMeters, sliceEndDist]);
 
+  const visibleFerries = useMemo(() => {
+    if (!ferries) return undefined;
+    return ferries.filter(
+      (ferry) =>
+        ferry.endDistanceMeters >= offsetMeters && ferry.startDistanceMeters <= sliceEndDist,
+    );
+  }, [ferries, offsetMeters, sliceEndDist]);
+
   const visibleSegmentBoundaries = useMemo(
     () =>
       filterCollectionSegmentProfileBoundariesForRange(
@@ -147,6 +159,7 @@ export default function UpcomingElevation({
       pois={visiblePOIs}
       onPOIPress={onPOIPress}
       climbs={visibleClimbs}
+      ferries={visibleFerries}
       segmentBoundaries={visibleSegmentBoundaries}
       fitToWidth={fitToWidth}
     />

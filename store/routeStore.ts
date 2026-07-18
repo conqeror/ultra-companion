@@ -258,6 +258,8 @@ export const useRouteStore = create<RouteState>((set, get) => ({
       // Scrub per-route POI state (DB cascade handles the rows themselves)
       const { usePoiStore } = await import("@/store/poiStore");
       usePoiStore.getState().cleanupRouteState(id);
+      const { useFerryStore } = await import("@/store/ferryStore");
+      useFerryStore.getState().cleanupRouteState(id);
       // Drop points cache entry for the deleted route
       const current = get().visibleRoutePoints;
       if (current[id]) {

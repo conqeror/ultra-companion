@@ -32,6 +32,7 @@ import { resolveRouteProgress } from "@/utils/routeProgress";
 import { useRouteStore } from "./routeStore";
 import { useCollectionStore } from "./collectionStore";
 import { usePoiStore } from "./poiStore";
+import type { FerryTimingCrossing } from "@/services/ferryCrossings";
 
 let storage: KeyValueStorage | null = null;
 const relativeETAJobs = new Map<string, Promise<number[] | null>>();
@@ -94,6 +95,7 @@ interface ETAState {
   cumulativeTime: number[] | null;
   routeId: string | null;
   cachedPoints: RoutePoint[] | null;
+  cachedFerries: readonly FerryTimingCrossing[];
   activeCacheKey: string | null;
   etaStatus: RelativeETAStatus;
   etaProgress: RelativeETAProgress | null;
@@ -159,6 +161,7 @@ export const useEtaStore = create<ETAState>((set, get) => {
         cumulativeTime: null,
         routeId: input.scopeId,
         cachedPoints: input.points,
+        cachedFerries: input.ferries ?? [],
       });
     }
     setCacheState(descriptor.cacheKey, {
@@ -184,6 +187,7 @@ export const useEtaStore = create<ETAState>((set, get) => {
             cumulativeTime: cached,
             routeId: input.scopeId,
             cachedPoints: input.points,
+            cachedFerries: input.ferries ?? [],
             etaStatus: "ready",
             etaProgress: {
               computedPoints: descriptor.pointCount,
@@ -213,6 +217,7 @@ export const useEtaStore = create<ETAState>((set, get) => {
         job = (async () => {
           const computed = await computeRouteETAInChunks(input.points, powerConfig, {
             onProgress: progressHandler,
+            ferries: input.ferries,
           });
           await persistRelativeETACache(descriptor, computed);
           return computed;
@@ -255,6 +260,7 @@ export const useEtaStore = create<ETAState>((set, get) => {
           cumulativeTime: computed,
           routeId: input.scopeId,
           cachedPoints: input.points,
+          cachedFerries: input.ferries ?? [],
           etaStatus: "ready",
           etaProgress: {
             computedPoints: descriptor.pointCount,
@@ -285,6 +291,7 @@ export const useEtaStore = create<ETAState>((set, get) => {
     cumulativeTime: null,
     routeId: null,
     cachedPoints: null,
+    cachedFerries: [],
     activeCacheKey: null,
     etaStatus: "idle",
     etaProgress: null,
@@ -301,6 +308,7 @@ export const useEtaStore = create<ETAState>((set, get) => {
         cumulativeTime: null,
         routeId: null,
         cachedPoints: null,
+        cachedFerries: [],
         activeCacheKey: null,
         etaStatus: "idle",
         etaProgress: null,
@@ -320,6 +328,7 @@ export const useEtaStore = create<ETAState>((set, get) => {
         cumulativeTime: cumulative,
         routeId,
         cachedPoints: points,
+        cachedFerries: [],
         activeCacheKey: null,
         etaStatus: "ready",
         etaProgress: { computedPoints: points.length, totalPoints: points.length },
@@ -348,6 +357,7 @@ export const useEtaStore = create<ETAState>((set, get) => {
                 cumulativeTime: null,
                 routeId: null,
                 cachedPoints: null,
+                cachedFerries: [],
                 activeCacheKey: null,
                 etaStatus: "idle" as const,
                 etaProgress: null,
@@ -363,6 +373,7 @@ export const useEtaStore = create<ETAState>((set, get) => {
         cumulativeTime: null,
         routeId: null,
         cachedPoints: null,
+        cachedFerries: [],
         activeCacheKey: null,
         etaStatus: "idle",
         etaProgress: null,
@@ -385,7 +396,7 @@ export const useEtaStore = create<ETAState>((set, get) => {
     },
 
     resolveETA: (targetDistM) => {
-      const { cumulativeTime, routeId, cachedPoints } = get();
+      const { cumulativeTime, routeId, cachedPoints, cachedFerries } = get();
       if (!cumulativeTime || !routeId) return null;
 
       const snapped = useRouteStore.getState().snappedPosition;
@@ -400,6 +411,7 @@ export const useEtaStore = create<ETAState>((set, get) => {
         routePoints,
         routeProgress.distanceAlongRouteMeters,
         targetDistM,
+        cachedFerries,
       );
       if (!result) return null;
 

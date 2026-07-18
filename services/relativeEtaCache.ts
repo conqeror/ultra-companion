@@ -5,17 +5,17 @@ import type {
   RoutePoint,
   StitchedSegmentInfo,
 } from "@/types";
+import type { FerryTimingCrossing } from "@/services/ferryCrossings";
 import {
   getRelativeETACache,
   upsertRelativeETACache,
   deleteRelativeETACache,
   clearRelativeETACaches,
 } from "@/db/database";
-import { computeSegmentTime } from "@/services/powerModel";
-import { powerConfigKey } from "@/services/etaCalculator";
-import { computeWindowedGradient } from "@/utils/elevation";
+import { createRouteETASegmentEvaluator, powerConfigKey } from "@/services/etaCalculator";
+import { ferrySignature } from "@/services/ferryCrossings";
 
-export const ETA_ALGORITHM_VERSION = 1;
+export const ETA_ALGORITHM_VERSION = 2;
 
 const DEFAULT_COMPUTE_CHUNK_POINTS = 2_500;
 
@@ -27,6 +27,7 @@ export interface RelativeETAInput {
   totalAscentMeters?: number | null;
   totalDescentMeters?: number | null;
   segmentsSignature?: string | null;
+  ferries?: readonly FerryTimingCrossing[];
 }
 
 export interface RelativeETACacheDescriptor {
@@ -42,6 +43,7 @@ export interface RelativeETACacheDescriptor {
 interface ComputeRelativeETAOptions {
   chunkPoints?: number;
   onProgress?: (progress: RelativeETAProgress) => void;
+  ferries?: readonly FerryTimingCrossing[];
 }
 
 function round(value: number | null | undefined, precision = 1): string {
@@ -103,6 +105,7 @@ function buildRouteSignature(input: RelativeETAInput): string {
     `q3:${pointPart(threeQuarter)}`,
     `last:${pointPart(last)}`,
     `segments:${input.segmentsSignature ?? "none"}`,
+    `ferries:${ferrySignature(input.ferries ?? []) || "none"}`,
   ].join("|");
 }
 
@@ -224,14 +227,10 @@ export async function computeRouteETAInChunks(
   const cumulative = Array.from<number>({ length: points.length });
   cumulative[0] = 0;
   options.onProgress?.({ computedPoints: 1, totalPoints: points.length });
+  const segmentSeconds = createRouteETASegmentEvaluator(points, config, options.ferries);
 
   for (let i = 1; i < points.length; i++) {
-    const prev = points[i - 1];
-    const curr = points[i];
-    const dist = curr.distanceFromStartMeters - prev.distanceFromStartMeters;
-    const gradient = computeWindowedGradient(points, i);
-
-    cumulative[i] = cumulative[i - 1] + computeSegmentTime(dist, gradient, config);
+    cumulative[i] = cumulative[i - 1] + segmentSeconds(i);
 
     if (i % chunkPoints === 0) {
       options.onProgress?.({ computedPoints: i + 1, totalPoints: points.length });

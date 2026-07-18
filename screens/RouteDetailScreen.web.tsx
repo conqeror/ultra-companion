@@ -11,6 +11,17 @@ import { formatDistance, formatElevation } from "@/utils/formatters";
 import type { RouteWithPoints } from "@/types";
 import RoutePreviewMap, { type RoutePreviewMapLayer } from "@/components/map/RoutePreviewMap";
 import DataSection from "@/components/route/DataSection";
+import RouteFerriesSection from "@/components/ferry/RouteFerriesSection";
+import { useFerryStore } from "@/store/ferryStore";
+import {
+  computeRidingElevationTotals,
+  toDisplayFerryCrossing,
+  totalRidingDistanceMeters,
+} from "@/services/ferryCrossings";
+import type { FerryCrossing } from "@/types";
+import { buildFerryAwarePreviewLayers } from "@/utils/ferryMapRoute";
+
+const EMPTY_FERRIES: FerryCrossing[] = [];
 
 export default function RouteDetailWebScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -21,6 +32,10 @@ export default function RouteDetailWebScreen() {
   const setActiveRoute = useRouteStore((s) => s.setActiveRoute);
   const [route, setRoute] = useState<RouteWithPoints | null>(null);
   const [loading, setLoading] = useState(true);
+  const loadFerries = useFerryStore((state) => state.loadFerries);
+  const routeFerries = useFerryStore((state) =>
+    id ? (state.ferries[id] ?? EMPTY_FERRIES) : EMPTY_FERRIES,
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -38,27 +53,55 @@ export default function RouteDetailWebScreen() {
     };
   }, [id, getRouteDetail]);
 
+  useEffect(() => {
+    if (id) void loadFerries(id);
+  }, [id, loadFerries]);
+
   const screenOptions = useMemo(() => ({ title: route?.name ?? "Route" }), [route?.name]);
-  const previewLayers = useMemo<RoutePreviewMapLayer[]>(
+  const displayFerries = useMemo(
     () =>
-      route?.points.length
-        ? [
-            {
-              id: route.id,
-              cacheKey: route.id,
-              points: route.points,
-              isActive: true,
-            },
-          ]
+      route
+        ? routeFerries.map((crossing) =>
+            toDisplayFerryCrossing(
+              crossing,
+              crossing.startDistanceMeters,
+              crossing.endDistanceMeters,
+              0,
+              route.points,
+            ),
+          )
         : [],
-    [route],
+    [route, routeFerries],
   );
+  const previewLayers = useMemo<RoutePreviewMapLayer[]>(() => {
+    if (!route?.points.length) return [];
+    return buildFerryAwarePreviewLayers(
+      [
+        {
+          id: route.id,
+          cacheKey: route.id,
+          points: route.points,
+          isActive: true,
+        },
+      ],
+      displayFerries,
+    );
+  }, [displayFerries, route]);
 
   const handleOpenOnMap = useCallback(async () => {
     if (!route) return;
     await setActiveRoute(route.id);
     router.replace("/");
   }, [route, router, setActiveRoute]);
+
+  const ridingStats = useMemo(() => {
+    if (!route) return null;
+    const elevation = computeRidingElevationTotals(route.points, routeFerries);
+    return {
+      distance: totalRidingDistanceMeters(route.totalDistanceMeters, routeFerries),
+      ascent: elevation.ascent,
+    };
+  }, [route, routeFerries]);
 
   if (loading) {
     return (
@@ -87,15 +130,17 @@ export default function RouteDetailWebScreen() {
 
         {previewLayers.length > 0 && (
           <View className="overflow-hidden rounded-xl" style={{ height: 250 }}>
-            <RoutePreviewMap layers={previewLayers} />
+            <RoutePreviewMap layers={previewLayers} ferries={displayFerries} />
           </View>
         )}
 
         <View className="flex-row gap-3">
-          <StatBox label="Distance" value={formatDistance(route.totalDistanceMeters, units)} />
-          <StatBox label="Ascent" value={formatElevation(route.totalAscentMeters, units)} />
+          <StatBox label="Distance" value={formatDistance(ridingStats?.distance ?? 0, units)} />
+          <StatBox label="Ascent" value={formatElevation(ridingStats?.ascent ?? 0, units)} />
           <StatBox label="Points" value={String(route.pointCount)} />
         </View>
+
+        <RouteFerriesSection route={route} />
 
         <Button className="min-h-[52px]" onPress={handleOpenOnMap}>
           <Text className="font-barlow-semibold text-primary-foreground">Open on map</Text>
@@ -107,6 +152,7 @@ export default function RouteDetailWebScreen() {
           totalDistanceMeters={route.totalDistanceMeters}
           totalAscentMeters={route.totalAscentMeters}
           totalDescentMeters={route.totalDescentMeters}
+          ferries={routeFerries}
         />
       </ScrollView>
     </>

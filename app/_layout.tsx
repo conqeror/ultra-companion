@@ -128,7 +128,7 @@ export default function RootLayout() {
             await refreshPlanningDataAfterImport();
             Alert.alert(
               "Planner Import Complete",
-              `Merged ${summary.routes} routes, ${summary.collections} collections, and ${summary.pois} POIs.`,
+              `Merged ${summary.routes} routes, ${summary.collections} collections, ${summary.pois} POIs, and ${summary.ferries} ferries.`,
             );
             router.replace("/settings");
             return;

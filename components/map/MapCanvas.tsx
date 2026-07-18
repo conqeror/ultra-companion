@@ -28,9 +28,11 @@ import ClimbDistanceMarkerLayer from "./ClimbDistanceMarkerLayer";
 import TemperatureRouteOverlay from "./TemperatureRouteOverlay";
 import VariantOverlayLayer, { type VariantOverlay } from "./VariantOverlayLayer";
 import CollectionSegmentLayer from "./CollectionSegmentLayer";
+import FerryCrossingLayer from "./FerryCrossingLayer";
 import type { CollectionSegmentMapFeatureCollections } from "@/utils/collectionSegmentDisplay";
 import type {
   POIMapVisibility,
+  DisplayFerryCrossing,
   DistanceMarkerMode,
   RoutePoint,
   StitchedSegmentInfo,
@@ -112,6 +114,7 @@ interface MapCanvasProps {
   activeContextKey: string | null;
   activeTotalDistanceMeters: number | null;
   activeProgressDistanceMeters: number | null;
+  activeFerries: DisplayFerryCrossing[];
   mapOverlayMode: MapOverlayMode;
   activeVariantOverlays: VariantOverlay[];
   weatherRouteId: string | null;
@@ -146,6 +149,7 @@ function MapCanvas({
   activeContextKey,
   activeTotalDistanceMeters,
   activeProgressDistanceMeters,
+  activeFerries,
   mapOverlayMode,
   activeVariantOverlays,
   weatherRouteId,
@@ -176,6 +180,14 @@ function MapCanvas({
   }, [cameraRef, selectedPOI, setFollowUser]);
 
   const hasClimbHighlight = highlightedClimb != null;
+  const ferryDistanceSpans = useMemo(
+    () =>
+      activeFerries.map((ferry) => ({
+        startDistanceMeters: ferry.effectiveStartDistanceMeters,
+        endDistanceMeters: ferry.effectiveEndDistanceMeters,
+      })),
+    [activeFerries],
+  );
   const hasWeatherTemperatureOverlay =
     mapOverlayMode === "weather" &&
     activeRoutePoints != null &&
@@ -234,6 +246,7 @@ function MapCanvas({
         activeSegments={activeSegments}
         activeTotalDistanceMeters={activeTotalDistanceMeters}
         activeProgressDistanceMeters={activeProgressDistanceMeters}
+        activeFerries={activeFerries}
         mapOverlayMode={mapOverlayMode}
         onHighlightedClimbChange={setHighlightedClimb}
         setFollowUser={setFollowUser}
@@ -256,6 +269,7 @@ function MapCanvas({
         markerDistanceRange={markerDistanceRange}
         etaLabelForDistanceMeters={etaLabelForDistanceMeters}
         etaLabelVersion={etaLabelVersion}
+        excludedDistanceSpans={ferryDistanceSpans}
         aboveLayerID={MAP_LAYER_ANCHOR_IDS.routeMarkerSymbol}
         hiddenDistanceRange={highlightedClimb}
       />
@@ -268,12 +282,14 @@ function MapCanvas({
           dimmed={hasClimbHighlight}
         />
       )}
+      <FerryCrossingLayer ferries={activeFerries} dimmed={hasClimbHighlight} />
       {(poiVisibility !== "none" || selectedPOI) && activeRouteIds.length > 0 && (
         <POILayer
           key={`pois-${overlayStackKey}`}
           routeIds={activeRouteIds}
           segments={activeSegments}
           currentDistanceMeters={activeProgressDistanceMeters}
+          ferries={activeFerries}
           onClusterPress={onClusterPress}
           visibility={poiVisibility}
           aboveLayerID={MAP_LAYER_ANCHOR_IDS.poiSymbol}
@@ -298,6 +314,7 @@ interface ClimbMapOverlayProps {
   activeSegments: StitchedSegmentInfo[] | null;
   activeTotalDistanceMeters: number | null;
   activeProgressDistanceMeters: number | null;
+  activeFerries: DisplayFerryCrossing[];
   mapOverlayMode: MapOverlayMode;
   onHighlightedClimbChange: (climb: HighlightedClimbMapState | null) => void;
   setFollowUser: (follow: boolean) => void;
@@ -312,6 +329,7 @@ function ClimbMapOverlay({
   activeSegments,
   activeTotalDistanceMeters,
   activeProgressDistanceMeters,
+  activeFerries,
   mapOverlayMode,
   onHighlightedClimbChange,
   setFollowUser,
@@ -333,15 +351,28 @@ function ClimbMapOverlay({
       createRidingHorizonWindow(
         derivedProgressDistanceMeters,
         ridingHorizonMetersForMode(panelMode),
-        { totalDistanceMeters: activeTotalDistanceMeters ?? undefined },
+        {
+          totalDistanceMeters: activeTotalDistanceMeters ?? undefined,
+          ferrySpans: activeFerries.map((ferry) => ({
+            startDistanceMeters: ferry.effectiveStartDistanceMeters,
+            endDistanceMeters: ferry.effectiveEndDistanceMeters,
+          })),
+        },
       ),
-    [derivedProgressDistanceMeters, panelMode, activeTotalDistanceMeters],
+    [derivedProgressDistanceMeters, panelMode, activeTotalDistanceMeters, activeFerries],
   );
 
   const highlightedClimb = useMemo(() => {
     if (mapOverlayMode !== "climbs") return null;
     const displayed = filterClimbsToRidingHorizon(
-      getClimbsForDisplay(activeRouteIds, activeSegments),
+      getClimbsForDisplay(activeRouteIds, activeSegments).filter(
+        (climb) =>
+          !activeFerries.some(
+            (ferry) =>
+              climb.effectiveEndDistanceMeters > ferry.effectiveStartDistanceMeters &&
+              climb.effectiveStartDistanceMeters < ferry.effectiveEndDistanceMeters,
+          ),
+      ),
       climbHorizonWindow,
     );
     const selected =
@@ -359,6 +390,7 @@ function ClimbMapOverlay({
     derivedProgressDistanceMeters,
     climbHorizonWindow,
     routeClimbs,
+    activeFerries,
     getClimbsForDisplay,
   ]);
 

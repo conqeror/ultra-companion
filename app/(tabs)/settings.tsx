@@ -222,11 +222,11 @@ export default function SettingsScreen() {
       setPlanningTransferMessage("Import complete. Refreshing map data...");
       await refreshPlanningData();
       setPlanningTransferMessage(
-        `Imported ${summary.routes} routes, ${summary.collections} collections, ${summary.pois} POIs, and ${summary.climbs} climbs.`,
+        `Imported ${summary.routes} routes, ${summary.collections} collections, ${summary.pois} POIs, ${summary.climbs} climbs, and ${summary.ferries} ferries.`,
       );
       Alert.alert(
         "Planner Import Complete",
-        `Merged ${summary.routes} routes, ${summary.collections} collections, ${summary.pois} POIs, and ${summary.climbs} climbs.`,
+        `Merged ${summary.routes} routes, ${summary.collections} collections, ${summary.pois} POIs, ${summary.climbs} climbs, and ${summary.ferries} ferries.`,
       );
     } catch (error) {
       const message =

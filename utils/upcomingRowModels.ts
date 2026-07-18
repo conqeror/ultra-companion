@@ -16,6 +16,12 @@ import {
 } from "@/utils/formatters";
 import type { ThemeColors } from "@/theme";
 import type { UnitSystem } from "@/types";
+import type { DisplayFerryCrossing } from "@/types";
+import {
+  ferryEndDistanceMeters,
+  ferryStartDistanceMeters,
+  ridingDistanceBetween,
+} from "@/services/ferryCrossings";
 
 type ThemeColorValues = Record<keyof ThemeColors, string>;
 
@@ -26,6 +32,7 @@ export type UpcomingRowColor =
 export type UpcomingRowIcon =
   | { kind: "poi"; iconName: string }
   | { kind: "climb" }
+  | { kind: "ferry" }
   | { kind: "segment" }
   | { kind: "finish" };
 
@@ -36,17 +43,20 @@ export interface UpcomingRowModel {
   isPressable: boolean;
   title: string;
   subtitle: string;
+  subtitleNumberOfLines: 1 | 2 | 3;
   subtitleColor: UpcomingRowColor;
   accentColor: UpcomingRowColor;
   icon: UpcomingRowIcon;
   clockLabel: string;
   departureLabel: string | null;
   climbEndLabel: string | null;
+  ferryLandingLabel: string | null;
   ridingTimeLabel: string;
   distanceLabel: string;
   distanceDirectionLabel: "ahead" | "behind";
   hasStopInterval: boolean;
   hasClimbInterval: boolean;
+  hasFerryInterval: boolean;
   accessibilityLabel: string;
 }
 
@@ -64,6 +74,7 @@ export interface BuildUpcomingRowModelsInput {
   events: readonly UpcomingEvent[];
   currentDistanceMeters: number | null;
   units: UnitSystem;
+  ferries?: readonly DisplayFerryCrossing[];
 }
 
 export interface BuildUpcomingListItemsInput {
@@ -75,14 +86,18 @@ interface BuildUpcomingRowModelInput {
   event: UpcomingEvent;
   currentDistanceMeters: number | null;
   units: UnitSystem;
+  ferries: readonly DisplayFerryCrossing[];
 }
 
 export function buildUpcomingRowModels({
   events,
   currentDistanceMeters,
   units,
+  ferries = [],
 }: BuildUpcomingRowModelsInput): UpcomingRowModel[] {
-  return events.map((event) => buildUpcomingRowModel({ event, currentDistanceMeters, units }));
+  return events.map((event) =>
+    buildUpcomingRowModel({ event, currentDistanceMeters, units, ferries }),
+  );
 }
 
 export function buildUpcomingListItems({
@@ -138,11 +153,23 @@ function buildUpcomingRowModel({
   event,
   currentDistanceMeters,
   units,
+  ferries,
 }: BuildUpcomingRowModelInput): UpcomingRowModel {
-  const distanceAhead =
+  const geometricDistanceAhead =
     currentDistanceMeters != null
       ? event.distanceMeters - currentDistanceMeters
       : event.distanceMeters;
+  const distanceAhead =
+    currentDistanceMeters != null && geometricDistanceAhead >= 0
+      ? ridingDistanceBetween(
+          currentDistanceMeters,
+          event.distanceMeters,
+          ferries.map((crossing) => ({
+            startDistanceMeters: ferryStartDistanceMeters(crossing),
+            endDistanceMeters: ferryEndDistanceMeters(crossing),
+          })),
+        )
+      : geometricDistanceAhead;
   const distanceLabel =
     distanceAhead >= 0
       ? formatDistance(distanceAhead, units)
@@ -154,16 +181,21 @@ function buildUpcomingRowModel({
     event.kind === "poi" ? departureTimeAfterPlannedStop(eta, plannedStopMinutes) : null;
   const hasStopInterval = plannedStopMinutes > 0 && eta != null && departureTime != null;
   const hasClimbInterval = event.kind === "climb-span" && !event.isActive && event.endEta != null;
+  const hasFerryInterval = event.kind === "ferry" && event.landingEta != null;
   const clockLabel = eta ? formatETA(eta.eta) : "--:--";
   const departureLabel = departureTime ? formatETA(departureTime) : null;
   const climbEndLabel =
     event.kind === "climb-span" && event.endEta ? formatETA(event.endEta.eta) : null;
+  const ferryLandingLabel =
+    event.kind === "ferry" && event.landingEta ? formatETA(event.landingEta.eta) : null;
   const primaryRidingTime = eta ?? (event.kind === "climb-span" ? event.endEta : null);
   const ridingTimeLabel =
     primaryRidingTime && primaryRidingTime.ridingTimeSeconds > 0
       ? `~${formatDuration(primaryRidingTime.ridingTimeSeconds)}`
       : "no ETA";
   const content = upcomingEventContent(event, units);
+  const subtitleNumberOfLines: UpcomingRowModel["subtitleNumberOfLines"] =
+    event.kind === "ferry" ? (event.isActive ? 3 : 2) : 1;
   const isPressable = event.kind === "poi" || event.kind === "climb-span";
   const accessibilityLabel = [
     content.title,
@@ -171,6 +203,7 @@ function buildUpcomingRowModel({
     eta ? `ETA ${clockLabel}` : null,
     hasStopInterval && departureLabel ? `depart ${departureLabel}` : null,
     hasClimbInterval && climbEndLabel ? `end ${climbEndLabel}` : null,
+    hasFerryInterval && ferryLandingLabel ? `land ${ferryLandingLabel}` : null,
     `${distanceLabel} ${distanceDirectionLabel}`,
   ]
     .filter(Boolean)
@@ -183,17 +216,20 @@ function buildUpcomingRowModel({
     isPressable,
     title: content.title,
     subtitle: content.subtitle,
+    subtitleNumberOfLines,
     subtitleColor: content.subtitleColor,
     accentColor: content.accentColor,
     icon: content.icon,
     clockLabel,
     departureLabel,
     climbEndLabel,
+    ferryLandingLabel,
     ridingTimeLabel,
     distanceLabel,
     distanceDirectionLabel,
     hasStopInterval,
     hasClimbInterval,
+    hasFerryInterval,
     accessibilityLabel,
   };
 }
@@ -241,6 +277,20 @@ function upcomingEventContent(
         icon: { kind: "climb" },
       };
     }
+    case "ferry":
+      return {
+        title: event.ferry.name,
+        subtitle: [
+          event.isActive ? "On ferry" : null,
+          `${event.ferry.durationMinutes} min crossing`,
+          `${event.ferry.assumedWaitMinutes} min assumed wait`,
+        ]
+          .filter(Boolean)
+          .join("\n"),
+        subtitleColor: { kind: "theme", key: "info" },
+        accentColor: { kind: "theme", key: "info" },
+        icon: { kind: "ferry" },
+      };
     case "segment-transition":
       return {
         title: `End ${event.fromSegment.routeName}`,

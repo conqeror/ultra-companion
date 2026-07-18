@@ -8,23 +8,31 @@ import { useRouteStore } from "@/store/routeStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import { usePoiStore } from "@/store/poiStore";
 import { useClimbStore } from "@/store/climbStore";
-import {
-  computeSliceElevationTotalsFromDistance,
-  findNearestPointIndexAtDistance,
-} from "@/utils/geo";
+import { findNearestPointIndexAtDistance } from "@/utils/geo";
 import { resolveRouteProgress } from "@/utils/routeProgress";
 import { bucketDistanceForDerivedWork } from "@/utils/distanceBuckets";
 import { formatDistance, formatElevation } from "@/utils/formatters";
 import { climbDifficultyColor } from "@/constants/climbHelpers";
 import { stitchPOIs } from "@/services/stitchingService";
-import { toDisplayPOIs } from "@/services/displayDistance";
-import { ridingHorizonMetersForMode, ridingHorizonScopeLabelForMode } from "@/utils/ridingHorizon";
+import { toDisplayDistanceMeters, toDisplayPOIs } from "@/services/displayDistance";
+import {
+  createRidingHorizonWindow,
+  ridingHorizonMetersForMode,
+  ridingHorizonScopeLabelForMode,
+} from "@/utils/ridingHorizon";
 import { measureSync } from "@/utils/perfMarks";
 import { pickRouteRecords } from "@/utils/routeScopedRecords";
 import { buildCollectionSegmentProfileBoundaries } from "@/utils/collectionSegmentDisplay";
+import { projectFerrySpansForRidingProfile } from "@/utils/elevationProfileFerries";
 import UpcomingElevation from "./UpcomingElevation";
 import ElevationProfile from "@/components/elevation/ElevationProfile";
 import type { POI, ActiveRouteData, DisplayClimb } from "@/types";
+import {
+  computeRidingElevationTotals,
+  projectRoutePointsForRidingProfile,
+  ridingDistanceAtGeometricDistance,
+  totalRidingDistanceMeters,
+} from "@/services/ferryCrossings";
 
 const STATS_HEIGHT = 36;
 const CLIMB_ROW_HEIGHT = 36;
@@ -50,6 +58,33 @@ export default function ProfileTabContent({
   const activeRouteIds = useMemo(() => activeData?.routeIds ?? [], [activeData?.routeIds]);
   const activeSegments = activeData?.segments ?? null;
   const activeTotalDistance = activeData?.totalDistanceMeters ?? 0;
+  const ferrySpans = useMemo(
+    () =>
+      (activeData?.ferries ?? []).map((ferry) => ({
+        startDistanceMeters: ferry.effectiveStartDistanceMeters,
+        endDistanceMeters: ferry.effectiveEndDistanceMeters,
+      })),
+    [activeData?.ferries],
+  );
+  const profilePoints = useMemo(
+    () =>
+      activeRoutePoints ? projectRoutePointsForRidingProfile(activeRoutePoints, ferrySpans) : null,
+    [activeRoutePoints, ferrySpans],
+  );
+  const profileFerries = useMemo(
+    () =>
+      projectFerrySpansForRidingProfile(
+        (activeData?.ferries ?? []).map((ferry) => ({
+          id: ferry.id,
+          name: ferry.name,
+          startDistanceMeters: ferry.effectiveStartDistanceMeters,
+          endDistanceMeters: ferry.effectiveEndDistanceMeters,
+        })),
+        ferrySpans,
+      ),
+    [activeData?.ferries, ferrySpans],
+  );
+  const activeTotalRidingDistance = totalRidingDistanceMeters(activeTotalDistance, ferrySpans);
 
   const panelMode = usePanelStore((s) => s.panelMode);
   const horizonScopeLabel = ridingHorizonScopeLabelForMode(panelMode);
@@ -84,16 +119,49 @@ export default function ProfileTabContent({
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeId, activeRouteIds, activeSegments, getStarredPOIs, starredPOIIds, routePois]);
+  const projectedPOIsForChart = useMemo(
+    () =>
+      poisForChart.map((poi) =>
+        Object.assign({}, poi, {
+          effectiveDistanceMeters: toDisplayDistanceMeters(
+            ridingDistanceAtGeometricDistance(poi.effectiveDistanceMeters, ferrySpans),
+          ),
+        }),
+      ),
+    [ferrySpans, poisForChart],
+  );
 
   const getClimbsForDisplay = useClimbStore((s) => s.getClimbsForDisplay);
   const routeClimbs = useClimbStore(useShallow((s) => pickRouteRecords(s.climbs, activeRouteIds)));
   const climbsForChart = useMemo(() => {
     if (!activeId || activeRouteIds.length === 0) return [];
     return measureSync("profile.climbsForChart", () =>
-      getClimbsForDisplay(activeRouteIds, activeSegments),
+      getClimbsForDisplay(activeRouteIds, activeSegments)
+        .filter(
+          (climb) =>
+            !ferrySpans.some(
+              (ferry) =>
+                climb.effectiveEndDistanceMeters > ferry.startDistanceMeters &&
+                climb.effectiveStartDistanceMeters < ferry.endDistanceMeters,
+            ),
+        )
+        .map((climb) => {
+          const effectiveStartDistanceMeters = toDisplayDistanceMeters(
+            ridingDistanceAtGeometricDistance(climb.effectiveStartDistanceMeters, ferrySpans),
+          );
+          const effectiveEndDistanceMeters = toDisplayDistanceMeters(
+            ridingDistanceAtGeometricDistance(climb.effectiveEndDistanceMeters, ferrySpans),
+          );
+          return Object.assign({}, climb, {
+            lengthMeters: effectiveEndDistanceMeters - effectiveStartDistanceMeters,
+            effectiveDistanceMeters: effectiveStartDistanceMeters,
+            effectiveStartDistanceMeters,
+            effectiveEndDistanceMeters,
+          });
+        }),
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeId, activeRouteIds, activeSegments, getClimbsForDisplay, routeClimbs]);
+  }, [activeId, activeRouteIds, activeSegments, getClimbsForDisplay, routeClimbs, ferrySpans]);
 
   const setSelectedClimb = useClimbStore((s) => s.setSelectedClimb);
 
@@ -105,33 +173,46 @@ export default function ProfileTabContent({
     const distDone = derivedCurrentDistanceMeters;
     const la = ridingHorizonMetersForMode(panelMode);
     if (la == null) return { windowStartDist: distDone, windowEndDist: activeTotalDistance };
-    const endDist = Math.min(distDone + la, activeTotalDistance);
-    return { windowStartDist: distDone, windowEndDist: endDist };
-  }, [derivedCurrentDistanceMeters, activeRoutePoints, panelMode, activeTotalDistance]);
+    const window = createRidingHorizonWindow(distDone, la, {
+      totalDistanceMeters: activeTotalDistance,
+      ferrySpans,
+    });
+    return {
+      windowStartDist: window?.startDistanceMeters ?? distDone,
+      windowEndDist: window?.endDistanceMeters ?? activeTotalDistance,
+    };
+  }, [derivedCurrentDistanceMeters, activeRoutePoints, panelMode, activeTotalDistance, ferrySpans]);
 
   const statsText = useMemo(() => {
     if (!isSnapped || !activeRoutePoints?.length) return null;
     const { ascent: asc, descent: desc } = measureSync("profile.sliceElevationTotals", () =>
-      computeSliceElevationTotalsFromDistance(activeRoutePoints, windowStartDist, windowEndDist),
+      computeRidingElevationTotals(activeRoutePoints, ferrySpans, windowStartDist, windowEndDist),
     );
     return `↑ ${formatElevation(asc, units)}  ·  ↓ ${formatElevation(desc, units)}`;
-  }, [isSnapped, activeRoutePoints, windowStartDist, windowEndDist, units]);
+  }, [isSnapped, activeRoutePoints, ferrySpans, windowStartDist, windowEndDist, units]);
   const horizonSummaryText = statsText;
+  const profileWindowStartDist = ridingDistanceAtGeometricDistance(windowStartDist, ferrySpans);
+  const profileWindowEndDist = ridingDistanceAtGeometricDistance(windowEndDist, ferrySpans);
 
   const climbsAhead = useMemo<DisplayClimb[]>(() => {
     if (climbsForChart.length === 0) return [];
     return climbsForChart
       .filter(
         (c) =>
-          c.effectiveEndDistanceMeters > windowStartDist &&
-          c.effectiveStartDistanceMeters < windowEndDist,
+          c.effectiveEndDistanceMeters > profileWindowStartDist &&
+          c.effectiveStartDistanceMeters < profileWindowEndDist,
       )
       .sort((a, b) => a.effectiveStartDistanceMeters - b.effectiveStartDistanceMeters)
       .slice(0, MAX_CLIMBS_AHEAD);
-  }, [climbsForChart, windowStartDist, windowEndDist]);
+  }, [climbsForChart, profileWindowStartDist, profileWindowEndDist]);
   const segmentBoundaries = useMemo(
-    () => buildCollectionSegmentProfileBoundaries(activeSegments),
-    [activeSegments],
+    () =>
+      buildCollectionSegmentProfileBoundaries(activeSegments).map((boundary) =>
+        Object.assign({}, boundary, {
+          distanceMeters: ridingDistanceAtGeometricDistance(boundary.distanceMeters, ferrySpans),
+        }),
+      ),
+    [activeSegments, ferrySpans],
   );
 
   if (!activeId || !activeRoutePoints?.length) {
@@ -142,7 +223,7 @@ export default function ProfileTabContent({
     );
   }
 
-  const lookAhead = ridingHorizonMetersForMode(panelMode) ?? activeTotalDistance;
+  const lookAhead = ridingHorizonMetersForMode(panelMode) ?? activeTotalRidingDistance;
 
   const showStats = !!horizonSummaryText;
   const showClimbsAhead = showClimbsAheadStrip && isExpanded && climbsAhead.length > 0;
@@ -156,9 +237,13 @@ export default function ProfileTabContent({
 
   const chartHeight = height - headerBlockHeight;
   const chartWidth = width - HORIZONTAL_PADDING * 2;
-  const fullProfileCurrentPointIndex =
+  const currentRidingDistanceMeters =
     currentDistanceMeters != null
-      ? findNearestPointIndexAtDistance(activeRoutePoints, currentDistanceMeters)
+      ? ridingDistanceAtGeometricDistance(currentDistanceMeters, ferrySpans)
+      : null;
+  const fullProfileCurrentPointIndex =
+    currentRidingDistanceMeters != null && profilePoints
+      ? findNearestPointIndexAtDistance(profilePoints, currentRidingDistanceMeters)
       : undefined;
 
   return (
@@ -184,7 +269,7 @@ export default function ProfileTabContent({
       {showClimbsAhead && (
         <ClimbsAheadStrip
           climbs={climbsAhead}
-          riderDistance={windowStartDist}
+          riderDistance={profileWindowStartDist}
           units={units}
           height={climbsAheadHeight}
           onClimbPress={(climb) => {
@@ -197,15 +282,16 @@ export default function ProfileTabContent({
       <View className="items-center px-2">
         {isFullRouteHorizon ? (
           <ElevationProfile
-            points={activeRoutePoints}
+            points={profilePoints ?? activeRoutePoints}
             units={units}
             width={chartWidth}
             height={chartHeight}
             currentPointIndex={fullProfileCurrentPointIndex}
-            currentDistanceMeters={currentDistanceMeters ?? undefined}
+            currentDistanceMeters={currentRidingDistanceMeters ?? undefined}
             showLegend={false}
-            pois={poisForChart}
+            pois={projectedPOIsForChart}
             climbs={climbsForChart}
+            ferries={profileFerries}
             segmentBoundaries={segmentBoundaries}
             onPOIPress={(poi) => {
               setSelectedPOI(poi);
@@ -213,14 +299,15 @@ export default function ProfileTabContent({
           />
         ) : (
           <UpcomingElevation
-            points={activeRoutePoints}
-            currentDistanceMeters={currentDistanceMeters}
+            points={profilePoints ?? activeRoutePoints}
+            currentDistanceMeters={currentRidingDistanceMeters}
             lookAhead={lookAhead}
             units={units}
             width={chartWidth}
             height={chartHeight}
-            pois={poisForChart}
+            pois={projectedPOIsForChart}
             climbs={climbsForChart}
+            ferries={profileFerries}
             segmentBoundaries={segmentBoundaries}
             fitToWidth
             onPOIPress={(poi) => {

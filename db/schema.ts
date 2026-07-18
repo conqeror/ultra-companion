@@ -8,7 +8,13 @@ import {
   unique,
   primaryKey,
 } from "drizzle-orm/sqlite-core";
-import type { POICategory, POISource, StarredEntityType } from "@/types";
+import type {
+  FerryBicycleAccess,
+  FerryCrossingSource,
+  POICategory,
+  POISource,
+  StarredEntityType,
+} from "@/types";
 
 // --- Planning Transport Metadata ---
 
@@ -91,6 +97,41 @@ export const routePoints = sqliteTable(
     distanceFromStartMeters: real("distanceFromStartMeters").notNull(),
   },
   (table) => [primaryKey({ columns: [table.routeId, table.idx] })],
+);
+
+// --- Ferry Crossings ---
+
+export const ferryCrossings = sqliteTable(
+  "ferry_crossings",
+  {
+    id: text("id").primaryKey(),
+    routeId: text("routeId")
+      .notNull()
+      .references(() => routes.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    startDistanceMeters: real("startDistanceMeters").notNull(),
+    endDistanceMeters: real("endDistanceMeters").notNull(),
+    startLatitude: real("startLatitude").notNull(),
+    startLongitude: real("startLongitude").notNull(),
+    endLatitude: real("endLatitude").notNull(),
+    endLongitude: real("endLongitude").notNull(),
+    durationMinutes: real("durationMinutes").notNull(),
+    assumedWaitMinutes: real("assumedWaitMinutes").notNull().default(0),
+    boardingBufferMinutes: real("boardingBufferMinutes").notNull().default(0),
+    source: text("source").notNull().default("manual").$type<FerryCrossingSource>(),
+    sourceId: text("sourceId"),
+    sourceUrl: text("sourceUrl"),
+    operator: text("operator"),
+    timetableUrl: text("timetableUrl"),
+    bicycleAccess: text("bicycleAccess").notNull().default("unknown").$type<FerryBicycleAccess>(),
+    providerRefs: text("providerRefs", { mode: "json" }).notNull().$type<Record<string, string>>(),
+    tags: text("tags", { mode: "json" }).notNull().$type<Record<string, string>>(),
+    createdAt: text("createdAt").notNull(),
+    updatedAt: text("updatedAt").notNull(),
+  },
+  (table) => [
+    index("idx_ferry_crossings_route_start").on(table.routeId, table.startDistanceMeters),
+  ],
 );
 
 // --- POIs ---

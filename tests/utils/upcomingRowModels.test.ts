@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { DEFAULT_POWER_CONFIG } from "@/constants";
 import { toDisplayClimb, toDisplayDistanceMeters, toDisplayPOI } from "@/services/displayDistance";
+import { computeRouteETA } from "@/services/etaCalculator";
+import { toDisplayFerryCrossing } from "@/services/ferryCrossings";
 import { buildUpcomingTimeline, type UpcomingEvent } from "@/services/upcomingTimeline";
 import { buildClimb } from "@/tests/fixtures/climb";
 import { stitchedSegmentsFixture } from "@/tests/fixtures/collection";
@@ -13,6 +16,7 @@ import {
   getUpcomingRowItemType,
   type UpcomingListItemModel,
 } from "@/utils/upcomingRowModels";
+import type { FerryCrossing } from "@/types";
 
 function dayHeaderLabels(items: UpcomingListItemModel[]): string[] {
   return items.filter((item) => item.itemType === "day-header").map((item) => item.label);
@@ -33,6 +37,32 @@ function poiEvent(id: string, distanceMeters: number, eta: Date | null): Upcomin
     poi: toDisplayPOI(buildPoi(id, "r1", distanceMeters, { name: id })),
   };
 }
+
+const ferryCrossing = (overrides: Partial<FerryCrossing> = {}): FerryCrossing => ({
+  id: "ferry-1",
+  routeId: "r1",
+  name: "Test ferry",
+  startDistanceMeters: 1_000,
+  endDistanceMeters: 3_000,
+  startLatitude: 0,
+  startLongitude: 0,
+  endLatitude: 0,
+  endLongitude: 0,
+  durationMinutes: 5,
+  assumedWaitMinutes: 3,
+  boardingBufferMinutes: 2,
+  source: "manual",
+  sourceId: null,
+  sourceUrl: null,
+  operator: null,
+  timetableUrl: null,
+  bicycleAccess: "unknown",
+  providerRefs: {},
+  tags: {},
+  createdAt: "2026-01-01T00:00:00.000Z",
+  updatedAt: "2026-01-01T00:00:00.000Z",
+  ...overrides,
+});
 
 describe("upcomingRowModels", () => {
   const mondayNoon = new Date(2026, 0, 5, 12, 0, 0);
@@ -68,6 +98,7 @@ describe("upcomingRowModels", () => {
       title: "Water tap",
       distanceLabel: "700 m",
       distanceDirectionLabel: "ahead",
+      subtitleNumberOfLines: 1,
     });
     expect(rows[2].subtitle).toContain("+120 m");
   });
@@ -119,6 +150,75 @@ describe("upcomingRowModels", () => {
     expect(row.isPressable).toBe(false);
     expect(row.accessibilityLabel).toContain("Route finish");
     expect(row.accessibilityLabel).toContain("1.0 km ahead");
+  });
+
+  it("shows a ferry row with separate quay and landing ETAs", () => {
+    const routePoints = [
+      buildRoutePoint(0, 0),
+      buildRoutePoint(1_000, 1),
+      buildRoutePoint(2_000, 2),
+      buildRoutePoint(3_000, 3),
+      buildRoutePoint(4_000, 4),
+    ];
+    const ferry = toDisplayFerryCrossing(ferryCrossing());
+    const cumulativeTime = computeRouteETA(routePoints, DEFAULT_POWER_CONFIG, [ferry]);
+    const etaStartTimeMs = new Date("2026-01-01T06:00:00.000Z").getTime();
+    const events = buildUpcomingTimeline({
+      pois: [],
+      starredPOIIds: new Set(),
+      climbs: [],
+      ferries: [ferry],
+      segments: null,
+      totalDistanceMeters: 4_000,
+      currentDistanceMeters: 0,
+      routePoints,
+      cumulativeTime,
+      etaStartTimeMs,
+    });
+    const ferryEvent = events.find((event) => event.kind === "ferry");
+
+    expect(ferryEvent?.kind).toBe("ferry");
+    if (!ferryEvent || ferryEvent.kind !== "ferry") throw new Error("Missing ferry event");
+    expect(ferryEvent.eta?.ridingTimeSeconds).toBeCloseTo(cumulativeTime[1]);
+    expect(ferryEvent.landingEta?.ridingTimeSeconds).toBeCloseTo(cumulativeTime[3]);
+    expect(ferryEvent.eta?.eta.getTime()).toBe(
+      Math.floor(etaStartTimeMs + cumulativeTime[1] * 1_000),
+    );
+    expect(ferryEvent.landingEta?.eta.getTime()).toBe(
+      Math.floor(etaStartTimeMs + cumulativeTime[3] * 1_000),
+    );
+
+    const [row] = buildUpcomingRowModels({
+      events: [ferryEvent],
+      currentDistanceMeters: 0,
+      units: "metric",
+      ferries: [ferry],
+    });
+
+    expect(row).toMatchObject({
+      itemType: "ferry",
+      title: "Test ferry",
+      subtitle: "5 min crossing\n3 min assumed wait",
+      subtitleNumberOfLines: 2,
+      hasFerryInterval: true,
+      isPressable: false,
+    });
+    expect(row.clockLabel).not.toBe("--:--");
+    expect(row.ferryLandingLabel).not.toBeNull();
+    expect(row.ferryLandingLabel).not.toBe(row.clockLabel);
+    expect(row.accessibilityLabel).toContain(`ETA ${row.clockLabel}`);
+    expect(row.accessibilityLabel).toContain(`land ${row.ferryLandingLabel}`);
+
+    const [activeRow] = buildUpcomingRowModels({
+      events: [{ ...ferryEvent, isActive: true }],
+      currentDistanceMeters: 2_000,
+      units: "metric",
+      ferries: [ferry],
+    });
+    expect(activeRow).toMatchObject({
+      subtitle: "On ferry\n5 min crossing\n3 min assumed wait",
+      subtitleNumberOfLines: 3,
+    });
   });
 
   it("uses opening status at ETA for POI subtitles", () => {

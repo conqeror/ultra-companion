@@ -115,6 +115,14 @@ export default function POITabContent({ activeData }: POITabContentProps) {
   const routePoints = activeData?.points ?? null;
   const segments = activeData?.segments ?? null;
   const activeTotalDistance = activeData?.totalDistanceMeters;
+  const ferrySpans = useMemo(
+    () =>
+      (activeData?.ferries ?? []).map((ferry) => ({
+        startDistanceMeters: ferry.effectiveStartDistanceMeters,
+        endDistanceMeters: ferry.effectiveEndDistanceMeters,
+      })),
+    [activeData?.ferries],
+  );
   const routePois = usePoiStore(useShallow((s) => pickRouteRecords(s.pois, routeIds)));
   const timing = useActiveRouteTiming(activeData);
   const activeRouteProgress = useMemo(
@@ -132,8 +140,9 @@ export default function POITabContent({ activeData }: POITabContentProps) {
       createRidingHorizonWindow(derivedCurrentDist, ridingHorizonMeters, {
         behindMeters: POI_BEHIND_THRESHOLD_M,
         totalDistanceMeters: activeTotalDistance,
+        ferrySpans,
       }),
-    [derivedCurrentDist, ridingHorizonMeters, activeTotalDistance],
+    [derivedCurrentDist, ridingHorizonMeters, activeTotalDistance, ferrySpans],
   );
   const horizonScopeLabel = ridingHorizonScopeLabelForMode(panelMode);
   const poiScrollKey = useMemo(() => {

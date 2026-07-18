@@ -1,6 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef } from "react";
 import { ActivityIndicator, View } from "react-native";
-import Mapbox, { Camera, MapView as MapboxMapView } from "@rnmapbox/maps";
+import Mapbox, {
+  Camera,
+  CircleLayer,
+  LineLayer,
+  MapView as MapboxMapView,
+  ShapeSource,
+  SymbolLayer,
+} from "@rnmapbox/maps";
 import Constants from "expo-constants";
 import { MAP_LAYER_ANCHOR_IDS } from "@/constants/mapLayers";
 import { useMapStyle } from "@/hooks/useMapStyle";
@@ -13,9 +20,11 @@ import {
 } from "@/hooks/usePreparedRouteGeometries";
 import { useRouteGeometryZoom } from "@/hooks/useRouteGeometryZoom";
 import { allocateMapCoordinateBudget, MAX_ROUTE_MAP_GEOJSON_POINTS } from "@/utils/geo";
-import type { RoutePoint } from "@/types";
+import { buildFerryMapFeatureCollections } from "@/utils/ferryMapFeatures";
+import type { DisplayFerryCrossing, RoutePoint } from "@/types";
 import { Text } from "@/components/ui/text";
 import { useThemeColors } from "@/theme";
+import FerryCrossingLayer from "./FerryCrossingLayer";
 import MapLayerAnchors from "./MapLayerAnchors";
 import RouteLayer from "./RouteLayer";
 
@@ -33,28 +42,51 @@ export interface RoutePreviewMapLayer {
   points: RoutePoint[];
   isActive: boolean;
   cacheKey?: string;
+  /** Already bounded display geometry, used for collection variant overlays. */
+  geoJSON?: GeoJSON.Feature<GeoJSON.LineString>;
 }
 
 interface RoutePreviewMapProps {
   layers: RoutePreviewMapLayer[];
+  ferries?: readonly DisplayFerryCrossing[];
+  onMapPress?: (coordinate: { latitude: number; longitude: number }) => void;
+  selectionPoints?: RoutePoint[];
+  accessibilityLabel?: string;
 }
 
 const FIT_PADDING = 40;
+const EMPTY_SELECTION_POINTS: RoutePoint[] = [];
+const EMPTY_FERRIES: DisplayFerryCrossing[] = [];
 
-export default function RoutePreviewMap({ layers }: RoutePreviewMapProps) {
+export default function RoutePreviewMap({
+  layers,
+  ferries = EMPTY_FERRIES,
+  onMapPress,
+  selectionPoints = EMPTY_SELECTION_POINTS,
+  accessibilityLabel = "Route preview map",
+}: RoutePreviewMapProps) {
   const cameraRef = useRef<Camera>(null);
   const mapStyle = useMapStyle();
   const colors = useThemeColors();
   const { routeGeometryToleranceMeters, updateRouteGeometryZoom } = useRouteGeometryZoom();
 
-  const visibleLayers = useMemo(() => layers.filter((layer) => layer.points.length >= 2), [layers]);
+  const visibleLayers = useMemo(
+    () =>
+      layers.filter(
+        (layer) =>
+          layer.points.length >= 2 || (layer.geoJSON?.geometry.coordinates.length ?? 0) >= 2,
+      ),
+    [layers],
+  );
+  const ferryMapFeatures = useMemo(() => buildFerryMapFeatureCollections(ferries), [ferries]);
 
   const routeGeometryRequests = useMemo<PreparedRouteGeometryRequest[]>(() => {
+    const layersToPrepare = visibleLayers.filter((layer) => !layer.geoJSON);
     const budgets = allocateMapCoordinateBudget(
-      visibleLayers.map((layer) => layer.points.length),
+      layersToPrepare.map((layer) => layer.points.length),
       MAX_ROUTE_MAP_GEOJSON_POINTS,
     );
-    return visibleLayers.map((layer, index) => ({
+    return layersToPrepare.map((layer, index) => ({
       id: layer.id,
       cacheKey: layer.cacheKey ?? layer.id,
       points: layer.points,
@@ -71,14 +103,33 @@ export default function RoutePreviewMap({ layers }: RoutePreviewMapProps) {
   const hasPreparationError = routeGeometryRequests.some((request) =>
     preparedRouteGeometryHasError(preparedRouteGeometries[request.id], request),
   );
+  const renderedRouteGeometries = useMemo(
+    () =>
+      Object.fromEntries(
+        visibleLayers.flatMap((layer) => {
+          const geoJSON = layer.geoJSON ?? preparedRouteGeometries[layer.id]?.geoJSON;
+          return geoJSON ? [[layer.id, geoJSON] as const] : [];
+        }),
+      ),
+    [preparedRouteGeometries, visibleLayers],
+  );
   const bounds = useMemo(() => {
     let minLongitude = Infinity;
     let minLatitude = Infinity;
     let maxLongitude = -Infinity;
     let maxLatitude = -Infinity;
     for (const layer of visibleLayers) {
-      const coordinates = preparedRouteGeometries[layer.id]?.geoJSON.geometry.coordinates ?? [];
+      const coordinates = renderedRouteGeometries[layer.id]?.geometry.coordinates ?? [];
       for (const coordinate of coordinates) {
+        if (!Number.isFinite(coordinate[0]) || !Number.isFinite(coordinate[1])) continue;
+        minLongitude = Math.min(minLongitude, coordinate[0]);
+        minLatitude = Math.min(minLatitude, coordinate[1]);
+        maxLongitude = Math.max(maxLongitude, coordinate[0]);
+        maxLatitude = Math.max(maxLatitude, coordinate[1]);
+      }
+    }
+    for (const feature of ferryMapFeatures.lines.features) {
+      for (const coordinate of feature.geometry.coordinates) {
         if (!Number.isFinite(coordinate[0]) || !Number.isFinite(coordinate[1])) continue;
         minLongitude = Math.min(minLongitude, coordinate[0]);
         minLatitude = Math.min(minLatitude, coordinate[1]);
@@ -91,7 +142,7 @@ export default function RoutePreviewMap({ layers }: RoutePreviewMapProps) {
       ne: [maxLongitude, maxLatitude] as [number, number],
       sw: [minLongitude, minLatitude] as [number, number],
     };
-  }, [preparedRouteGeometries, visibleLayers]);
+  }, [ferryMapFeatures.lines.features, renderedRouteGeometries, visibleLayers]);
 
   useEffect(() => {
     if (!bounds) return;
@@ -115,6 +166,36 @@ export default function RoutePreviewMap({ layers }: RoutePreviewMapProps) {
     [updateRouteGeometryZoom],
   );
 
+  const selectionLine = useMemo<GeoJSON.Feature<GeoJSON.LineString> | null>(
+    () =>
+      selectionPoints.length >= 2
+        ? {
+            type: "Feature",
+            properties: {},
+            geometry: {
+              type: "LineString",
+              coordinates: selectionPoints.map((point) => [point.longitude, point.latitude]),
+            },
+          }
+        : null,
+    [selectionPoints],
+  );
+  const selectionEndpoints = useMemo<GeoJSON.FeatureCollection<GeoJSON.Point> | null>(() => {
+    if (selectionPoints.length === 0) return null;
+    const points =
+      selectionPoints.length === 1
+        ? [selectionPoints[0]]
+        : [selectionPoints[0], selectionPoints[selectionPoints.length - 1]];
+    return {
+      type: "FeatureCollection",
+      features: points.map((point, index) => ({
+        type: "Feature",
+        properties: { order: index + 1, label: index === 0 ? "B" : "L" },
+        geometry: { type: "Point", coordinates: [point.longitude, point.latitude] },
+      })),
+    };
+  }, [selectionPoints]);
+
   return (
     <View className="flex-1">
       <MapboxMapView
@@ -127,6 +208,13 @@ export default function RoutePreviewMap({ layers }: RoutePreviewMapProps) {
         scrollEnabled={true}
         zoomEnabled={true}
         onCameraChanged={handleCameraChanged}
+        accessible
+        accessibilityLabel={accessibilityLabel}
+        onPress={(event) => {
+          if (!onMapPress || event.geometry.type !== "Point") return;
+          const coordinates = event.geometry.coordinates;
+          onMapPress({ latitude: coordinates[1], longitude: coordinates[0] });
+        }}
       >
         <Camera
           ref={cameraRef}
@@ -147,18 +235,59 @@ export default function RoutePreviewMap({ layers }: RoutePreviewMapProps) {
         />
         <MapLayerAnchors key={`map-layer-anchors-${mapStyle.styleKey}`} />
         {visibleLayers.map((layer) => {
-          const prepared = preparedRouteGeometries[layer.id];
-          if (!prepared) return null;
+          const geoJSON = renderedRouteGeometries[layer.id];
+          if (!geoJSON) return null;
           return (
             <RouteLayer
               key={`${layer.id}-${mapStyle.styleKey}`}
               routeId={layer.id}
-              geoJSON={prepared.geoJSON}
+              geoJSON={geoJSON}
               isActive={layer.isActive}
               aboveLayerID={MAP_LAYER_ANCHOR_IDS.routeLine}
             />
           );
         })}
+        <FerryCrossingLayer ferries={ferries} />
+        {selectionLine && (
+          <ShapeSource id="ferry-selection-line-source" shape={selectionLine}>
+            <LineLayer
+              id="ferry-selection-line"
+              aboveLayerID={MAP_LAYER_ANCHOR_IDS.routeLine}
+              style={{
+                lineColor: colors.info,
+                lineWidth: 7,
+                lineOpacity: 0.95,
+                lineDasharray: [1.2, 1.2],
+                lineCap: "round",
+              }}
+            />
+          </ShapeSource>
+        )}
+        {selectionEndpoints && (
+          <ShapeSource id="ferry-selection-endpoints-source" shape={selectionEndpoints}>
+            <CircleLayer
+              id="ferry-selection-endpoints"
+              aboveLayerID="ferry-selection-line"
+              style={{
+                circleColor: colors.info,
+                circleRadius: 7,
+                circleStrokeColor: colors.surface,
+                circleStrokeWidth: 3,
+              }}
+            />
+            <SymbolLayer
+              id="ferry-selection-endpoint-labels"
+              aboveLayerID="ferry-selection-endpoints"
+              style={{
+                textField: ["get", "label"],
+                textSize: 11,
+                textColor: colors.surface,
+                textAllowOverlap: true,
+                textIgnorePlacement: true,
+              }}
+            />
+          </ShapeSource>
+        )}
       </MapboxMapView>
       {(isPreparing || hasPreparationError) && (
         <View

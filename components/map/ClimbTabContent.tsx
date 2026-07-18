@@ -86,6 +86,14 @@ export default function ClimbTabContent({
   const routeClimbs = useClimbStore(useShallow((s) => pickRouteRecords(s.climbs, routeIds)));
   const segments = activeData?.segments ?? null;
   const activeTotalDistance = activeData?.totalDistanceMeters;
+  const ferrySpans = useMemo(
+    () =>
+      (activeData?.ferries ?? []).map((ferry) => ({
+        startDistanceMeters: ferry.effectiveStartDistanceMeters,
+        endDistanceMeters: ferry.effectiveEndDistanceMeters,
+      })),
+    [activeData?.ferries],
+  );
   const activeRouteProgress = useMemo(
     () => resolveActiveRouteProgress(activeData, snappedPosition),
     [activeData, snappedPosition],
@@ -97,8 +105,9 @@ export default function ClimbTabContent({
     () =>
       createRidingHorizonWindow(derivedCurrentDist, ridingHorizonMeters, {
         totalDistanceMeters: activeTotalDistance,
+        ferrySpans,
       }),
-    [derivedCurrentDist, ridingHorizonMeters, activeTotalDistance],
+    [derivedCurrentDist, ridingHorizonMeters, activeTotalDistance, ferrySpans],
   );
   const horizonScopeLabel = ridingHorizonScopeLabelForMode(panelMode);
 
@@ -117,10 +126,18 @@ export default function ClimbTabContent({
   }, [activeId, routeIds, segments, getStarredPOIs, starredPOIIds, routePois]);
 
   const displayedClimbs = useMemo(
-    () => getClimbsForDisplay(routeIds, segments),
+    () =>
+      getClimbsForDisplay(routeIds, segments).filter(
+        (climb) =>
+          !ferrySpans.some(
+            (ferry) =>
+              climb.effectiveEndDistanceMeters > ferry.startDistanceMeters &&
+              climb.effectiveStartDistanceMeters < ferry.endDistanceMeters,
+          ),
+      ),
     // routeClimbs is a reactivity trigger: getClimbsForDisplay reads store via get()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [routeIds, segments, getClimbsForDisplay, routeClimbs],
+    [routeIds, segments, getClimbsForDisplay, routeClimbs, ferrySpans],
   );
 
   const sortedClimbs = useMemo(

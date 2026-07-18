@@ -28,7 +28,13 @@ import {
   isDistanceInWindow,
   ridingHorizonMetersForMode,
 } from "@/utils/ridingHorizon";
-import type { DisplayPOI, POI, POIMapVisibility, StitchedSegmentInfo } from "@/types";
+import type {
+  DisplayFerryCrossing,
+  DisplayPOI,
+  POI,
+  POIMapVisibility,
+  StitchedSegmentInfo,
+} from "@/types";
 
 const CLUSTER_FILTER = ["has", "point_count"] as const;
 const UNCLUSTERED_FILTER = ["!", ["has", "point_count"]] as const;
@@ -55,6 +61,7 @@ interface POILayerProps {
   routeIds: string[];
   segments: StitchedSegmentInfo[] | null;
   currentDistanceMeters: number | null;
+  ferries: DisplayFerryCrossing[];
   onClusterPress: (center: [number, number], zoomLevel: number) => void;
   visibility: POIMapVisibility;
   aboveLayerID?: string;
@@ -179,6 +186,7 @@ export default function POILayer({
   routeIds,
   segments,
   currentDistanceMeters,
+  ferries,
   onClusterPress,
   visibility,
   aboveLayerID,
@@ -205,7 +213,13 @@ export default function POILayer({
     const distanceWindow = createRidingHorizonWindow(
       currentDistanceMeters,
       ridingHorizonMetersForMode(panelMode),
-      { behindMeters: POI_BEHIND_THRESHOLD_M },
+      {
+        behindMeters: POI_BEHIND_THRESHOLD_M,
+        ferrySpans: ferries.map((ferry) => ({
+          startDistanceMeters: ferry.effectiveStartDistanceMeters,
+          endDistanceMeters: ferry.effectiveEndDistanceMeters,
+        })),
+      },
     );
 
     if (segments) {
@@ -239,6 +253,7 @@ export default function POILayer({
     routeIds,
     segments,
     currentDistanceMeters,
+    ferries,
     panelMode,
     allPois,
     enabledCategories,

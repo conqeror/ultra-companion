@@ -113,6 +113,49 @@ describe("routeMarkers", () => {
     ]);
   });
 
+  it("places and labels distance markers in riding-distance space around ferry spans", () => {
+    const shape = buildRouteMarkerFeatureCollection({
+      points: [point(0, 0), point(1, 40_000)],
+      distanceMarkerMode: "distance",
+      markerIntervalKm: 10,
+      excludedDistanceSpans: [{ startDistanceMeters: 9_000, endDistanceMeters: 21_000 }],
+    });
+
+    expect(
+      shape.features
+        .filter((feature) => feature.properties.kind === "distance")
+        .map((feature) => feature.properties.distanceKm),
+    ).toEqual([10, 20]);
+    expect(
+      shape.features
+        .filter((feature) => feature.properties.kind === "distance")
+        .map((feature) => feature.properties.distanceMeters),
+    ).toEqual([22_000, 32_000]);
+    expect(shape.features.map((feature) => feature.properties.kind)).toContain("start");
+    expect(shape.features.map((feature) => feature.properties.kind)).toContain("finish");
+  });
+
+  it("uses geometric positions when looking up ETA labels for riding-distance markers", () => {
+    const labelDistances: number[] = [];
+    const shape = buildRouteMarkerFeatureCollection({
+      points: [point(0, 0), point(1, 40_000)],
+      distanceMarkerMode: "eta",
+      markerIntervalKm: 10,
+      excludedDistanceSpans: [{ startDistanceMeters: 9_000, endDistanceMeters: 21_000 }],
+      etaLabelForDistanceMeters: (distanceMeters) => {
+        labelDistances.push(distanceMeters);
+        return String(distanceMeters);
+      },
+    });
+
+    expect(labelDistances).toEqual([22_000, 32_000]);
+    expect(
+      shape.features
+        .filter((feature) => feature.properties.kind === "distance")
+        .map((feature) => feature.properties.distanceKm),
+    ).toEqual([10, 20]);
+  });
+
   it("maps zoom levels to increasingly dense marker intervals", () => {
     expect(getDistanceMarkerIntervalForZoom(5)).toBe(100);
     expect(getDistanceMarkerIntervalForZoom(8)).toBe(25);

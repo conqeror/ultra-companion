@@ -37,6 +37,11 @@ export default function MapLayerAnchors() {
         style={HIDDEN_ANCHOR_STYLE}
       />
       <CircleLayer
+        id={MAP_LAYER_ANCHOR_IDS.ferryLine}
+        aboveLayerID={MAP_LAYER_ANCHOR_IDS.climbLine}
+        style={HIDDEN_ANCHOR_STYLE}
+      />
+      <CircleLayer
         id={MAP_LAYER_ANCHOR_IDS.weatherSymbol}
         aboveLayerID={MAP_BASE_LAYER_IDS.topTextLabel}
         style={HIDDEN_ANCHOR_STYLE}
@@ -52,8 +57,13 @@ export default function MapLayerAnchors() {
         style={HIDDEN_ANCHOR_STYLE}
       />
       <CircleLayer
-        id={MAP_LAYER_ANCHOR_IDS.poiSymbol}
+        id={MAP_LAYER_ANCHOR_IDS.ferrySymbol}
         aboveLayerID={MAP_LAYER_ANCHOR_IDS.routeMarkerSymbol}
+        style={HIDDEN_ANCHOR_STYLE}
+      />
+      <CircleLayer
+        id={MAP_LAYER_ANCHOR_IDS.poiSymbol}
+        aboveLayerID={MAP_LAYER_ANCHOR_IDS.ferrySymbol}
         style={HIDDEN_ANCHOR_STYLE}
       />
     </ShapeSource>
