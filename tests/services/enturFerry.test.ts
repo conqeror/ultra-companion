@@ -12,9 +12,10 @@ import {
   directionalEnturFerryName,
   enturDepartureSearchTime,
   enturProviderRefsForPair,
+  fetchEnturFerryDaySchedule,
   fetchEnturFerryDepartures,
   fetchEnturFerryTimetableContext,
-  parseEnturFerryDepartures,
+  parseEnturFerryDaySchedule,
   parseEnturStopPlaces,
   readLinkedEnturFerryStops,
   resolveEnturFerryStopPair,
@@ -23,6 +24,7 @@ import {
   withoutEnturFerryProviderRefs,
   type EnturStopPlaceCandidate,
 } from "@/services/enturFerry";
+import { reactNativeMmkvMocks } from "@/tests/mocks/reactNativeMmkv";
 
 function stopFeature({
   id,
@@ -70,34 +72,52 @@ function stop(
   };
 }
 
-function tripPayload(departureTime = "2026-07-18T14:20:00Z", arrivalTime = "2026-07-18T14:55:00Z") {
+function estimatedCall({
+  departureTime,
+  arrivalTime,
+  destinationId = "NSR:StopPlace:58092",
+  mode = "water",
+  serviceName = "Rv. 19 Moss-Horten",
+  forBoarding = true,
+}: {
+  departureTime: string;
+  arrivalTime: string;
+  destinationId?: string;
+  mode?: string;
+  serviceName?: string;
+  forBoarding?: boolean;
+}) {
+  return {
+    aimedDepartureTime: departureTime,
+    forBoarding,
+    serviceJourney: {
+      journeyPattern: {
+        line: { name: serviceName, publicCode: "1000", transportMode: mode },
+      },
+    },
+    serviceJourneyEstimatedCalls: {
+      next: [
+        {
+          aimedArrivalTime: arrivalTime,
+          quay: { stopPlace: { id: destinationId } },
+        },
+      ],
+    },
+  };
+}
+
+function daySchedulePayload(
+  calls = [
+    estimatedCall({
+      departureTime: "2026-07-18T14:20:00+02:00",
+      arrivalTime: "2026-07-18T14:55:00+02:00",
+    }),
+  ],
+) {
   return {
     data: {
-      trip: {
-        tripPatterns: [
-          {
-            startTime: departureTime,
-            endTime: arrivalTime,
-            legs: [
-              {
-                mode: "water",
-                line: { name: "Rv. 19 Moss-Horten", publicCode: "1000" },
-                fromEstimatedCall: {
-                  aimedDepartureTime: departureTime,
-                  expectedDepartureTime: departureTime,
-                  actualDepartureTime: null,
-                  realtime: true,
-                },
-                toEstimatedCall: {
-                  aimedArrivalTime: arrivalTime,
-                  expectedArrivalTime: arrivalTime,
-                  actualArrivalTime: null,
-                  realtime: true,
-                },
-              },
-            ],
-          },
-        ],
+      stopPlace: {
+        estimatedCalls: calls,
       },
     },
   };
@@ -262,81 +282,71 @@ describe("Entur concrete departures", () => {
     expect(enturDepartureSearchTime(new Date("invalid"), 5)).toBeNull();
   });
 
-  it("keeps only future water legs, prefers actual times, sorts, and deduplicates", () => {
-    const payload = {
-      data: {
-        trip: {
-          tripPatterns: [
-            {
-              startTime: "2026-07-18T14:20:00Z",
-              endTime: "2026-07-18T14:55:00Z",
-              legs: [
-                { mode: "foot" },
-                {
-                  mode: "water",
-                  line: { name: "Ferry 1" },
-                  fromEstimatedCall: {
-                    aimedDepartureTime: "2026-07-18T14:20:00Z",
-                    expectedDepartureTime: "2026-07-18T14:22:00Z",
-                    actualDepartureTime: "2026-07-18T14:23:00Z",
-                    realtime: true,
-                  },
-                  toEstimatedCall: {
-                    expectedArrivalTime: "2026-07-18T14:58:00Z",
-                    realtime: true,
-                  },
-                },
-              ],
-            },
-            {
-              startTime: "2026-07-18T14:10:00Z",
-              endTime: "2026-07-18T14:45:00Z",
-              legs: [
-                {
-                  mode: "water",
-                  line: { name: "Too early" },
-                  fromEstimatedCall: { aimedDepartureTime: "2026-07-18T14:10:00Z" },
-                  toEstimatedCall: { aimedArrivalTime: "2026-07-18T14:45:00Z" },
-                },
-              ],
-            },
-            {
-              startTime: "2026-07-18T14:20:00Z",
-              endTime: "2026-07-18T14:55:00Z",
-              legs: [
-                {
-                  mode: "water",
-                  line: { name: "Ferry 1" },
-                  fromEstimatedCall: {
-                    actualDepartureTime: "2026-07-18T14:23:00Z",
-                    realtime: true,
-                  },
-                  toEstimatedCall: {
-                    expectedArrivalTime: "2026-07-18T14:58:00Z",
-                    realtime: true,
-                  },
-                },
-              ],
-            },
-          ],
-        },
-      },
-    };
+  it("parses one directional service day and the first scheduled departure next day", () => {
+    const result = parseEnturFerryDaySchedule(
+      daySchedulePayload([
+        estimatedCall({
+          departureTime: "2026-07-18T20:30:00+02:00",
+          arrivalTime: "2026-07-18T21:05:00+02:00",
+        }),
+        estimatedCall({
+          departureTime: "2026-07-18T14:20:00+02:00",
+          arrivalTime: "2026-07-18T14:55:00+02:00",
+        }),
+        estimatedCall({
+          departureTime: "2026-07-18T14:25:00+02:00",
+          arrivalTime: "2026-07-18T15:00:00+02:00",
+          destinationId: "NSR:StopPlace:wrong",
+        }),
+        estimatedCall({
+          departureTime: "2026-07-18T15:00:00+02:00",
+          arrivalTime: "2026-07-18T15:10:00+02:00",
+          mode: "bus",
+        }),
+        estimatedCall({
+          departureTime: "2026-07-18T16:00:00+02:00",
+          arrivalTime: "2026-07-18T16:35:00+02:00",
+          forBoarding: false,
+        }),
+        estimatedCall({
+          departureTime: "2026-07-19T07:00:00+02:00",
+          arrivalTime: "2026-07-19T07:35:00+02:00",
+        }),
+        estimatedCall({
+          departureTime: "2026-07-19T06:00:00+02:00",
+          arrivalTime: "2026-07-19T06:35:00+02:00",
+        }),
+      ]),
+      "NSR:StopPlace:58092",
+      "2026-07-18",
+    );
 
-    expect(parseEnturFerryDepartures(payload, new Date("2026-07-18T14:15:00Z"))).toEqual([
-      {
-        departureTime: "2026-07-18T14:23:00Z",
-        arrivalTime: "2026-07-18T14:58:00Z",
-        serviceName: "Ferry 1",
-        realtime: true,
+    expect(result).toEqual({
+      serviceDate: "2026-07-18",
+      departures: [
+        {
+          departureTime: "2026-07-18T14:20:00+02:00",
+          arrivalTime: "2026-07-18T14:55:00+02:00",
+          serviceName: "Rv. 19 Moss-Horten",
+        },
+        {
+          departureTime: "2026-07-18T20:30:00+02:00",
+          arrivalTime: "2026-07-18T21:05:00+02:00",
+          serviceName: "Rv. 19 Moss-Horten",
+        },
+      ],
+      firstDepartureNextDay: {
+        departureTime: "2026-07-19T06:00:00+02:00",
+        arrivalTime: "2026-07-19T06:35:00+02:00",
+        serviceName: "Rv. 19 Moss-Horten",
       },
-    ]);
+    });
   });
 
-  it("posts a directional trip query and safely reuses its short-lived concrete result", async () => {
+  it("fetches one scheduled day and reuses its permanent memory and persisted caches", async () => {
     const fetchMock = vi.fn<typeof fetch>().mockImplementation(async () =>
       Promise.resolve(
-        new Response(JSON.stringify(tripPayload()), {
+        new Response(JSON.stringify(daySchedulePayload()), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         }),
@@ -344,17 +354,23 @@ describe("Entur concrete departures", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const first = await fetchEnturFerryDepartures(providerRefs, new Date("2026-07-18T14:00:00Z"));
-    const cached = await fetchEnturFerryDepartures(providerRefs, new Date("2026-07-18T14:05:00Z"));
-    await fetchEnturFerryDepartures(providerRefs, new Date("2026-07-18T13:55:00Z"));
+    const [first, concurrent] = await Promise.all([
+      fetchEnturFerryDaySchedule(providerRefs, new Date("2026-07-18T14:00:00Z")),
+      fetchEnturFerryDaySchedule(providerRefs, new Date("2026-07-18T15:00:00Z")),
+    ]);
+    const memoryCached = await fetchEnturFerryDaySchedule(
+      providerRefs,
+      new Date("2026-07-18T16:00:00Z"),
+    );
 
-    expect(first[0]).toMatchObject({
-      departureTime: "2026-07-18T14:20:00Z",
-      arrivalTime: "2026-07-18T14:55:00Z",
-      realtime: true,
+    expect(first.departures[0]).toMatchObject({
+      departureTime: "2026-07-18T14:20:00+02:00",
+      arrivalTime: "2026-07-18T14:55:00+02:00",
     });
-    expect(cached).toEqual(first);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(concurrent).toEqual(first);
+    expect(memoryCached).toEqual(first);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(reactNativeMmkvMocks.set).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls[0][0]).toBe(ENTUR_JOURNEY_PLANNER_URL);
     expect(fetchMock.mock.calls[0][1]).toMatchObject({
       method: "POST",
@@ -364,42 +380,75 @@ describe("Entur concrete departures", () => {
       },
     });
     const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
-    expect(body.query).toContain("query FerryTrips");
+    expect(body.query).toContain("query FerryDaySchedule");
+    expect(body.query).toContain("aimedDepartureTime");
+    expect(body.query).not.toContain("expectedDepartureTime");
+    expect(body.query).not.toContain("realtime");
     expect(body.variables).toEqual({
       from: "NSR:StopPlace:58374",
-      to: "NSR:StopPlace:58092",
-      dateTime: "2026-07-18T14:00:00.000Z",
-      arriveBy: false,
-      numTripPatterns: 8,
+      startTime: "2026-07-17T22:00:00.000Z",
     });
+
+    const persisted = String(reactNativeMmkvMocks.set.mock.calls[0]?.[1]);
+    clearEnturDepartureCache();
+    reactNativeMmkvMocks.getString.mockReturnValue(persisted);
+    const persistedCached = await fetchEnturFerryDaySchedule(
+      providerRefs,
+      new Date("2026-07-18T18:00:00Z"),
+    );
+    expect(persistedCached).toEqual(first);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("returns only a nearby previous departure and the last departure of the day", async () => {
-    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (_input, init) => {
-      const body = JSON.parse(String(init?.body));
-      const variables = body.variables as { arriveBy: boolean; numTripPatterns: number };
-      const payload = variables.arriveBy
-        ? tripPayload("2026-07-18T20:30:00Z", "2026-07-18T21:05:00Z")
-        : variables.numTripPatterns === 16
-          ? tripPayload("2026-07-18T14:20:00Z")
-          : tripPayload("2026-07-18T14:45:00Z", "2026-07-18T15:20:00Z");
-      return new Response(JSON.stringify(payload), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      });
-    });
+  it("derives the previous hour, next departures, day boundaries, and tomorrow morning locally", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify(
+          daySchedulePayload([
+            estimatedCall({
+              departureTime: "2026-07-18T13:00:00+02:00",
+              arrivalTime: "2026-07-18T13:35:00+02:00",
+            }),
+            estimatedCall({
+              departureTime: "2026-07-18T14:20:00+02:00",
+              arrivalTime: "2026-07-18T14:55:00+02:00",
+            }),
+            estimatedCall({
+              departureTime: "2026-07-18T14:45:00+02:00",
+              arrivalTime: "2026-07-18T15:20:00+02:00",
+            }),
+            estimatedCall({
+              departureTime: "2026-07-18T20:30:00+02:00",
+              arrivalTime: "2026-07-18T21:05:00+02:00",
+            }),
+            estimatedCall({
+              departureTime: "2026-07-19T06:00:00+02:00",
+              arrivalTime: "2026-07-19T06:35:00+02:00",
+            }),
+          ]),
+        ),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    );
     vi.stubGlobal("fetch", fetchMock);
 
     const context = await fetchEnturFerryTimetableContext(
       providerRefs,
-      new Date("2026-07-18T14:25:00Z"),
-      35,
+      new Date("2026-07-18T14:25:00+02:00"),
     );
 
-    expect(context.previousDeparture?.departureTime).toBe("2026-07-18T14:20:00Z");
-    expect(context.nextDepartures[0]?.departureTime).toBe("2026-07-18T14:45:00Z");
-    expect(context.lastDepartureOfDay?.departureTime).toBe("2026-07-18T20:30:00Z");
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(context.previousDeparture?.departureTime).toBe("2026-07-18T14:20:00+02:00");
+    expect(context.nextDepartures.map((departure) => departure.departureTime)).toEqual([
+      "2026-07-18T14:45:00+02:00",
+      "2026-07-18T20:30:00+02:00",
+      "2026-07-19T06:00:00+02:00",
+    ]);
+    expect(context.lastDepartureOfDay?.departureTime).toBe("2026-07-18T20:30:00+02:00");
+    expect(context.firstDepartureNextDay?.departureTime).toBe("2026-07-19T06:00:00+02:00");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("surfaces HTTP and GraphQL failures without replacing the manual fallback", async () => {

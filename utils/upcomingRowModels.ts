@@ -218,9 +218,7 @@ function buildUpcomingRowModel({
     eta ? `ETA ${clockLabel}` : null,
     hasStopInterval && departureLabel ? `depart ${departureLabel}` : null,
     hasClimbInterval && climbEndLabel ? `end ${climbEndLabel}` : null,
-    concreteDepartureDate
-      ? `next departure ${formatETA(concreteDepartureDate)}${ferryDeparture?.realtime ? " live" : ""}`
-      : null,
+    concreteDepartureDate ? `next scheduled departure ${formatETA(concreteDepartureDate)}` : null,
     hasFerryInterval && ferryLandingLabel ? `land ${ferryLandingLabel}` : null,
     `${distanceLabel} ${distanceDirectionLabel}`,
   ]
@@ -307,7 +305,7 @@ function upcomingEventContent(
           title: event.ferry.name,
           subtitle: [
             `Next ${formatETA(departureDate)}${arrivalDate ? ` → ${formatETA(arrivalDate)}` : ""}`,
-            `${concreteDurationMinutes} min crossing · Entur ${ferryDeparture?.realtime ? "live" : "schedule"}`,
+            `${concreteDurationMinutes} min crossing · Entur schedule`,
           ].join("\n"),
           subtitleColor: { kind: "theme", key: "info" },
           accentColor: { kind: "theme", key: "info" },

@@ -1,8 +1,5 @@
-import type {
-  FerryDeparture,
-  FerryDepartureCacheRecord,
-  FerryTimetableProvider,
-} from "./ferryTimetable";
+import { createKeyValueStorage, type KeyValueStorage } from "@/lib/keyValueStorage";
+import type { FerryDeparture, FerryTimetableProvider } from "./ferryTimetable";
 
 export const ENTUR_CLIENT_NAME = "conqeror-ultra-companion";
 export const ENTUR_GEOCODER_URL = "https://api.entur.io/geocoder/v3/reverse";
@@ -14,10 +11,11 @@ export const ENTUR_TO_STOP_PLACE_NAME_PROVIDER_REF = "enturToStopPlaceName";
 
 const ENTUR_STOP_SEARCH_RADIUS_KM = 2;
 const ENTUR_STOP_SEARCH_LIMIT = 20;
-const ENTUR_DEPARTURE_CACHE_TTL_MS = 5 * 60_000;
 const CHILD_STOP_PENALTY_METERS = 500;
-const MAX_DEPARTURES = 8;
-const MAX_CONTEXT_DEPARTURES = 16;
+const ENTUR_SCHEDULE_CACHE_VERSION = 1;
+const ENTUR_SCHEDULE_QUERY_SECONDS = 36 * 60 * 60;
+const ENTUR_SCHEDULE_QUERY_LIMIT = 400;
+const ENTUR_SERVICE_TIME_ZONE = "Europe/Oslo";
 const PREVIOUS_DEPARTURE_WINDOW_MS = 60 * 60_000;
 
 const ENTUR_PROVIDER_REF_KEYS = new Set([
@@ -27,41 +25,35 @@ const ENTUR_PROVIDER_REF_KEYS = new Set([
   ENTUR_TO_STOP_PLACE_NAME_PROVIDER_REF,
 ]);
 
-const FERRY_TRIPS_QUERY = `
-query FerryTrips(
-  $from: String!
-  $to: String!
-  $dateTime: DateTime!
-  $arriveBy: Boolean!
-  $numTripPatterns: Int!
-) {
-  trip(
-    from: { place: $from }
-    to: { place: $to }
-    dateTime: $dateTime
-    arriveBy: $arriveBy
-    numTripPatterns: $numTripPatterns
-  ) {
-    tripPatterns {
-      startTime
-      endTime
-      legs {
-        mode
-        line {
-          name
-          publicCode
+const FERRY_DAY_SCHEDULE_QUERY = `
+query FerryDaySchedule($from: String!, $startTime: DateTime!) {
+  stopPlace(id: $from) {
+    estimatedCalls(
+      startTime: $startTime
+      timeRange: ${ENTUR_SCHEDULE_QUERY_SECONDS}
+      numberOfDepartures: ${ENTUR_SCHEDULE_QUERY_LIMIT}
+      arrivalDeparture: departures
+      filters: [{ select: [{ transportModes: [{ transportMode: water }] }] }]
+    ) {
+      aimedDepartureTime
+      forBoarding
+      serviceJourney {
+        journeyPattern {
+          line {
+            name
+            publicCode
+            transportMode
+          }
         }
-        fromEstimatedCall {
-          aimedDepartureTime
-          expectedDepartureTime
-          actualDepartureTime
-          realtime
-        }
-        toEstimatedCall {
+      }
+      serviceJourneyEstimatedCalls {
+        next(count: 20) {
           aimedArrivalTime
-          expectedArrivalTime
-          actualArrivalTime
-          realtime
+          quay {
+            stopPlace {
+              id
+            }
+          }
         }
       }
     }
@@ -95,11 +87,31 @@ export interface EnturFerryTimetableContext {
   previousDeparture: FerryDeparture | null;
   nextDepartures: FerryDeparture[];
   lastDepartureOfDay: FerryDeparture | null;
+  firstDepartureNextDay: FerryDeparture | null;
+}
+
+export interface EnturFerryDaySchedule {
+  serviceDate: string;
+  departures: FerryDeparture[];
+  firstDepartureNextDay: FerryDeparture | null;
+}
+
+interface CachedEnturFerryDaySchedule extends EnturFerryDaySchedule {
+  version: number;
+  directionKey: string;
+  fetchedAt: string;
 }
 
 const ENTUR_TERMINAL_SUFFIX = /\s+(?:(?:ferje|ferge)kai|ferry (?:terminal|quay))$/iu;
 
-const departureCache = new Map<string, FerryDepartureCacheRecord>();
+const dayScheduleCache = new Map<string, CachedEnturFerryDaySchedule>();
+const dayScheduleRequests = new Map<string, Promise<CachedEnturFerryDaySchedule>>();
+let dayScheduleStorage: KeyValueStorage | null = null;
+
+function getDayScheduleStorage(): KeyValueStorage {
+  dayScheduleStorage ??= createKeyValueStorage("entur-ferry-day-schedules-v1");
+  return dayScheduleStorage;
+}
 
 function record(value: unknown): Record<string, unknown> | null {
   return value != null && typeof value === "object" && !Array.isArray(value)
@@ -332,73 +344,6 @@ export function enturDepartureSearchTime(
   return new Date(quayEtaMs + safeBufferMinutes * 60_000);
 }
 
-function parseEnturFerryTripDepartures(payload: unknown): FerryDeparture[] {
-  const data = record(record(payload)?.data);
-  const trip = record(data?.trip);
-  const patterns = trip?.tripPatterns;
-  if (!Array.isArray(patterns)) return [];
-
-  const departures: FerryDeparture[] = [];
-  const seen = new Set<string>();
-  for (const patternValue of patterns) {
-    const pattern = record(patternValue);
-    const legs = pattern?.legs;
-    if (!Array.isArray(legs)) continue;
-    for (const legValue of legs) {
-      const leg = record(legValue);
-      if (nonEmptyString(leg?.mode)?.toLowerCase() !== "water") continue;
-      const fromCall = record(leg?.fromEstimatedCall);
-      const toCall = record(leg?.toEstimatedCall);
-      const departureTime = firstDateString(
-        fromCall?.actualDepartureTime,
-        fromCall?.expectedDepartureTime,
-        fromCall?.aimedDepartureTime,
-        pattern?.startTime,
-      );
-      const arrivalTime = firstDateString(
-        toCall?.actualArrivalTime,
-        toCall?.expectedArrivalTime,
-        toCall?.aimedArrivalTime,
-        pattern?.endTime,
-      );
-      if (!departureTime) continue;
-      const departureMs = validDateMs(departureTime);
-      if (departureMs == null) continue;
-      const safeArrivalTime =
-        arrivalTime != null && (validDateMs(arrivalTime) ?? -1) >= departureMs ? arrivalTime : null;
-      const line = record(leg?.line);
-      const serviceName = nonEmptyString(line?.name) ?? nonEmptyString(line?.publicCode);
-      const key = `${departureTime}|${safeArrivalTime ?? ""}|${serviceName ?? ""}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      departures.push({
-        departureTime,
-        arrivalTime: safeArrivalTime,
-        serviceName,
-        realtime:
-          fromCall?.realtime === true ||
-          toCall?.realtime === true ||
-          nonEmptyString(fromCall?.actualDepartureTime) != null ||
-          nonEmptyString(toCall?.actualArrivalTime) != null,
-      });
-    }
-  }
-
-  return departures.sort(
-    (a, b) =>
-      (validDateMs(a.departureTime) ?? Number.POSITIVE_INFINITY) -
-      (validDateMs(b.departureTime) ?? Number.POSITIVE_INFINITY),
-  );
-}
-
-export function parseEnturFerryDepartures(payload: unknown, after: Date): FerryDeparture[] {
-  const afterMs = after.getTime();
-  if (Number.isNaN(afterMs)) return [];
-  return parseEnturFerryTripDepartures(payload)
-    .filter((departure) => (validDateMs(departure.departureTime) ?? -1) >= afterMs)
-    .slice(0, MAX_DEPARTURES);
-}
-
 function graphqlErrorMessage(payload: unknown): string | null {
   const errors = record(payload)?.errors;
   if (!Array.isArray(errors) || errors.length === 0) return null;
@@ -408,6 +353,214 @@ function graphqlErrorMessage(payload: unknown): string | null {
 
 function cacheKey(stops: LinkedEnturFerryStops): string {
   return `${stops.fromId}|${stops.toId}`;
+}
+
+function serviceDateFor(date: Date): string | null {
+  if (Number.isNaN(date.getTime())) return null;
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: ENTUR_SERVICE_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const year = parts.find((part) => part.type === "year")?.value;
+  const month = parts.find((part) => part.type === "month")?.value;
+  const day = parts.find((part) => part.type === "day")?.value;
+  return year && month && day ? `${year}-${month}-${day}` : null;
+}
+
+function addServiceDateDays(serviceDate: string, days: number): string | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(serviceDate);
+  if (!match) return null;
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]) + days));
+  return date.toISOString().slice(0, 10);
+}
+
+function serviceDateStart(serviceDate: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(serviceDate);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const utcGuess = Date.UTC(year, month - 1, day);
+  const zonedParts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: ENTUR_SERVICE_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date(utcGuess));
+  const value = (type: Intl.DateTimeFormatPartTypes): number | null => {
+    const part = zonedParts.find((candidate) => candidate.type === type)?.value;
+    return part == null ? null : Number(part);
+  };
+  const zonedYear = value("year");
+  const zonedMonth = value("month");
+  const zonedDay = value("day");
+  const zonedHour = value("hour");
+  const zonedMinute = value("minute");
+  const zonedSecond = value("second");
+  if (
+    zonedYear == null ||
+    zonedMonth == null ||
+    zonedDay == null ||
+    zonedHour == null ||
+    zonedMinute == null ||
+    zonedSecond == null
+  ) {
+    return null;
+  }
+  const offsetMs =
+    Date.UTC(zonedYear, zonedMonth - 1, zonedDay, zonedHour, zonedMinute, zonedSecond) - utcGuess;
+  return new Date(utcGuess - offsetMs);
+}
+
+function dayScheduleCacheKey(stops: LinkedEnturFerryStops, serviceDate: string): string {
+  return `day:${cacheKey(stops)}:${serviceDate}`;
+}
+
+function validCachedDeparture(value: unknown): FerryDeparture | null {
+  const candidate = record(value);
+  const departureTime = nonEmptyString(candidate?.departureTime);
+  const rawArrivalTime = candidate?.arrivalTime;
+  const arrivalTime = rawArrivalTime == null ? null : nonEmptyString(rawArrivalTime);
+  const rawServiceName = candidate?.serviceName;
+  const serviceName = rawServiceName == null ? null : nonEmptyString(rawServiceName);
+  if (!departureTime || validDateMs(departureTime) == null) return null;
+  if (rawArrivalTime != null && !arrivalTime) return null;
+  if (arrivalTime && validDateMs(arrivalTime) == null) return null;
+  if (rawServiceName != null && !serviceName) return null;
+  return { departureTime, arrivalTime, serviceName };
+}
+
+function readCachedDaySchedule(
+  storageKey: string,
+  directionKey: string,
+  serviceDate: string,
+): CachedEnturFerryDaySchedule | null {
+  try {
+    const raw = getDayScheduleStorage().getString(storageKey);
+    if (!raw) return null;
+    const parsed = record(JSON.parse(raw));
+    const rawDepartures = parsed?.departures;
+    if (
+      parsed?.version !== ENTUR_SCHEDULE_CACHE_VERSION ||
+      parsed?.directionKey !== directionKey ||
+      parsed?.serviceDate !== serviceDate ||
+      !Array.isArray(rawDepartures)
+    ) {
+      return null;
+    }
+    const departures = rawDepartures.map(validCachedDeparture);
+    if (departures.some((departure) => departure == null)) return null;
+    const rawFirstNextDay = parsed.firstDepartureNextDay;
+    const firstDepartureNextDay =
+      rawFirstNextDay == null ? null : validCachedDeparture(rawFirstNextDay);
+    if (rawFirstNextDay != null && !firstDepartureNextDay) return null;
+    const fetchedAt = nonEmptyString(parsed.fetchedAt);
+    if (!fetchedAt || validDateMs(fetchedAt) == null) return null;
+    return {
+      version: ENTUR_SCHEDULE_CACHE_VERSION,
+      directionKey,
+      serviceDate,
+      departures: departures as FerryDeparture[],
+      firstDepartureNextDay,
+      fetchedAt,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function persistDaySchedule(storageKey: string, schedule: CachedEnturFerryDaySchedule): void {
+  try {
+    getDayScheduleStorage().set(storageKey, JSON.stringify(schedule));
+  } catch {}
+}
+
+function scheduledDepartureFromCall(
+  call: Record<string, unknown>,
+  toStopPlaceId: string,
+): FerryDeparture | null {
+  if (call.forBoarding === false) return null;
+  const serviceJourney = record(call.serviceJourney);
+  const journeyPattern = record(serviceJourney?.journeyPattern);
+  const line = record(journeyPattern?.line);
+  if (nonEmptyString(line?.transportMode)?.toLowerCase() !== "water") return null;
+  const departureTime = firstDateString(call.aimedDepartureTime);
+  if (!departureTime) return null;
+  const departureMs = validDateMs(departureTime);
+  if (departureMs == null) return null;
+  const serviceCalls = record(call.serviceJourneyEstimatedCalls);
+  const nextCalls = serviceCalls?.next;
+  if (!Array.isArray(nextCalls)) return null;
+  const landingCall = nextCalls.find((nextCallValue) => {
+    const nextCall = record(nextCallValue);
+    const quay = record(nextCall?.quay);
+    return nonEmptyString(record(quay?.stopPlace)?.id) === toStopPlaceId;
+  });
+  if (!landingCall) return null;
+  const aimedArrivalTime = firstDateString(record(landingCall)?.aimedArrivalTime);
+  const arrivalTime =
+    aimedArrivalTime && (validDateMs(aimedArrivalTime) ?? -1) >= departureMs
+      ? aimedArrivalTime
+      : null;
+  return {
+    departureTime,
+    arrivalTime,
+    serviceName: nonEmptyString(line?.name) ?? nonEmptyString(line?.publicCode),
+  };
+}
+
+function sortAndDedupeDepartures(departures: readonly FerryDeparture[]): FerryDeparture[] {
+  const seen = new Set<string>();
+  return [...departures]
+    .sort(
+      (a, b) =>
+        (validDateMs(a.departureTime) ?? Number.POSITIVE_INFINITY) -
+        (validDateMs(b.departureTime) ?? Number.POSITIVE_INFINITY),
+    )
+    .filter((departure) => {
+      const key = `${departure.departureTime}|${departure.arrivalTime ?? ""}|${departure.serviceName ?? ""}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
+export function parseEnturFerryDaySchedule(
+  payload: unknown,
+  toStopPlaceId: string,
+  serviceDate: string,
+): EnturFerryDaySchedule {
+  const stopPlace = record(record(record(payload)?.data)?.stopPlace);
+  const calls = stopPlace?.estimatedCalls;
+  const nextServiceDate = addServiceDateDays(serviceDate, 1);
+  if (!Array.isArray(calls) || !nextServiceDate) {
+    return { serviceDate, departures: [], firstDepartureNextDay: null };
+  }
+
+  const currentDay: FerryDeparture[] = [];
+  const nextDay: FerryDeparture[] = [];
+  for (const callValue of calls) {
+    const call = record(callValue);
+    if (!call) continue;
+    const departure = scheduledDepartureFromCall(call, toStopPlaceId);
+    if (!departure) continue;
+    const departureServiceDate = serviceDateFor(new Date(departure.departureTime));
+    if (departureServiceDate === serviceDate) currentDay.push(departure);
+    else if (departureServiceDate === nextServiceDate) nextDay.push(departure);
+  }
+  const departures = sortAndDedupeDepartures(currentDay);
+  const nextDayDepartures = sortAndDedupeDepartures(nextDay);
+  return {
+    serviceDate,
+    departures,
+    firstDepartureNextDay: nextDayDepartures[0] ?? null,
+  };
 }
 
 function departuresAtOrAfter(departures: readonly FerryDeparture[], after: Date): FerryDeparture[] {
@@ -429,25 +582,22 @@ function lastMatchingDeparture(
   return null;
 }
 
-async function requestEnturFerryTripDepartures(
+async function requestEnturFerryDaySchedule(
   stops: LinkedEnturFerryStops,
-  dateTime: Date,
-  arriveBy: boolean,
-  numTripPatterns: number,
+  serviceDate: string,
   signal?: AbortSignal,
-): Promise<FerryDeparture[]> {
+): Promise<CachedEnturFerryDaySchedule> {
   throwIfAborted(signal);
+  const startTime = serviceDateStart(serviceDate);
+  if (!startTime) throw new Error("The ferry service date is invalid.");
   const response = await fetch(ENTUR_JOURNEY_PLANNER_URL, {
     method: "POST",
     headers: enturHeaders(true),
     body: JSON.stringify({
-      query: FERRY_TRIPS_QUERY,
+      query: FERRY_DAY_SCHEDULE_QUERY,
       variables: {
         from: stops.fromId,
-        to: stops.toId,
-        dateTime: dateTime.toISOString(),
-        arriveBy,
-        numTripPatterns,
+        startTime: startTime.toISOString(),
       },
     }),
     signal,
@@ -456,7 +606,53 @@ async function requestEnturFerryTripDepartures(
   const payload: unknown = await response.json();
   const graphqlError = graphqlErrorMessage(payload);
   if (graphqlError) throw new Error(graphqlError);
-  return parseEnturFerryTripDepartures(payload);
+  return {
+    version: ENTUR_SCHEDULE_CACHE_VERSION,
+    directionKey: cacheKey(stops),
+    ...parseEnturFerryDaySchedule(payload, stops.toId, serviceDate),
+    fetchedAt: new Date().toISOString(),
+  };
+}
+
+export async function fetchEnturFerryDaySchedule(
+  providerRefs: Readonly<Record<string, string>>,
+  at: Date,
+  signal?: AbortSignal,
+): Promise<EnturFerryDaySchedule> {
+  throwIfAborted(signal);
+  const stops = readLinkedEnturFerryStops(providerRefs);
+  if (!stops) throw new Error("This ferry is not linked to two Entur stops.");
+  const serviceDate = serviceDateFor(at);
+  if (!serviceDate) throw new Error("The ferry ETA is invalid.");
+  const directionKey = cacheKey(stops);
+  const storageKey = dayScheduleCacheKey(stops, serviceDate);
+  const memoryCached = dayScheduleCache.get(storageKey);
+  if (memoryCached) return memoryCached;
+  const persisted = readCachedDaySchedule(storageKey, directionKey, serviceDate);
+  if (persisted) {
+    dayScheduleCache.set(storageKey, persisted);
+    return persisted;
+  }
+
+  const existingRequest = dayScheduleRequests.get(storageKey);
+  if (existingRequest) {
+    const schedule = await existingRequest;
+    throwIfAborted(signal);
+    return schedule;
+  }
+
+  const request = requestEnturFerryDaySchedule(stops, serviceDate, signal);
+  dayScheduleRequests.set(storageKey, request);
+  try {
+    const schedule = await request;
+    dayScheduleCache.set(storageKey, schedule);
+    if (schedule.departures.length > 0 || schedule.firstDepartureNextDay) {
+      persistDaySchedule(storageKey, schedule);
+    }
+    return schedule;
+  } finally {
+    if (dayScheduleRequests.get(storageKey) === request) dayScheduleRequests.delete(storageKey);
+  }
 }
 
 export async function fetchEnturFerryDepartures(
@@ -465,101 +661,23 @@ export async function fetchEnturFerryDepartures(
   signal?: AbortSignal,
 ): Promise<FerryDeparture[]> {
   throwIfAborted(signal);
-  const stops = readLinkedEnturFerryStops(providerRefs);
-  if (!stops) throw new Error("This ferry is not linked to two Entur stops.");
-  if (Number.isNaN(after.getTime())) throw new Error("The ferry ETA is invalid.");
-
-  const directionKey = cacheKey(stops);
-  const nowMs = Date.now();
-  const cached = departureCache.get(directionKey);
-  if (
-    cached &&
-    new Date(cached.expiresAt).getTime() > nowMs &&
-    new Date(cached.queryAfter).getTime() <= after.getTime()
-  ) {
-    const matching = departuresAtOrAfter(cached.departures, after);
-    if (matching.length > 0) return matching;
-  }
-
-  const departures = departuresAtOrAfter(
-    await requestEnturFerryTripDepartures(stops, after, false, MAX_DEPARTURES, signal),
-    after,
-  ).slice(0, MAX_DEPARTURES);
-  const fetchedAt = new Date(nowMs).toISOString();
-  if (departures.length > 0) {
-    departureCache.set(directionKey, {
-      provider: "entur",
-      directionKey,
-      queryAfter: after.toISOString(),
-      departures,
-      fetchedAt,
-      expiresAt: new Date(nowMs + ENTUR_DEPARTURE_CACHE_TTL_MS).toISOString(),
-    });
-  }
-  return departures;
-}
-
-function sameLocalDay(a: Date, b: Date): boolean {
-  return (
-    a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate()
-  );
-}
-
-function lastDepartureArrivalCutoff(boardableTime: Date, crossingDurationMinutes: number): Date {
-  const cutoff = new Date(boardableTime);
-  cutoff.setHours(24, 0, 0, 0);
-  const safeCrossingMinutes = Number.isFinite(crossingDurationMinutes)
-    ? Math.max(0, crossingDurationMinutes)
-    : 0;
-  cutoff.setMinutes(Math.max(60, Math.ceil(safeCrossingMinutes) + 15));
-  return cutoff;
+  const schedule = await fetchEnturFerryDaySchedule(providerRefs, after, signal);
+  const departures = schedule.firstDepartureNextDay
+    ? [...schedule.departures, schedule.firstDepartureNextDay]
+    : schedule.departures;
+  return departuresAtOrAfter(departures, after);
 }
 
 export async function fetchEnturFerryTimetableContext(
   providerRefs: Readonly<Record<string, string>>,
   boardableTime: Date,
-  crossingDurationMinutes: number,
   signal?: AbortSignal,
 ): Promise<EnturFerryTimetableContext> {
-  throwIfAborted(signal);
-  const stops = readLinkedEnturFerryStops(providerRefs);
-  if (!stops) throw new Error("This ferry is not linked to two Entur stops.");
   const boardableTimeMs = boardableTime.getTime();
   if (Number.isNaN(boardableTimeMs)) throw new Error("The ferry ETA is invalid.");
-
+  const schedule = await fetchEnturFerryDaySchedule(providerRefs, boardableTime, signal);
   const previousWindowStart = new Date(boardableTimeMs - PREVIOUS_DEPARTURE_WINDOW_MS);
-  const lastDepartureCutoff = lastDepartureArrivalCutoff(boardableTime, crossingDurationMinutes);
-  const [nextResult, previousResult, lastResult] = await Promise.allSettled([
-    fetchEnturFerryDepartures(providerRefs, boardableTime, signal),
-    requestEnturFerryTripDepartures(
-      stops,
-      previousWindowStart,
-      false,
-      MAX_CONTEXT_DEPARTURES,
-      signal,
-    ),
-    requestEnturFerryTripDepartures(
-      stops,
-      lastDepartureCutoff,
-      true,
-      MAX_CONTEXT_DEPARTURES,
-      signal,
-    ),
-  ]);
-  throwIfAborted(signal);
-
-  const successfulResults = [nextResult, previousResult, lastResult].filter(
-    (result) => result.status === "fulfilled",
-  );
-  if (successfulResults.length === 0) {
-    throw nextResult.status === "rejected" ? nextResult.reason : new Error("Entur unavailable.");
-  }
-
-  const nextDepartures = nextResult.status === "fulfilled" ? nextResult.value : [];
-  const previousCandidates = previousResult.status === "fulfilled" ? previousResult.value : [];
-  const previousDeparture = lastMatchingDeparture(previousCandidates, (departure) => {
+  const previousDeparture = lastMatchingDeparture(schedule.departures, (departure) => {
     const departureMs = validDateMs(departure.departureTime);
     return (
       departureMs != null &&
@@ -567,17 +685,22 @@ export async function fetchEnturFerryTimetableContext(
       departureMs < boardableTimeMs
     );
   });
-  const lastCandidates = lastResult.status === "fulfilled" ? lastResult.value : [];
-  const lastDepartureOfDay = lastMatchingDeparture(lastCandidates, (departure) => {
-    const departureDate = new Date(departure.departureTime);
-    return !Number.isNaN(departureDate.getTime()) && sameLocalDay(departureDate, boardableTime);
-  });
-
-  return { previousDeparture, nextDepartures, lastDepartureOfDay };
+  const allForwardDepartures = schedule.firstDepartureNextDay
+    ? [...schedule.departures, schedule.firstDepartureNextDay]
+    : schedule.departures;
+  const nextDepartures = departuresAtOrAfter(allForwardDepartures, boardableTime);
+  const lastDepartureOfDay = schedule.departures[schedule.departures.length - 1] ?? null;
+  return {
+    previousDeparture,
+    nextDepartures,
+    lastDepartureOfDay,
+    firstDepartureNextDay: schedule.firstDepartureNextDay,
+  };
 }
 
 export function clearEnturDepartureCache(): void {
-  departureCache.clear();
+  dayScheduleCache.clear();
+  dayScheduleRequests.clear();
 }
 
 export const enturFerryTimetableProvider: FerryTimetableProvider = {

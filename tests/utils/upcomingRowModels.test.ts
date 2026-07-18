@@ -233,21 +233,20 @@ describe("upcomingRowModels", () => {
           departureTime,
           arrivalTime,
           serviceName: "Test service",
-          realtime: true,
         },
       },
     });
     expect(enturRow).toMatchObject({
       subtitle: `Next ${formatETA(new Date(departureTime))} → ${formatETA(
         new Date(arrivalTime),
-      )}\n35 min crossing · Entur live`,
+      )}\n35 min crossing · Entur schedule`,
       subtitleNumberOfLines: 2,
       ferryLandingLabel: formatETA(new Date(arrivalTime)),
       hasFerryInterval: true,
     });
     expect(enturRow.subtitle).not.toContain("assumed wait");
     expect(enturRow.accessibilityLabel).toContain(
-      `next departure ${formatETA(new Date(departureTime))} live`,
+      `next scheduled departure ${formatETA(new Date(departureTime))}`,
     );
   });
 

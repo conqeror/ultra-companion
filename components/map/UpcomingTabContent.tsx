@@ -37,7 +37,6 @@ import {
 import { plannedStopsFromPOIs } from "@/services/plannedStops";
 import {
   enturDepartureSearchTime,
-  fetchEnturFerryDepartures,
   fetchEnturFerryTimetableContext,
   readLinkedEnturFerryStops,
 } from "@/services/enturFerry";
@@ -71,15 +70,14 @@ interface UpcomingFerryDepartureRequest {
   ferryId: string;
   providerRefs: Readonly<Record<string, string>>;
   afterMs: number;
-  crossingDurationMinutes: number;
 }
 
 interface FerryTimetableViewState {
   status: "loading" | "loaded" | "unavailable";
-  detailsStatus: "idle" | "loaded" | "unavailable";
   departures: FerryDeparture[];
   previousDeparture: FerryDeparture | null;
   lastDepartureOfDay: FerryDeparture | null;
+  firstDepartureNextDay: FerryDeparture | null;
   boardableTimeMs: number;
 }
 
@@ -225,7 +223,6 @@ export default function UpcomingTabContent({ activeData }: UpcomingTabContentPro
             ferryId: event.ferry.id,
             providerRefs: event.ferry.providerRefs,
             afterMs: after.getTime(),
-            crossingDurationMinutes: event.ferry.durationMinutes,
           },
         ];
       }),
@@ -250,10 +247,10 @@ export default function UpcomingTabContent({ activeData }: UpcomingTabContentPro
           request.ferryId,
           {
             status: "loading",
-            detailsStatus: "idle",
             departures: [],
             previousDeparture: null,
             lastDepartureOfDay: null,
+            firstDepartureNextDay: null,
             boardableTimeMs: request.afterMs,
           } satisfies FerryTimetableViewState,
         ]),
@@ -265,19 +262,24 @@ export default function UpcomingTabContent({ activeData }: UpcomingTabContentPro
           request,
         ): Promise<readonly [ferryId: string, state: FerryTimetableViewState] | null> => {
           try {
-            const departures = await fetchEnturFerryDepartures(
+            const timetable = await fetchEnturFerryTimetableContext(
               request.providerRefs,
               new Date(request.afterMs),
               controller.signal,
             );
+            const hasTimetableData =
+              timetable.nextDepartures.length > 0 ||
+              timetable.previousDeparture != null ||
+              timetable.lastDepartureOfDay != null ||
+              timetable.firstDepartureNextDay != null;
             return [
               request.ferryId,
               {
-                status: departures.length > 0 ? "loaded" : "unavailable",
-                detailsStatus: "idle",
-                departures,
-                previousDeparture: null,
-                lastDepartureOfDay: null,
+                status: hasTimetableData ? "loaded" : "unavailable",
+                departures: timetable.nextDepartures,
+                previousDeparture: timetable.previousDeparture,
+                lastDepartureOfDay: timetable.lastDepartureOfDay,
+                firstDepartureNextDay: timetable.firstDepartureNextDay,
                 boardableTimeMs: request.afterMs,
               },
             ];
@@ -292,10 +294,10 @@ export default function UpcomingTabContent({ activeData }: UpcomingTabContentPro
               request.ferryId,
               {
                 status: "unavailable",
-                detailsStatus: "idle",
                 departures: [],
                 previousDeparture: null,
                 lastDepartureOfDay: null,
+                firstDepartureNextDay: null,
                 boardableTimeMs: request.afterMs,
               },
             ];
@@ -304,26 +306,7 @@ export default function UpcomingTabContent({ activeData }: UpcomingTabContentPro
       ),
     ).then((results) => {
       if (disposed) return;
-      setFerryTimetables((current) =>
-        Object.fromEntries(
-          results
-            .filter((result) => result != null)
-            .map(([ferryId, state]) => {
-              const existing = current[ferryId];
-              return [
-                ferryId,
-                existing && existing.boardableTimeMs === state.boardableTimeMs
-                  ? {
-                      ...state,
-                      detailsStatus: existing.detailsStatus,
-                      previousDeparture: existing.previousDeparture,
-                      lastDepartureOfDay: existing.lastDepartureOfDay,
-                    }
-                  : state,
-              ];
-            }),
-        ),
-      );
+      setFerryTimetables(Object.fromEntries(results.filter((result) => result != null)));
     });
 
     return () => {
@@ -331,76 +314,6 @@ export default function UpcomingTabContent({ activeData }: UpcomingTabContentPro
       controller.abort();
     };
   }, [ferryDepartureRequests]);
-
-  const expandedTimetable = expandedFerryId ? ferryTimetables[expandedFerryId] : undefined;
-
-  useEffect(() => {
-    if (
-      !expandedFerryId ||
-      !expandedTimetable ||
-      expandedTimetable.status === "loading" ||
-      expandedTimetable.detailsStatus !== "idle"
-    ) {
-      return;
-    }
-    const request = ferryDepartureRequests.find((item) => item.ferryId === expandedFerryId);
-    if (!request) return;
-
-    const controller = new AbortController();
-    let disposed = false;
-    void fetchEnturFerryTimetableContext(
-      request.providerRefs,
-      new Date(request.afterMs),
-      request.crossingDurationMinutes,
-      controller.signal,
-    )
-      .then((timetable) => {
-        if (disposed) return;
-        setFerryTimetables((current) => {
-          const existing = current[expandedFerryId];
-          if (!existing || existing.boardableTimeMs !== request.afterMs) return current;
-          const departures =
-            timetable.nextDepartures.length > 0 ? timetable.nextDepartures : existing.departures;
-          const hasTimetableData =
-            departures.length > 0 ||
-            timetable.previousDeparture != null ||
-            timetable.lastDepartureOfDay != null;
-          return {
-            ...current,
-            [expandedFerryId]: {
-              ...existing,
-              status: hasTimetableData ? "loaded" : "unavailable",
-              detailsStatus: "loaded",
-              departures,
-              previousDeparture: timetable.previousDeparture,
-              lastDepartureOfDay: timetable.lastDepartureOfDay,
-            },
-          };
-        });
-      })
-      .catch((timetableError: unknown) => {
-        if (
-          disposed ||
-          controller.signal.aborted ||
-          (timetableError instanceof Error && timetableError.name === "AbortError")
-        ) {
-          return;
-        }
-        setFerryTimetables((current) => {
-          const existing = current[expandedFerryId];
-          if (!existing || existing.boardableTimeMs !== request.afterMs) return current;
-          return {
-            ...current,
-            [expandedFerryId]: { ...existing, detailsStatus: "unavailable" },
-          };
-        });
-      });
-
-    return () => {
-      disposed = true;
-      controller.abort();
-    };
-  }, [expandedFerryId, expandedTimetable, ferryDepartureRequests]);
 
   useEffect(() => {
     if (expandedFerryId && !expandableFerryIds.has(expandedFerryId)) {
@@ -715,7 +628,7 @@ const UpcomingEventRow = React.memo(function UpcomingEventRow({
 
 function FerryTimetableDetails({ timetable }: { timetable?: FerryTimetableViewState }) {
   const colors = useThemeColors();
-  if (!timetable || timetable.status === "loading" || timetable.detailsStatus === "idle") {
+  if (!timetable || timetable.status === "loading") {
     return (
       <View className="flex-row items-center gap-2 bg-info/5 px-4 pb-3 pt-1">
         <ActivityIndicator size="small" color={colors.info} />
@@ -724,10 +637,11 @@ function FerryTimetableDetails({ timetable }: { timetable?: FerryTimetableViewSt
     );
   }
   if (
-    (timetable.status === "unavailable" && timetable.detailsStatus === "unavailable") ||
+    timetable.status === "unavailable" ||
     (timetable.departures.length === 0 &&
       !timetable.previousDeparture &&
-      !timetable.lastDepartureOfDay)
+      !timetable.lastDepartureOfDay &&
+      !timetable.firstDepartureNextDay)
   ) {
     return (
       <View className="bg-info/5 px-4 pb-3 pt-1">
@@ -740,11 +654,6 @@ function FerryTimetableDetails({ timetable }: { timetable?: FerryTimetableViewSt
 
   return (
     <View className="bg-info/5 px-4 pb-3 pt-1">
-      {timetable.detailsStatus === "unavailable" && (
-        <Text className="pb-1 text-[12px] leading-4 text-muted-foreground">
-          Previous and last-departure details are unavailable.
-        </Text>
-      )}
       {timetable.previousDeparture && (
         <View className="pb-2">
           <Text className="text-[13px] font-barlow-semibold text-muted-foreground">
@@ -767,7 +676,7 @@ function FerryTimetableDetails({ timetable }: { timetable?: FerryTimetableViewSt
             <FerryDepartureLine
               key={`${departure.departureTime}:${departure.arrivalTime ?? ""}:${departure.serviceName ?? ""}`}
               departure={departure}
-              trailingLabel={departure.realtime ? "Live" : "Scheduled"}
+              trailingLabel="Scheduled"
             />
           ))}
         </View>
@@ -786,6 +695,18 @@ function FerryTimetableDetails({ timetable }: { timetable?: FerryTimetableViewSt
             departure={timetable.lastDepartureOfDay}
             trailingLabel="Last today"
             isImportant
+          />
+        </View>
+      )}
+
+      {timetable.firstDepartureNextDay && (
+        <View className="mt-2 border-t border-border-subtle pt-2">
+          <Text className="text-[13px] font-barlow-semibold text-foreground">
+            First departure tomorrow
+          </Text>
+          <FerryDepartureLine
+            departure={timetable.firstDepartureNextDay}
+            trailingLabel="First tomorrow"
           />
         </View>
       )}

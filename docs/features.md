@@ -57,8 +57,8 @@ What's implemented. For the "why" behind these, see `usage-context.md`.
 - Includes POIs with planned stop durations even when unstarred, so downstream ETA shifts are visible
 - Models climbs as one span row with start and end ETA when available
 - Shows saved ferries in route order with quay ETA, readable stacked wait/crossing timing, and landing ETA
-- For Entur-linked ferries, fetches the next boardable departure from quay ETA plus boarding buffer and shows its concrete departure/arrival; manual timing remains the quiet fallback
-- Tapping an Entur-linked Upcoming ferry expands an inline view with the previous departure when it was within one hour of the boardable ETA, the next five departures, and the last departure of that day
+- For Entur-linked ferries, fetches the directional scheduled departure board for the ETA's service day once, persists it without expiry, and shows the next boardable scheduled departure/arrival; manual timing remains the quiet fallback
+- Tapping an Entur-linked Upcoming ferry derives an inline view from the cached schedule with the previous departure when it was within one hour of the boardable ETA, the next five departures, the last departure that day, and the first departure the following morning
 
 ## Climb Detection
 
