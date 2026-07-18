@@ -15,7 +15,7 @@ Last reviewed: 2026-07-18
 
 ## Current Coverage
 
-The app has a pure-logic Vitest suite for the bug classes that TypeScript and linting cannot catch. As of this review: 58 test files, 374 tests.
+The app has a pure-logic Vitest suite for the bug classes that TypeScript and linting cannot catch. As of this review: 59 test files, 383 tests.
 
 Covered areas:
 

@@ -24,6 +24,24 @@ export interface PreparedRouteGeometry {
 
 export type PreparedRouteGeometryMap = Record<string, PreparedRouteGeometry>;
 
+type PreparedRouteGeometrySource = Pick<
+  PreparedRouteGeometryRequest,
+  "cacheKey" | "points" | "startPointIndex" | "endPointIndex" | "maxPoints"
+>;
+
+function preparedRouteGeometrySourcesMatch(
+  a: PreparedRouteGeometrySource,
+  b: PreparedRouteGeometrySource,
+): boolean {
+  return (
+    a.cacheKey === b.cacheKey &&
+    a.points === b.points &&
+    a.startPointIndex === b.startPointIndex &&
+    a.endPointIndex === b.endPointIndex &&
+    a.maxPoints === b.maxPoints
+  );
+}
+
 function samePreparedGeometryMap(
   a: PreparedRouteGeometryMap,
   b: PreparedRouteGeometryMap,
@@ -66,14 +84,27 @@ export function preparedRouteGeometryMatchesRequest(
   request: PreparedRouteGeometryRequest,
 ): boolean {
   return (
-    prepared != null &&
-    prepared.cacheKey === request.cacheKey &&
-    prepared.points === request.points &&
-    prepared.toleranceMeters === request.toleranceMeters &&
-    prepared.startPointIndex === request.startPointIndex &&
-    prepared.endPointIndex === request.endPointIndex &&
-    prepared.maxPoints === request.maxPoints
+    preparedRouteGeometryMatchesSource(prepared, request) &&
+    prepared.toleranceMeters === request.toleranceMeters
   );
+}
+
+export function preparedRouteGeometryMatchesSource(
+  prepared: PreparedRouteGeometry | undefined,
+  request: PreparedRouteGeometryRequest,
+): prepared is PreparedRouteGeometry {
+  return prepared != null && preparedRouteGeometrySourcesMatch(prepared, request);
+}
+
+export function preparedRouteGeometryRequestListsMatchSource(
+  a: readonly PreparedRouteGeometryRequest[],
+  b: readonly PreparedRouteGeometryRequest[],
+): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((request, index) => {
+    const candidate = b[index];
+    return request.id === candidate.id && preparedRouteGeometrySourcesMatch(request, candidate);
+  });
 }
 
 export function isRouteGeometryRequestRenderable(request: PreparedRouteGeometryRequest): boolean {
@@ -110,14 +141,7 @@ function nextPreparedGeometryState(
     }
 
     const previousReady = previous[request.id];
-    if (
-      previousReady &&
-      previousReady.cacheKey === request.cacheKey &&
-      previousReady.points === request.points &&
-      previousReady.startPointIndex === request.startPointIndex &&
-      previousReady.endPointIndex === request.endPointIndex &&
-      previousReady.maxPoints === request.maxPoints
-    ) {
+    if (preparedRouteGeometryMatchesSource(previousReady, request)) {
       next[request.id] = previousReady;
     }
   }
@@ -194,13 +218,7 @@ export function usePreparedRouteGeometries(
         console.warn(`Failed to prepare map geometry for ${request.id}:`, error);
         preparationError = true;
         const previous = preparedByIdRef.current[request.id];
-        const previousMatchesSource =
-          previous?.cacheKey === request.cacheKey &&
-          previous.points === request.points &&
-          previous.startPointIndex === request.startPointIndex &&
-          previous.endPointIndex === request.endPointIndex &&
-          previous.maxPoints === request.maxPoints;
-        geoJSON = previousMatchesSource
+        geoJSON = preparedRouteGeometryMatchesSource(previous, request)
           ? previous.geoJSON
           : {
               type: "Feature",

@@ -182,7 +182,9 @@ export default function FerryEditorModal({
     return {
       id: crossing?.id ?? "ferry-preview",
       routeId: route.id,
-      name: name.trim() || "Ferry crossing",
+      // Text edits do not change preview geometry. Keeping the geometry model
+      // independent avoids re-preparing and refitting the map while typing.
+      name: crossing?.name ?? "Ferry crossing",
       ...span,
       effectiveStartDistanceMeters: toDisplayDistanceMeters(span.startDistanceMeters),
       effectiveEndDistanceMeters: toDisplayDistanceMeters(span.endDistanceMeters),
@@ -200,7 +202,7 @@ export default function FerryEditorModal({
       createdAt: now,
       updatedAt: now,
     };
-  }, [crossing, isManualSpan, name, previewProviderRefs, route.id, span]);
+  }, [crossing, isManualSpan, previewProviderRefs, route.id, span]);
   const layers = useMemo<RoutePreviewMapLayer[]>(() => {
     const pieces = previewFerry
       ? buildFerryMapLandPieces(route.points, [previewFerry])

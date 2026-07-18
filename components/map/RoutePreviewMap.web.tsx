@@ -9,7 +9,8 @@ import { useThemeColors } from "@/theme";
 import {
   isRouteGeometryRequestRenderable,
   preparedRouteGeometryHasError,
-  preparedRouteGeometryMatchesRequest,
+  preparedRouteGeometryMatchesSource,
+  preparedRouteGeometryRequestListsMatchSource,
   usePreparedRouteGeometries,
   type PreparedRouteGeometryRequest,
 } from "@/hooks/usePreparedRouteGeometries";
@@ -18,6 +19,7 @@ import {
   buildFerryMapFeatureCollections,
   type FerryMapFeatureCollections,
 } from "@/utils/ferryMapFeatures";
+import { ferryMapGeometrySignature } from "@/services/ferryGeometry";
 import { Text } from "@/components/ui/text";
 import type { DisplayFerryCrossing, RoutePoint } from "@/types";
 
@@ -36,6 +38,20 @@ interface PreparedPreviewLayer {
   safeId: string;
   isActive: boolean;
   geoJSON: GeoJSON.Feature<GeoJSON.LineString>;
+}
+
+interface PreviewFitSource {
+  preparedRequests: PreparedRouteGeometryRequest[];
+  directGeometryKey: string;
+  ferryGeometryKey: string;
+}
+
+function previewFitSourcesMatch(a: PreviewFitSource, b: PreviewFitSource): boolean {
+  return (
+    a.directGeometryKey === b.directGeometryKey &&
+    a.ferryGeometryKey === b.ferryGeometryKey &&
+    preparedRouteGeometryRequestListsMatchSource(a.preparedRequests, b.preparedRequests)
+  );
 }
 
 interface RoutePreviewMapProps {
@@ -309,6 +325,7 @@ export default function RoutePreviewMap({
   const containerRef = useRef<HTMLElement | null>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const renderedIdsRef = useRef<string[]>([]);
+  const fittedSourceRef = useRef<PreviewFitSource | null>(null);
   const [mapReady, setMapReady] = useState(false);
   const visibleLayers = useMemo(
     () =>
@@ -338,7 +355,7 @@ export default function RoutePreviewMap({
   const isPreparing = routeGeometryRequests.some(
     (request) =>
       isRouteGeometryRequestRenderable(request) &&
-      !preparedRouteGeometryMatchesRequest(preparedRouteGeometries[request.id], request),
+      !preparedRouteGeometryMatchesSource(preparedRouteGeometries[request.id], request),
   );
   const hasPreparationError = routeGeometryRequests.some((request) =>
     preparedRouteGeometryHasError(preparedRouteGeometries[request.id], request),
@@ -360,10 +377,22 @@ export default function RoutePreviewMap({
         .filter((layer): layer is PreparedPreviewLayer => layer != null),
     [preparedRouteGeometries, visibleLayers],
   );
+  const fitSource = useMemo<PreviewFitSource>(
+    () => ({
+      preparedRequests: routeGeometryRequests,
+      directGeometryKey: visibleLayers
+        .filter((layer) => layer.geoJSON)
+        .map((layer) => `${layer.id}:${layer.cacheKey ?? layer.id}`)
+        .join("|"),
+      ferryGeometryKey: ferryMapGeometrySignature(ferries),
+    }),
+    [ferries, routeGeometryRequests, visibleLayers],
+  );
 
   useEffect(() => {
     if (!containerRef.current) return;
     setMapReady(false);
+    fittedSourceRef.current = null;
     const map = new mapboxgl.Map({
       container: containerRef.current,
       style: parseStyle(mapStyle.props.styleJSON),
@@ -404,14 +433,17 @@ export default function RoutePreviewMap({
     renderedIdsRef.current = preparedLayers.map((layer) => layer.safeId);
 
     const bounds = routeLayersBounds(preparedLayers, ferryMapFeatures);
-    if (!bounds) return;
+    if (!bounds || isPreparing) return;
+    const fittedSource = fittedSourceRef.current;
+    if (fittedSource && previewFitSourcesMatch(fittedSource, fitSource)) return;
     map.resize();
     map.fitBounds(bounds, {
       padding: FIT_PADDING,
       duration: 0,
       maxZoom: MAX_FIT_ZOOM,
     });
-  }, [colors, ferryMapFeatures, mapReady, preparedLayers]);
+    fittedSourceRef.current = fitSource;
+  }, [colors, ferryMapFeatures, fitSource, isPreparing, mapReady, preparedLayers]);
 
   useEffect(() => {
     const map = mapRef.current;

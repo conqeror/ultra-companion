@@ -14,13 +14,15 @@ import { useMapStyle } from "@/hooks/useMapStyle";
 import {
   isRouteGeometryRequestRenderable,
   preparedRouteGeometryHasError,
-  preparedRouteGeometryMatchesRequest,
+  preparedRouteGeometryMatchesSource,
+  preparedRouteGeometryRequestListsMatchSource,
   usePreparedRouteGeometries,
   type PreparedRouteGeometryRequest,
 } from "@/hooks/usePreparedRouteGeometries";
 import { useRouteGeometryZoom } from "@/hooks/useRouteGeometryZoom";
 import { allocateMapCoordinateBudget, MAX_ROUTE_MAP_GEOJSON_POINTS } from "@/utils/geo";
 import { buildFerryMapFeatureCollections } from "@/utils/ferryMapFeatures";
+import { ferryMapGeometrySignature } from "@/services/ferryGeometry";
 import type { DisplayFerryCrossing, RoutePoint } from "@/types";
 import { Text } from "@/components/ui/text";
 import { useThemeColors } from "@/theme";
@@ -58,6 +60,20 @@ const FIT_PADDING = 40;
 const EMPTY_SELECTION_POINTS: RoutePoint[] = [];
 const EMPTY_FERRIES: DisplayFerryCrossing[] = [];
 
+interface PreviewFitSource {
+  preparedRequests: PreparedRouteGeometryRequest[];
+  directGeometryKey: string;
+  ferryGeometryKey: string;
+}
+
+function previewFitSourcesMatch(a: PreviewFitSource, b: PreviewFitSource): boolean {
+  return (
+    a.directGeometryKey === b.directGeometryKey &&
+    a.ferryGeometryKey === b.ferryGeometryKey &&
+    preparedRouteGeometryRequestListsMatchSource(a.preparedRequests, b.preparedRequests)
+  );
+}
+
 export default function RoutePreviewMap({
   layers,
   ferries = EMPTY_FERRIES,
@@ -66,6 +82,7 @@ export default function RoutePreviewMap({
   accessibilityLabel = "Route preview map",
 }: RoutePreviewMapProps) {
   const cameraRef = useRef<Camera>(null);
+  const fittedSourceRef = useRef<PreviewFitSource | null>(null);
   const mapStyle = useMapStyle();
   const colors = useThemeColors();
   const { routeGeometryToleranceMeters, updateRouteGeometryZoom } = useRouteGeometryZoom();
@@ -98,7 +115,7 @@ export default function RoutePreviewMap({
   const isPreparing = routeGeometryRequests.some(
     (request) =>
       isRouteGeometryRequestRenderable(request) &&
-      !preparedRouteGeometryMatchesRequest(preparedRouteGeometries[request.id], request),
+      !preparedRouteGeometryMatchesSource(preparedRouteGeometries[request.id], request),
   );
   const hasPreparationError = routeGeometryRequests.some((request) =>
     preparedRouteGeometryHasError(preparedRouteGeometries[request.id], request),
@@ -112,6 +129,17 @@ export default function RoutePreviewMap({
         }),
       ),
     [preparedRouteGeometries, visibleLayers],
+  );
+  const fitSource = useMemo<PreviewFitSource>(
+    () => ({
+      preparedRequests: routeGeometryRequests,
+      directGeometryKey: visibleLayers
+        .filter((layer) => layer.geoJSON)
+        .map((layer) => `${layer.id}:${layer.cacheKey ?? layer.id}`)
+        .join("|"),
+      ferryGeometryKey: ferryMapGeometrySignature(ferries),
+    }),
+    [ferries, routeGeometryRequests, visibleLayers],
   );
   const bounds = useMemo(() => {
     let minLongitude = Infinity;
@@ -145,7 +173,9 @@ export default function RoutePreviewMap({
   }, [ferryMapFeatures.lines.features, renderedRouteGeometries, visibleLayers]);
 
   useEffect(() => {
-    if (!bounds) return;
+    if (!bounds || isPreparing) return;
+    const fittedSource = fittedSourceRef.current;
+    if (fittedSource && previewFitSourcesMatch(fittedSource, fitSource)) return;
     cameraRef.current?.setCamera({
       bounds: {
         ne: bounds.ne,
@@ -157,7 +187,8 @@ export default function RoutePreviewMap({
       },
       animationDuration: 300,
     });
-  }, [bounds]);
+    fittedSourceRef.current = fitSource;
+  }, [bounds, fitSource, isPreparing]);
 
   const handleCameraChanged = useCallback(
     (state: { properties: { zoom: number } }) => {
@@ -216,23 +247,7 @@ export default function RoutePreviewMap({
           onMapPress({ latitude: coordinates[1], longitude: coordinates[0] });
         }}
       >
-        <Camera
-          ref={cameraRef}
-          defaultSettings={
-            bounds
-              ? {
-                  bounds: {
-                    ne: bounds.ne,
-                    sw: bounds.sw,
-                    paddingLeft: FIT_PADDING,
-                    paddingRight: FIT_PADDING,
-                    paddingTop: FIT_PADDING,
-                    paddingBottom: FIT_PADDING,
-                  },
-                }
-              : undefined
-          }
-        />
+        <Camera ref={cameraRef} />
         <MapLayerAnchors key={`map-layer-anchors-${mapStyle.styleKey}`} />
         {visibleLayers.map((layer) => {
           const geoJSON = renderedRouteGeometries[layer.id];
