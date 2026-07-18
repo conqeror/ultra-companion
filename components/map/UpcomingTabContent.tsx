@@ -1,12 +1,22 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FlashList, type FlashListRef, type ListRenderItem } from "@shopify/flash-list";
 import {
+  ActivityIndicator,
   TouchableOpacity,
   View,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from "react-native";
-import { Clock3, Flag, GitBranch, MapPin, Mountain, Ship } from "lucide-react-native";
+import {
+  ChevronDown,
+  ChevronUp,
+  Clock3,
+  Flag,
+  GitBranch,
+  MapPin,
+  Mountain,
+  Ship,
+} from "lucide-react-native";
 import { useShallow } from "zustand/react/shallow";
 import { Text } from "@/components/ui/text";
 import { POI_ICON_MAP } from "@/constants/poiIcons";
@@ -28,9 +38,10 @@ import { plannedStopsFromPOIs } from "@/services/plannedStops";
 import {
   enturDepartureSearchTime,
   fetchEnturFerryDepartures,
+  fetchEnturFerryTimetableContext,
   readLinkedEnturFerryStops,
 } from "@/services/enturFerry";
-import { formatDuration } from "@/utils/formatters";
+import { formatDuration, formatETA } from "@/utils/formatters";
 import { resolveActiveRouteProgress } from "@/utils/routeProgress";
 import { bucketDistanceForDerivedWork } from "@/utils/distanceBuckets";
 import {
@@ -60,6 +71,16 @@ interface UpcomingFerryDepartureRequest {
   ferryId: string;
   providerRefs: Readonly<Record<string, string>>;
   afterMs: number;
+  crossingDurationMinutes: number;
+}
+
+interface FerryTimetableViewState {
+  status: "loading" | "loaded" | "unavailable";
+  detailsStatus: "idle" | "loaded" | "unavailable";
+  departures: FerryDeparture[];
+  previousDeparture: FerryDeparture | null;
+  lastDepartureOfDay: FerryDeparture | null;
+  boardableTimeMs: number;
 }
 
 interface UpcomingTabContentProps {
@@ -85,7 +106,10 @@ export default function UpcomingTabContent({ activeData }: UpcomingTabContentPro
   const setPanelTab = usePanelStore((s) => s.setPanelTab);
   const setPanelScrollOffset = usePanelStore((s) => s.setPanelScrollOffset);
   const timing = useActiveRouteTiming(activeData);
-  const [ferryDepartures, setFerryDepartures] = useState<Record<string, FerryDeparture>>({});
+  const [ferryTimetables, setFerryTimetables] = useState<Record<string, FerryTimetableViewState>>(
+    {},
+  );
+  const [expandedFerryId, setExpandedFerryId] = useState<string | null>(null);
 
   const routeIds = useMemo(() => activeData?.routeIds ?? [], [activeData?.routeIds]);
   const scrollKey = useMemo(
@@ -201,31 +225,62 @@ export default function UpcomingTabContent({ activeData }: UpcomingTabContentPro
             ferryId: event.ferry.id,
             providerRefs: event.ferry.providerRefs,
             afterMs: after.getTime(),
+            crossingDurationMinutes: event.ferry.durationMinutes,
           },
         ];
       }),
     [events],
   );
+  const expandableFerryIds = useMemo(
+    () => new Set(ferryDepartureRequests.map((request) => request.ferryId)),
+    [ferryDepartureRequests],
+  );
 
   useEffect(() => {
     if (ferryDepartureRequests.length === 0) {
-      setFerryDepartures((current) => (Object.keys(current).length === 0 ? current : {}));
+      setFerryTimetables((current) => (Object.keys(current).length === 0 ? current : {}));
       return;
     }
 
     const controller = new AbortController();
     let disposed = false;
-    setFerryDepartures({});
+    setFerryTimetables(
+      Object.fromEntries(
+        ferryDepartureRequests.map((request) => [
+          request.ferryId,
+          {
+            status: "loading",
+            detailsStatus: "idle",
+            departures: [],
+            previousDeparture: null,
+            lastDepartureOfDay: null,
+            boardableTimeMs: request.afterMs,
+          } satisfies FerryTimetableViewState,
+        ]),
+      ),
+    );
     void Promise.all(
       ferryDepartureRequests.map(
-        async (request): Promise<readonly [ferryId: string, departure: FerryDeparture] | null> => {
+        async (
+          request,
+        ): Promise<readonly [ferryId: string, state: FerryTimetableViewState] | null> => {
           try {
             const departures = await fetchEnturFerryDepartures(
               request.providerRefs,
               new Date(request.afterMs),
               controller.signal,
             );
-            return departures[0] ? [request.ferryId, departures[0]] : null;
+            return [
+              request.ferryId,
+              {
+                status: departures.length > 0 ? "loaded" : "unavailable",
+                detailsStatus: "idle",
+                departures,
+                previousDeparture: null,
+                lastDepartureOfDay: null,
+                boardableTimeMs: request.afterMs,
+              },
+            ];
           } catch (departureError) {
             if (
               controller.signal.aborted ||
@@ -233,15 +288,42 @@ export default function UpcomingTabContent({ activeData }: UpcomingTabContentPro
             ) {
               return null;
             }
-            // Manual wait and crossing timing deliberately remain the quiet
-            // offline/error fallback for the riding surface.
-            return null;
+            return [
+              request.ferryId,
+              {
+                status: "unavailable",
+                detailsStatus: "idle",
+                departures: [],
+                previousDeparture: null,
+                lastDepartureOfDay: null,
+                boardableTimeMs: request.afterMs,
+              },
+            ];
           }
         },
       ),
     ).then((results) => {
       if (disposed) return;
-      setFerryDepartures(Object.fromEntries(results.filter((result) => result != null)));
+      setFerryTimetables((current) =>
+        Object.fromEntries(
+          results
+            .filter((result) => result != null)
+            .map(([ferryId, state]) => {
+              const existing = current[ferryId];
+              return [
+                ferryId,
+                existing && existing.boardableTimeMs === state.boardableTimeMs
+                  ? {
+                      ...state,
+                      detailsStatus: existing.detailsStatus,
+                      previousDeparture: existing.previousDeparture,
+                      lastDepartureOfDay: existing.lastDepartureOfDay,
+                    }
+                  : state,
+              ];
+            }),
+        ),
+      );
     });
 
     return () => {
@@ -249,6 +331,92 @@ export default function UpcomingTabContent({ activeData }: UpcomingTabContentPro
       controller.abort();
     };
   }, [ferryDepartureRequests]);
+
+  const expandedTimetable = expandedFerryId ? ferryTimetables[expandedFerryId] : undefined;
+
+  useEffect(() => {
+    if (
+      !expandedFerryId ||
+      !expandedTimetable ||
+      expandedTimetable.status === "loading" ||
+      expandedTimetable.detailsStatus !== "idle"
+    ) {
+      return;
+    }
+    const request = ferryDepartureRequests.find((item) => item.ferryId === expandedFerryId);
+    if (!request) return;
+
+    const controller = new AbortController();
+    let disposed = false;
+    void fetchEnturFerryTimetableContext(
+      request.providerRefs,
+      new Date(request.afterMs),
+      request.crossingDurationMinutes,
+      controller.signal,
+    )
+      .then((timetable) => {
+        if (disposed) return;
+        setFerryTimetables((current) => {
+          const existing = current[expandedFerryId];
+          if (!existing || existing.boardableTimeMs !== request.afterMs) return current;
+          const departures =
+            timetable.nextDepartures.length > 0 ? timetable.nextDepartures : existing.departures;
+          const hasTimetableData =
+            departures.length > 0 ||
+            timetable.previousDeparture != null ||
+            timetable.lastDepartureOfDay != null;
+          return {
+            ...current,
+            [expandedFerryId]: {
+              ...existing,
+              status: hasTimetableData ? "loaded" : "unavailable",
+              detailsStatus: "loaded",
+              departures,
+              previousDeparture: timetable.previousDeparture,
+              lastDepartureOfDay: timetable.lastDepartureOfDay,
+            },
+          };
+        });
+      })
+      .catch((timetableError: unknown) => {
+        if (
+          disposed ||
+          controller.signal.aborted ||
+          (timetableError instanceof Error && timetableError.name === "AbortError")
+        ) {
+          return;
+        }
+        setFerryTimetables((current) => {
+          const existing = current[expandedFerryId];
+          if (!existing || existing.boardableTimeMs !== request.afterMs) return current;
+          return {
+            ...current,
+            [expandedFerryId]: { ...existing, detailsStatus: "unavailable" },
+          };
+        });
+      });
+
+    return () => {
+      disposed = true;
+      controller.abort();
+    };
+  }, [expandedFerryId, expandedTimetable, ferryDepartureRequests]);
+
+  useEffect(() => {
+    if (expandedFerryId && !expandableFerryIds.has(expandedFerryId)) {
+      setExpandedFerryId(null);
+    }
+  }, [expandableFerryIds, expandedFerryId]);
+
+  const ferryDepartures = useMemo(
+    () =>
+      Object.fromEntries(
+        Object.entries(ferryTimetables).flatMap(([ferryId, timetable]) =>
+          timetable.departures[0] ? [[ferryId, timetable.departures[0]]] : [],
+        ),
+      ),
+    [ferryTimetables],
+  );
 
   const rowModels = useMemo(
     () =>
@@ -273,6 +441,10 @@ export default function UpcomingTabContent({ activeData }: UpcomingTabContentPro
         }),
       ),
     [rowModels, upcomingEtaBaseTimeMs],
+  );
+  const listExtraData = useMemo(
+    () => ({ expandedFerryId, ferryTimetables }),
+    [expandedFerryId, ferryTimetables],
   );
 
   const horizonETA = useMemo(
@@ -323,9 +495,11 @@ export default function UpcomingTabContent({ activeData }: UpcomingTabContentPro
       } else if (event.kind === "climb-span") {
         setSelectedClimb(event.climb);
         setPanelTab("climbs");
+      } else if (event.kind === "ferry" && expandableFerryIds.has(event.ferry.id)) {
+        setExpandedFerryId((current) => (current === event.ferry.id ? null : event.ferry.id));
       }
     },
-    [setPanelTab, setSelectedClimb, setSelectedPOI],
+    [expandableFerryIds, setPanelTab, setSelectedClimb, setSelectedPOI],
   );
 
   const renderItem = useCallback<ListRenderItem<UpcomingListItemModel>>(
@@ -333,9 +507,15 @@ export default function UpcomingTabContent({ activeData }: UpcomingTabContentPro
       item.itemType === "day-header" ? (
         <UpcomingDayHeader label={item.label} accessibilityLabel={item.accessibilityLabel} />
       ) : (
-        <UpcomingEventRow model={item} onPress={handleEventPress} />
+        <UpcomingEventRow
+          model={item}
+          onPress={handleEventPress}
+          isExpandable={item.event.kind === "ferry" && expandableFerryIds.has(item.event.ferry.id)}
+          isExpanded={item.event.kind === "ferry" && expandedFerryId === item.event.ferry.id}
+          timetable={item.event.kind === "ferry" ? ferryTimetables[item.event.ferry.id] : undefined}
+        />
       ),
-    [handleEventPress],
+    [expandableFerryIds, expandedFerryId, ferryTimetables, handleEventPress],
   );
 
   const scopeLabel = ridingHorizonScopeLabelForMode(panelMode);
@@ -351,6 +531,7 @@ export default function UpcomingTabContent({ activeData }: UpcomingTabContentPro
       <FlashList
         ref={listRef}
         data={listItems}
+        extraData={listExtraData}
         keyExtractor={upcomingItemKeyExtractor}
         renderItem={renderItem}
         getItemType={getUpcomingListItemType}
@@ -429,82 +610,242 @@ function UpcomingHeader({
 const UpcomingEventRow = React.memo(function UpcomingEventRow({
   model,
   onPress,
+  isExpandable,
+  isExpanded,
+  timetable,
 }: {
   model: UpcomingRowModel;
   onPress: (event: UpcomingEvent) => void;
+  isExpandable: boolean;
+  isExpanded: boolean;
+  timetable?: FerryTimetableViewState;
 }) {
   const colors = useThemeColors();
   const accentColor = resolveUpcomingRowColor(model.accentColor, colors);
   const subtitleColor = resolveUpcomingRowColor(model.subtitleColor, colors);
+  const rowIsPressable = model.isPressable || isExpandable;
 
   return (
-    <TouchableOpacity
-      className="flex-row items-center px-3 py-2.5 border-b border-border"
-      disabled={!model.isPressable}
-      onPress={() => onPress(model.event)}
-      accessibilityRole={model.isPressable ? "button" : "text"}
-      accessibilityLabel={model.accessibilityLabel}
-    >
-      <View className="w-[70px]">
-        <Text className="text-[20px] font-barlow-sc-semibold text-foreground" numberOfLines={1}>
-          {model.clockLabel}
-        </Text>
-        {model.hasStopInterval && model.departureLabel && (
-          <Text className="text-[20px] font-barlow-sc-semibold text-foreground" numberOfLines={1}>
-            {model.departureLabel}
-          </Text>
-        )}
-        {model.hasClimbInterval && model.climbEndLabel && (
-          <Text className="text-[20px] font-barlow-sc-semibold text-foreground" numberOfLines={1}>
-            {model.climbEndLabel}
-          </Text>
-        )}
-        {model.hasFerryInterval && model.ferryLandingLabel && (
-          <Text className="text-[20px] font-barlow-sc-semibold text-foreground" numberOfLines={1}>
-            {model.ferryLandingLabel}
-          </Text>
-        )}
-        <Text className="text-[12px] font-barlow-sc-medium text-muted-foreground" numberOfLines={1}>
-          {model.ridingTimeLabel}
-        </Text>
-      </View>
-
-      <View
-        className="w-[42px] h-[42px] rounded-full items-center justify-center mx-2"
-        style={{ backgroundColor: accentColor + "1A" }}
+    <View className="border-b border-border">
+      <TouchableOpacity
+        className="flex-row items-center px-3 py-2.5"
+        disabled={!rowIsPressable}
+        onPress={() => onPress(model.event)}
+        accessibilityRole={rowIsPressable ? "button" : "text"}
+        accessibilityLabel={model.accessibilityLabel}
+        accessibilityHint={isExpandable ? "Shows or hides the ferry timetable" : undefined}
+        accessibilityState={isExpandable ? { expanded: isExpanded } : undefined}
       >
-        <RenderUpcomingRowIcon icon={model.icon} color={accentColor} />
-      </View>
+        <View className="w-[70px]">
+          <Text className="text-[20px] font-barlow-sc-semibold text-foreground" numberOfLines={1}>
+            {model.clockLabel}
+          </Text>
+          {model.hasStopInterval && model.departureLabel && (
+            <Text className="text-[20px] font-barlow-sc-semibold text-foreground" numberOfLines={1}>
+              {model.departureLabel}
+            </Text>
+          )}
+          {model.hasClimbInterval && model.climbEndLabel && (
+            <Text className="text-[20px] font-barlow-sc-semibold text-foreground" numberOfLines={1}>
+              {model.climbEndLabel}
+            </Text>
+          )}
+          {model.hasFerryInterval && model.ferryLandingLabel && (
+            <Text className="text-[20px] font-barlow-sc-semibold text-foreground" numberOfLines={1}>
+              {model.ferryLandingLabel}
+            </Text>
+          )}
+          <Text
+            className="text-[12px] font-barlow-sc-medium text-muted-foreground"
+            numberOfLines={1}
+          >
+            {model.ridingTimeLabel}
+          </Text>
+        </View>
 
-      <View className="flex-1 min-w-0">
-        <Text className="text-[15px] font-barlow-semibold text-foreground" numberOfLines={1}>
-          {model.title}
-        </Text>
-        <Text
-          className="text-[13px] font-barlow-medium"
-          style={{ color: subtitleColor }}
-          numberOfLines={model.subtitleNumberOfLines}
+        <View
+          className="w-[42px] h-[42px] rounded-full items-center justify-center mx-2"
+          style={{ backgroundColor: accentColor + "1A" }}
         >
-          {model.subtitle}
-        </Text>
-      </View>
+          <RenderUpcomingRowIcon icon={model.icon} color={accentColor} />
+        </View>
 
-      <View className="ml-2 items-end w-[92px]">
-        <Text
-          className="text-[18px] font-barlow-sc-semibold text-foreground"
-          numberOfLines={1}
-          adjustsFontSizeToFit
-          minimumFontScale={0.72}
-        >
-          {model.distanceLabel}
-        </Text>
-        <Text className="text-[11px] font-barlow-medium text-muted-foreground" numberOfLines={1}>
-          {model.distanceDirectionLabel}
-        </Text>
-      </View>
-    </TouchableOpacity>
+        <View className="flex-1 min-w-0">
+          <Text className="text-[15px] font-barlow-semibold text-foreground" numberOfLines={1}>
+            {model.title}
+          </Text>
+          <Text
+            className="text-[13px] font-barlow-medium"
+            style={{ color: subtitleColor }}
+            numberOfLines={model.subtitleNumberOfLines}
+          >
+            {model.subtitle}
+          </Text>
+        </View>
+
+        <View className="ml-2 items-end w-[92px]">
+          <Text
+            className="text-[18px] font-barlow-sc-semibold text-foreground"
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.72}
+          >
+            {model.distanceLabel}
+          </Text>
+          <View className="flex-row items-center gap-1">
+            <Text
+              className="text-[11px] font-barlow-medium text-muted-foreground"
+              numberOfLines={1}
+            >
+              {model.distanceDirectionLabel}
+            </Text>
+            {isExpandable &&
+              (isExpanded ? (
+                <ChevronUp size={14} color={colors.textSecondary} />
+              ) : (
+                <ChevronDown size={14} color={colors.textSecondary} />
+              ))}
+          </View>
+        </View>
+      </TouchableOpacity>
+      {isExpandable && isExpanded && <FerryTimetableDetails timetable={timetable} />}
+    </View>
   );
 });
+
+function FerryTimetableDetails({ timetable }: { timetable?: FerryTimetableViewState }) {
+  const colors = useThemeColors();
+  if (!timetable || timetable.status === "loading" || timetable.detailsStatus === "idle") {
+    return (
+      <View className="flex-row items-center gap-2 bg-info/5 px-4 pb-3 pt-1">
+        <ActivityIndicator size="small" color={colors.info} />
+        <Text className="text-[13px] font-barlow-medium text-info">Loading Entur departures…</Text>
+      </View>
+    );
+  }
+  if (
+    (timetable.status === "unavailable" && timetable.detailsStatus === "unavailable") ||
+    (timetable.departures.length === 0 &&
+      !timetable.previousDeparture &&
+      !timetable.lastDepartureOfDay)
+  ) {
+    return (
+      <View className="bg-info/5 px-4 pb-3 pt-1">
+        <Text className="text-[13px] leading-5 text-muted-foreground">
+          Timetable unavailable. Using the saved assumed wait and crossing time.
+        </Text>
+      </View>
+    );
+  }
+
+  return (
+    <View className="bg-info/5 px-4 pb-3 pt-1">
+      {timetable.detailsStatus === "unavailable" && (
+        <Text className="pb-1 text-[12px] leading-4 text-muted-foreground">
+          Previous and last-departure details are unavailable.
+        </Text>
+      )}
+      {timetable.previousDeparture && (
+        <View className="pb-2">
+          <Text className="text-[13px] font-barlow-semibold text-muted-foreground">
+            Previous departure
+          </Text>
+          <FerryDepartureLine
+            departure={timetable.previousDeparture}
+            trailingLabel={previousDepartureGapLabel(
+              timetable.previousDeparture,
+              timetable.boardableTimeMs,
+            )}
+          />
+        </View>
+      )}
+
+      {timetable.departures.length > 0 ? (
+        <View>
+          <Text className="text-[13px] font-barlow-semibold text-foreground">Next departures</Text>
+          {timetable.departures.slice(0, 5).map((departure) => (
+            <FerryDepartureLine
+              key={`${departure.departureTime}:${departure.arrivalTime ?? ""}:${departure.serviceName ?? ""}`}
+              departure={departure}
+              trailingLabel={departure.realtime ? "Live" : "Scheduled"}
+            />
+          ))}
+        </View>
+      ) : (
+        <Text className="text-[13px] leading-5 text-muted-foreground">
+          No later departure was found.
+        </Text>
+      )}
+
+      {timetable.lastDepartureOfDay && (
+        <View className="mt-2 border-t border-border-subtle pt-2">
+          <Text className="text-[13px] font-barlow-semibold" style={{ color: colors.warning }}>
+            Last departure today
+          </Text>
+          <FerryDepartureLine
+            departure={timetable.lastDepartureOfDay}
+            trailingLabel="Last today"
+            isImportant
+          />
+        </View>
+      )}
+    </View>
+  );
+}
+
+function FerryDepartureLine({
+  departure,
+  trailingLabel,
+  isImportant = false,
+}: {
+  departure: FerryDeparture;
+  trailingLabel: string;
+  isImportant?: boolean;
+}) {
+  const colors = useThemeColors();
+  const departureDate = timetableDate(departure.departureTime);
+  const arrivalDate = timetableDate(departure.arrivalTime);
+  if (!departureDate) return null;
+  const departureLabel = formatETA(departureDate);
+  const arrivalLabel = arrivalDate ? formatETA(arrivalDate) : "--:--";
+  const trailingColor = isImportant ? colors.warning : colors.info;
+  return (
+    <View
+      className="mt-1.5 min-h-[28px] flex-row items-center"
+      accessible
+      accessibilityLabel={`${departureLabel} departure, ${arrivalLabel} arrival, ${trailingLabel}`}
+    >
+      <Text className="w-[58px] text-[17px] font-barlow-sc-semibold text-foreground">
+        {departureLabel}
+      </Text>
+      <Text className="mr-2 text-[13px] text-muted-foreground">→</Text>
+      <Text className="w-[58px] text-[17px] font-barlow-sc-semibold text-foreground">
+        {arrivalLabel}
+      </Text>
+      <Text
+        className="flex-1 text-right text-[12px] font-barlow-medium"
+        style={{ color: trailingColor }}
+      >
+        {trailingLabel}
+      </Text>
+    </View>
+  );
+}
+
+function previousDepartureGapLabel(departure: FerryDeparture, boardableTimeMs: number): string {
+  const departureDate = timetableDate(departure.departureTime);
+  if (!departureDate) return "Previous";
+  const gapMinutes = Math.max(1, Math.round((boardableTimeMs - departureDate.getTime()) / 60_000));
+  if (gapMinutes < 60) return `${gapMinutes} min earlier`;
+  const minutes = gapMinutes % 60;
+  return minutes === 0 ? "1h earlier" : `1h ${minutes}m earlier`;
+}
+
+function timetableDate(value: string | null): Date | null {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
 
 function RenderUpcomingRowIcon({ icon, color }: { icon: UpcomingRowIcon; color: string }) {
   switch (icon.kind) {

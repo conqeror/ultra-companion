@@ -8,6 +8,7 @@ import { useSettingsStore } from "@/store/settingsStore";
 import { useThemeColors } from "@/theme";
 import { formatDistance } from "@/utils/formatters";
 import { readLinkedEnturFerryStops } from "@/services/enturFerry";
+import { ferryDisplayName } from "@/services/ferryCrossings";
 import type { FerryCrossing, RouteWithPoints } from "@/types";
 import FerryEditorModal from "./FerryEditorModal";
 
@@ -43,12 +44,13 @@ export default function RouteFerriesSection({ route }: RouteFerriesSectionProps)
   };
 
   const confirmDelete = (crossing: FerryCrossing) => {
+    const displayName = ferryDisplayName(crossing);
     const remove = () => void deleteFerry(route.id, crossing.id);
     if (Platform.OS === "web") {
-      if (globalThis.confirm?.(`Delete ${crossing.name}?`)) remove();
+      if (globalThis.confirm?.(`Delete ${displayName}?`)) remove();
       return;
     }
-    Alert.alert("Delete ferry?", crossing.name, [
+    Alert.alert("Delete ferry?", displayName, [
       { text: "Cancel", style: "cancel" },
       { text: "Delete", style: "destructive", onPress: remove },
     ]);
@@ -81,7 +83,7 @@ export default function RouteFerriesSection({ route }: RouteFerriesSectionProps)
               <View className="flex-row items-start justify-between gap-3">
                 <View className="flex-1">
                   <Text className="text-[16px] font-barlow-semibold text-foreground">
-                    {crossing.name}
+                    {ferryDisplayName(crossing)}
                   </Text>
                   <Text className="mt-1 text-[13px] text-muted-foreground">
                     {formatDistance(crossing.startDistanceMeters, units)} ·{" "}
@@ -107,7 +109,7 @@ export default function RouteFerriesSection({ route }: RouteFerriesSectionProps)
                 <TouchableOpacity
                   className="h-[48px] w-[48px] items-center justify-center"
                   onPress={() => openEditor(crossing)}
-                  accessibilityLabel={`Edit ferry ${crossing.name}`}
+                  accessibilityLabel={`Edit ferry ${ferryDisplayName(crossing)}`}
                 >
                   <Pencil size={19} color={colors.accent} />
                 </TouchableOpacity>
@@ -117,7 +119,7 @@ export default function RouteFerriesSection({ route }: RouteFerriesSectionProps)
                   <TouchableOpacity
                     className="min-h-[48px] flex-1 flex-row items-center justify-center gap-2 rounded-xl border border-border"
                     onPress={() => void Linking.openURL(crossing.timetableUrl!)}
-                    accessibilityLabel={`Open timetable for ${crossing.name}`}
+                    accessibilityLabel={`Open timetable for ${ferryDisplayName(crossing)}`}
                   >
                     <ExternalLink size={17} color={colors.accent} />
                     <Text className="font-barlow-medium text-primary">Timetable</Text>
@@ -126,7 +128,7 @@ export default function RouteFerriesSection({ route }: RouteFerriesSectionProps)
                 <TouchableOpacity
                   className="min-h-[48px] flex-1 flex-row items-center justify-center gap-2 rounded-xl border border-border"
                   onPress={() => openEditor(crossing, true)}
-                  accessibilityLabel={`Refresh ferry ${crossing.name}`}
+                  accessibilityLabel={`Refresh ferry ${ferryDisplayName(crossing)}`}
                 >
                   <RefreshCw size={17} color={colors.accent} />
                   <Text className="font-barlow-medium text-primary">Refresh metadata</Text>
@@ -134,7 +136,7 @@ export default function RouteFerriesSection({ route }: RouteFerriesSectionProps)
                 <TouchableOpacity
                   className="h-[48px] w-[48px] items-center justify-center rounded-xl border border-border"
                   onPress={() => confirmDelete(crossing)}
-                  accessibilityLabel={`Delete ferry ${crossing.name}`}
+                  accessibilityLabel={`Delete ferry ${ferryDisplayName(crossing)}`}
                 >
                   <Trash2 size={18} color={colors.destructive} />
                 </TouchableOpacity>

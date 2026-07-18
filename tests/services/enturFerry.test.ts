@@ -9,9 +9,11 @@ import {
   ENTUR_TO_STOP_PLACE_PROVIDER_REF,
   buildEnturStopSearchUrl,
   clearEnturDepartureCache,
+  directionalEnturFerryName,
   enturDepartureSearchTime,
   enturProviderRefsForPair,
   fetchEnturFerryDepartures,
+  fetchEnturFerryTimetableContext,
   parseEnturFerryDepartures,
   parseEnturStopPlaces,
   readLinkedEnturFerryStops,
@@ -68,14 +70,14 @@ function stop(
   };
 }
 
-function tripPayload(departureTime = "2026-07-18T14:20:00Z") {
+function tripPayload(departureTime = "2026-07-18T14:20:00Z", arrivalTime = "2026-07-18T14:55:00Z") {
   return {
     data: {
       trip: {
         tripPatterns: [
           {
             startTime: departureTime,
-            endTime: "2026-07-18T14:55:00Z",
+            endTime: arrivalTime,
             legs: [
               {
                 mode: "water",
@@ -87,8 +89,8 @@ function tripPayload(departureTime = "2026-07-18T14:20:00Z") {
                   realtime: true,
                 },
                 toEstimatedCall: {
-                  aimedArrivalTime: "2026-07-18T14:55:00Z",
-                  expectedArrivalTime: "2026-07-18T14:55:00Z",
+                  aimedArrivalTime: arrivalTime,
+                  expectedArrivalTime: arrivalTime,
                   actualArrivalTime: null,
                   realtime: true,
                 },
@@ -241,6 +243,14 @@ describe("Entur ferry stop matching", () => {
     expect(withoutEnturFerryProviderRefs({ ...providerRefs, osmGeometryV1: "geometry" })).toEqual({
       osmGeometryV1: "geometry",
     });
+    expect(directionalEnturFerryName(providerRefs)).toBe("Horten – Moss");
+    expect(
+      directionalEnturFerryName({
+        ...providerRefs,
+        [ENTUR_FROM_STOP_PLACE_NAME_PROVIDER_REF]: "Moss ferjekai",
+        [ENTUR_TO_STOP_PLACE_NAME_PROVIDER_REF]: "Horten ferjekai",
+      }),
+    ).toBe("Moss – Horten");
   });
 });
 
@@ -359,7 +369,37 @@ describe("Entur concrete departures", () => {
       from: "NSR:StopPlace:58374",
       to: "NSR:StopPlace:58092",
       dateTime: "2026-07-18T14:00:00.000Z",
+      arriveBy: false,
+      numTripPatterns: 8,
     });
+  });
+
+  it("returns only a nearby previous departure and the last departure of the day", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (_input, init) => {
+      const body = JSON.parse(String(init?.body));
+      const variables = body.variables as { arriveBy: boolean; numTripPatterns: number };
+      const payload = variables.arriveBy
+        ? tripPayload("2026-07-18T20:30:00Z", "2026-07-18T21:05:00Z")
+        : variables.numTripPatterns === 16
+          ? tripPayload("2026-07-18T14:20:00Z")
+          : tripPayload("2026-07-18T14:45:00Z", "2026-07-18T15:20:00Z");
+      return new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const context = await fetchEnturFerryTimetableContext(
+      providerRefs,
+      new Date("2026-07-18T14:25:00Z"),
+      35,
+    );
+
+    expect(context.previousDeparture?.departureTime).toBe("2026-07-18T14:20:00Z");
+    expect(context.nextDepartures[0]?.departureTime).toBe("2026-07-18T14:45:00Z");
+    expect(context.lastDepartureOfDay?.departureTime).toBe("2026-07-18T20:30:00Z");
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
   it("surfaces HTTP and GraphQL failures without replacing the manual fallback", async () => {

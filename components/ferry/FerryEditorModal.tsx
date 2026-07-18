@@ -17,12 +17,13 @@ import { useThemeColors } from "@/theme";
 import { useFerryStore } from "@/store/ferryStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import {
+  directionalFerryCandidateName,
   lookupFerriesNearPoint,
   matchFerryCandidateToRoute,
   type FerryLookupCandidate,
   type MatchedFerrySpan,
 } from "@/services/ferryLookup";
-import { validateFerryCrossing } from "@/services/ferryCrossings";
+import { ferryDisplayName, validateFerryCrossing } from "@/services/ferryCrossings";
 import {
   encodeOSMFerryGeometry,
   ferryMapGeometrySignature,
@@ -31,6 +32,7 @@ import {
   resolveFerryMapGeometry,
 } from "@/services/ferryGeometry";
 import {
+  directionalEnturFerryName,
   enturProviderRefsForPair,
   pickEnturFerryProviderRefs,
   readLinkedEnturFerryStops,
@@ -200,7 +202,7 @@ export default function FerryEditorModal({
       routeId: route.id,
       // Text edits do not change preview geometry. Keeping the geometry model
       // independent avoids re-preparing and refitting the map while typing.
-      name: crossing?.name ?? "Ferry crossing",
+      name: crossing ? ferryDisplayName(crossing) : "Ferry crossing",
       ...span,
       effectiveStartDistanceMeters: toDisplayDistanceMeters(span.startDistanceMeters),
       effectiveEndDistanceMeters: toDisplayDistanceMeters(span.endDistanceMeters),
@@ -308,7 +310,7 @@ export default function FerryEditorModal({
       const existingSpan = crossingSpan(crossing);
       setSpan(existingSpan);
       setBoardingHint(crossing.startDistanceMeters);
-      setName(crossing.name);
+      setName(ferryDisplayName(crossing));
       setDuration(String(crossing.durationMinutes));
       setAssumedWait(String(crossing.assumedWaitMinutes));
       setBoardingBuffer(String(crossing.boardingBufferMinutes));
@@ -417,7 +419,7 @@ export default function FerryEditorModal({
       setSourceCandidate(candidate);
       setIsManualSpan(false);
       if (candidate.id !== crossing?.sourceId) clearEnturLink();
-      setName(candidate.name);
+      setName(directionalFerryCandidateName(candidate, matched));
       if (candidate.durationMinutes != null) setDuration(String(candidate.durationMinutes));
       setTimetableUrl(candidate.timetableUrl ?? candidate.sourceUrl);
       setOperator(candidate.operator ?? "");
@@ -466,7 +468,9 @@ export default function FerryEditorModal({
         controller.signal,
       );
       if (controller.signal.aborted) return;
-      setEnturProviderRefs(enturProviderRefsForPair(pair));
+      const providerRefs = enturProviderRefsForPair(pair);
+      setEnturProviderRefs(providerRefs);
+      setName(directionalEnturFerryName(providerRefs) ?? name);
     } catch (lookupError) {
       if (controller.signal.aborted) return;
       setEnturError(
@@ -480,7 +484,7 @@ export default function FerryEditorModal({
         setIsEnturSearching(false);
       }
     }
-  }, [span]);
+  }, [name, span]);
 
   const handleSave = useCallback(async () => {
     if (!span) return;

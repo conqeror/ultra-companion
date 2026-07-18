@@ -28,6 +28,7 @@ What's implemented. For the "why" behind these, see `usage-context.md`.
 - Ferry crossings keep the stored imported route geometry intact while excluding water distance and elevation from riding metrics
 - OSM-assisted crossings replace the displayed route span with the saved OSM ferry geometry; manual crossings retain the terminal-to-terminal fallback
 - Saved Norwegian crossings can explicitly match their two terminals to Entur without scanning the rest of the route
+- Entur-linked ferry names follow the saved route direction (`boarding – landing`) across maps, profiles, route details, and Upcoming
 
 ## Collections
 
@@ -57,6 +58,7 @@ What's implemented. For the "why" behind these, see `usage-context.md`.
 - Models climbs as one span row with start and end ETA when available
 - Shows saved ferries in route order with quay ETA, readable stacked wait/crossing timing, and landing ETA
 - For Entur-linked ferries, fetches the next boardable departure from quay ETA plus boarding buffer and shows its concrete departure/arrival; manual timing remains the quiet fallback
+- Tapping an Entur-linked Upcoming ferry expands an inline view with the previous departure when it was within one hour of the boardable ETA, the next five departures, and the last departure of that day
 
 ## Climb Detection
 

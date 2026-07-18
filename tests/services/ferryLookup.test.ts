@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { OVERPASS_API_URLS, OVERPASS_USER_AGENT } from "@/constants";
 import {
   buildFerryLookupQuery,
+  directionalFerryCandidateName,
   lookupFerriesNearPoint,
   matchFerryCandidateToRoute,
   parseFerryDurationMinutes,
@@ -284,14 +285,19 @@ describe("ferry candidate route matching", () => {
   });
 
   it("handles ferry geometry digitized in the opposite direction", () => {
-    const match = matchFerryCandidateToRoute(
-      candidate({ geometry: candidate().geometry.toReversed() }),
-      routePoints(),
-      750,
-    );
+    const reversedCandidate = candidate({
+      name: "East quay – West quay",
+      fromName: "East quay",
+      toName: "West quay",
+      geometry: candidate().geometry.toReversed(),
+    });
+    const match = matchFerryCandidateToRoute(reversedCandidate, routePoints(), 750);
 
     expect(match?.startDistanceMeters).toBeCloseTo(800);
     expect(match?.endDistanceMeters).toBeCloseTo(2_200);
+    expect(match && directionalFerryCandidateName(reversedCandidate, match)).toBe(
+      "West quay – East quay",
+    );
   });
 
   it("rejects endpoints too far from the route or without downstream ordering", () => {
