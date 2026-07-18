@@ -27,6 +27,7 @@ What's implemented. For the "why" behind these, see `usage-context.md`.
 - Point-assisted ferry crossings: tap a known boarding point, choose a nearby OSM ferry, or mark boarding and landing manually when offline
 - Ferry crossings keep the stored imported route geometry intact while excluding water distance and elevation from riding metrics
 - OSM-assisted crossings replace the displayed route span with the saved OSM ferry geometry; manual crossings retain the terminal-to-terminal fallback
+- Saved Norwegian crossings can explicitly match their two terminals to Entur without scanning the rest of the route
 
 ## Collections
 
@@ -55,6 +56,7 @@ What's implemented. For the "why" behind these, see `usage-context.md`.
 - Includes POIs with planned stop durations even when unstarred, so downstream ETA shifts are visible
 - Models climbs as one span row with start and end ETA when available
 - Shows saved ferries in route order with quay ETA, readable stacked wait/crossing timing, and landing ETA
+- For Entur-linked ferries, fetches the next boardable departure from quay ETA plus boarding buffer and shows its concrete departure/arrival; manual timing remains the quiet fallback
 
 ## Climb Detection
 
@@ -109,6 +111,7 @@ What's implemented. For the "why" behind these, see `usage-context.md`.
 - "Prepare for offline" per route/collection
 - Storage management — space used per route, cleanup
 - Imported/prepared route, POI, climb, ferry, ETA, collection, export, and tile data work offline; weather uses cached data when available and requires connectivity to refresh
+- Entur stop matching and departure refresh require connectivity; linked stop IDs persist, while manual ferry wait/crossing timing stays fully offline
 
 ## Export
 

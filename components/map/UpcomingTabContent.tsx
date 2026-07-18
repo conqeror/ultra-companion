@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FlashList, type FlashListRef, type ListRenderItem } from "@shopify/flash-list";
 import {
   TouchableOpacity,
@@ -25,6 +25,11 @@ import {
   type UpcomingEvent,
 } from "@/services/upcomingTimeline";
 import { plannedStopsFromPOIs } from "@/services/plannedStops";
+import {
+  enturDepartureSearchTime,
+  fetchEnturFerryDepartures,
+  readLinkedEnturFerryStops,
+} from "@/services/enturFerry";
 import { formatDuration } from "@/utils/formatters";
 import { resolveActiveRouteProgress } from "@/utils/routeProgress";
 import { bucketDistanceForDerivedWork } from "@/utils/distanceBuckets";
@@ -47,8 +52,15 @@ import {
 } from "@/utils/upcomingRowModels";
 import type { ActiveRouteData, PanelMode } from "@/types";
 import type { DisplayFerryCrossing } from "@/types";
+import type { FerryDeparture } from "@/services/ferryTimetable";
 
 const EMPTY_FERRIES: DisplayFerryCrossing[] = [];
+
+interface UpcomingFerryDepartureRequest {
+  ferryId: string;
+  providerRefs: Readonly<Record<string, string>>;
+  afterMs: number;
+}
 
 interface UpcomingTabContentProps {
   activeData: ActiveRouteData | null;
@@ -73,6 +85,7 @@ export default function UpcomingTabContent({ activeData }: UpcomingTabContentPro
   const setPanelTab = usePanelStore((s) => s.setPanelTab);
   const setPanelScrollOffset = usePanelStore((s) => s.setPanelScrollOffset);
   const timing = useActiveRouteTiming(activeData);
+  const [ferryDepartures, setFerryDepartures] = useState<Record<string, FerryDeparture>>({});
 
   const routeIds = useMemo(() => activeData?.routeIds ?? [], [activeData?.routeIds]);
   const scrollKey = useMemo(
@@ -170,6 +183,73 @@ export default function UpcomingTabContent({ activeData }: UpcomingTabContentPro
     ],
   );
 
+  const ferryDepartureRequests = useMemo<UpcomingFerryDepartureRequest[]>(
+    () =>
+      events.flatMap((event) => {
+        if (
+          event.kind !== "ferry" ||
+          event.isActive ||
+          !event.eta ||
+          !readLinkedEnturFerryStops(event.ferry.providerRefs)
+        ) {
+          return [];
+        }
+        const after = enturDepartureSearchTime(event.eta.eta, event.ferry.boardingBufferMinutes);
+        if (!after) return [];
+        return [
+          {
+            ferryId: event.ferry.id,
+            providerRefs: event.ferry.providerRefs,
+            afterMs: after.getTime(),
+          },
+        ];
+      }),
+    [events],
+  );
+
+  useEffect(() => {
+    if (ferryDepartureRequests.length === 0) {
+      setFerryDepartures((current) => (Object.keys(current).length === 0 ? current : {}));
+      return;
+    }
+
+    const controller = new AbortController();
+    let disposed = false;
+    setFerryDepartures({});
+    void Promise.all(
+      ferryDepartureRequests.map(
+        async (request): Promise<readonly [ferryId: string, departure: FerryDeparture] | null> => {
+          try {
+            const departures = await fetchEnturFerryDepartures(
+              request.providerRefs,
+              new Date(request.afterMs),
+              controller.signal,
+            );
+            return departures[0] ? [request.ferryId, departures[0]] : null;
+          } catch (departureError) {
+            if (
+              controller.signal.aborted ||
+              (departureError instanceof Error && departureError.name === "AbortError")
+            ) {
+              return null;
+            }
+            // Manual wait and crossing timing deliberately remain the quiet
+            // offline/error fallback for the riding surface.
+            return null;
+          }
+        },
+      ),
+    ).then((results) => {
+      if (disposed) return;
+      setFerryDepartures(Object.fromEntries(results.filter((result) => result != null)));
+    });
+
+    return () => {
+      disposed = true;
+      controller.abort();
+    };
+  }, [ferryDepartureRequests]);
+
   const rowModels = useMemo(
     () =>
       measureSync("upcoming.rows", () =>
@@ -178,9 +258,10 @@ export default function UpcomingTabContent({ activeData }: UpcomingTabContentPro
           currentDistanceMeters: derivedCurrentDistanceMeters,
           units,
           ferries: displayFerries,
+          ferryDepartures,
         }),
       ),
-    [events, derivedCurrentDistanceMeters, displayFerries, units],
+    [events, derivedCurrentDistanceMeters, displayFerries, ferryDepartures, units],
   );
   const upcomingEtaBaseTimeMs = timing.futureStartMs ?? Date.now();
   const listItems = useMemo(

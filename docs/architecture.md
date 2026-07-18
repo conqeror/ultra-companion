@@ -150,6 +150,7 @@ ETA computation: for each route segment, solve `P = (Crr × m × g × cos(θ) + 
 | Overpass API (OSM) | POI data (most categories)              | Free                  |
 | Google Places API  | Gas stations + groceries (better hours) | Free ($200/mo credit) |
 | Open-Meteo API     | Weather forecasts                       | Free, no API key      |
+| Entur APIs         | Norwegian ferry stops + departures      | Free, client header   |
 
 ## Supported Runtime Surfaces
 
@@ -173,7 +174,7 @@ Ferry discovery is deliberately local and user-triggered. After the rider taps a
 
 Imported route points, snapping, and geometric distance remain unchanged. For OSM-assisted crossings, a validated and oriented copy of the OSM polyline is stored as versioned provider metadata and replaces only the corresponding map-display span; manual crossings fall back to their terminal endpoints. Map preparation keeps road and ferry pieces separate so long-route simplification cannot erase a short ferry curve. Ferry-aware helpers derive riding distance, elevation, profile coordinates, climbs, horizons, and ETA by excluding each water span. ETA then applies the boarding buffer, assumed wait, and crossing duration once at the landing boundary. Collection mapping only includes a crossing when its complete raw span belongs to one active source span, preventing a patch boundary from splitting and double-charging one ferry.
 
-Recurring timetables are intentionally not modeled here. Opaque `providerRefs` and the provider-neutral timetable types form the boundary for a later concrete-departure cache; manual duration and assumed wait remain the offline fallback.
+Recurring timetables are intentionally not modeled or persisted. A user can explicitly match the saved boarding and landing coordinates to nearby Entur water `StopPlace` records; their directional IDs and display names are stored as opaque `providerRefs`. Upcoming asks Entur Journey Planner for concrete trips after the quay ETA plus boarding buffer, keeps results in memory for five minutes, and shows the first usable water departure and arrival. The live result refines that ferry row only: downstream route ETA remains deterministic from the saved boarding buffer, assumed wait, and crossing duration, which also remain the offline/error fallback.
 
 ### Collections and Stitching
 

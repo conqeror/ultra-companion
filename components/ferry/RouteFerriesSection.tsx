@@ -7,6 +7,7 @@ import { useFerryStore } from "@/store/ferryStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import { useThemeColors } from "@/theme";
 import { formatDistance } from "@/utils/formatters";
+import { readLinkedEnturFerryStops } from "@/services/enturFerry";
 import type { FerryCrossing, RouteWithPoints } from "@/types";
 import FerryEditorModal from "./FerryEditorModal";
 
@@ -98,8 +99,9 @@ export default function RouteFerriesSection({ route }: RouteFerriesSectionProps)
                     </Text>
                   </View>
                   <Text className="mt-1 text-[12px] text-muted-foreground">
-                    {crossing.source === "osm" ? "OSM metadata" : "Manual"} · updated{" "}
-                    {new Date(crossing.updatedAt).toLocaleDateString()}
+                    {crossing.source === "osm" ? "OSM metadata" : "Manual"}
+                    {readLinkedEnturFerryStops(crossing.providerRefs) ? " · Entur linked" : ""} ·
+                    updated {new Date(crossing.updatedAt).toLocaleDateString()}
                   </Text>
                 </View>
                 <TouchableOpacity

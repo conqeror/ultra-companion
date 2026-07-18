@@ -11,9 +11,9 @@ export interface FerryDeparture {
 }
 
 export interface FerryDepartureCacheRecord {
-  ferryId: string;
   provider: string;
   directionKey: string;
+  queryAfter: string;
   departures: FerryDeparture[];
   fetchedAt: string;
   expiresAt: string;
