@@ -67,7 +67,13 @@ import {
 import POIFilterBar, { POISelectedFilterSummary } from "@/components/map/POIFilterBar";
 import POIListItem from "@/components/poi/POIListItem";
 import AddSavedPOISheet from "@/components/poi/AddSavedPOISheet";
-import type { ActiveRouteData, DisplayPOI, POI, StitchedSegmentInfo } from "@/types";
+import type {
+  ActiveRouteData,
+  DisplayFerryCrossing,
+  DisplayPOI,
+  POI,
+  StitchedSegmentInfo,
+} from "@/types";
 import { getPOINotes, isGoogleDerivedPOI, type SavedPOITarget } from "@/services/savedPOIService";
 import {
   buildPhoneUrl,
@@ -84,6 +90,7 @@ interface POITabContentProps {
 
 const EXPANDED_POI_CONTENT_STYLE = { paddingBottom: 8 };
 const ALL_POI_CATEGORY_KEYS = POI_CATEGORIES.map((category) => category.key);
+const EMPTY_FERRIES: DisplayFerryCrossing[] = [];
 
 function poiKeyExtractor(item: { id: string }): string {
   return item.id;
@@ -115,13 +122,14 @@ export default function POITabContent({ activeData }: POITabContentProps) {
   const routePoints = activeData?.points ?? null;
   const segments = activeData?.segments ?? null;
   const activeTotalDistance = activeData?.totalDistanceMeters;
+  const ferries = activeData?.ferries ?? EMPTY_FERRIES;
   const ferrySpans = useMemo(
     () =>
-      (activeData?.ferries ?? []).map((ferry) => ({
+      ferries.map((ferry) => ({
         startDistanceMeters: ferry.effectiveStartDistanceMeters,
         endDistanceMeters: ferry.effectiveEndDistanceMeters,
       })),
-    [activeData?.ferries],
+    [ferries],
   );
   const routePois = usePoiStore(useShallow((s) => pickRouteRecords(s.pois, routeIds)));
   const timing = useActiveRouteTiming(activeData);
@@ -234,6 +242,8 @@ export default function POITabContent({ activeData }: POITabContentProps) {
           cumulativeTime,
           plannedStops,
           etaStartTimeMs: timing.futureStartMs,
+          ferrySpans,
+          ferries,
           starredPOIIds,
           units,
         }),
@@ -245,6 +255,8 @@ export default function POITabContent({ activeData }: POITabContentProps) {
       cumulativeTime,
       plannedStops,
       timing.futureStartMs,
+      ferrySpans,
+      ferries,
       starredPOIIds,
       units,
     ],
@@ -261,6 +273,8 @@ export default function POITabContent({ activeData }: POITabContentProps) {
           cumulativeTime,
           plannedStops,
           etaStartTimeMs: timing.futureStartMs,
+          ferrySpans,
+          ferries,
           starredPOIIds,
           units,
           searchQuery: deferredSearchQuery,
@@ -273,6 +287,8 @@ export default function POITabContent({ activeData }: POITabContentProps) {
       cumulativeTime,
       plannedStops,
       timing.futureStartMs,
+      ferrySpans,
+      ferries,
       starredPOIIds,
       units,
       deferredSearchQuery,

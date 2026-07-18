@@ -5,6 +5,7 @@ import { buildRoutePoint } from "@/tests/fixtures/route";
 import { stitchedSegmentsFixture } from "@/tests/fixtures/collection";
 import { bucketDistanceForDerivedWork } from "@/utils/distanceBuckets";
 import { createRidingHorizonWindow } from "@/utils/ridingHorizon";
+import type { FerryCrossing } from "@/types";
 import {
   buildCompactPOIRowModels,
   buildPOIListRowModels,
@@ -19,6 +20,37 @@ const mondayOpen = JSON.stringify([
 const mondayEveningOnly = JSON.stringify([
   { open: { day: 1, hour: 18, minute: 0 }, close: { day: 1, hour: 19, minute: 0 } },
 ]);
+const mondayLunchOnly = JSON.stringify([
+  { open: { day: 1, hour: 12, minute: 12 }, close: { day: 1, hour: 12, minute: 13 } },
+]);
+
+function ferryCrossing(overrides: Partial<FerryCrossing> = {}): FerryCrossing {
+  return {
+    id: "ferry-1",
+    routeId: "r1",
+    name: "Test ferry",
+    startDistanceMeters: 1_000,
+    endDistanceMeters: 2_000,
+    startLatitude: 0,
+    startLongitude: 0,
+    endLatitude: 0,
+    endLongitude: 0,
+    durationMinutes: 5,
+    assumedWaitMinutes: 3,
+    boardingBufferMinutes: 2,
+    source: "manual",
+    sourceId: null,
+    sourceUrl: null,
+    operator: null,
+    timetableUrl: null,
+    bicycleAccess: "unknown",
+    providerRefs: {},
+    tags: {},
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    ...overrides,
+  };
+}
 
 describe("poiListModels", () => {
   it("filters route-scoped POIs by category, search, and horizon", () => {
@@ -149,6 +181,41 @@ describe("poiListModels", () => {
       signedDistanceText: "1.5 km",
       distanceDirectionLabel: "ahead",
       ridingTimeText: null,
+    });
+  });
+
+  it("uses ferry-aware distance and ETA for POIs beyond a crossing", () => {
+    const ferry = ferryCrossing();
+    const input = {
+      pois: [
+        toDisplayPOI(
+          buildPoi("after-ferry", "r1", 3_000, {
+            tags: { opening_hours: mondayLunchOnly },
+          }),
+        ),
+      ],
+      currentDistanceMeters: 0,
+      routePoints: [buildRoutePoint(0, 0), buildRoutePoint(4_000, 1)],
+      cumulativeTime: [0, 800],
+      etaStartTimeMs: mondayNoon.getTime(),
+      ferrySpans: [{ startDistanceMeters: 1_000, endDistanceMeters: 2_000 }],
+      ferries: [ferry],
+      starredPOIIds: new Set<string>(),
+      units: "metric" as const,
+    };
+
+    const expanded = buildPOIListRowModels(input);
+    const compact = buildCompactPOIRowModels(input);
+
+    expect(expanded[0]).toMatchObject({
+      distanceText: "2.0 km",
+      ridingTimeText: "12m",
+      etaOpeningText: "Open @ ETA",
+    });
+    expect(compact[0]).toMatchObject({
+      distanceText: "2.0 km",
+      ridingTimeText: "12m",
+      etaOpeningText: "Open @ ETA",
     });
   });
 
