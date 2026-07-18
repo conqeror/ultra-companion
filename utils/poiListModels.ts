@@ -7,6 +7,11 @@ import {
 } from "@/services/plannedStops";
 import { toDisplayPOIs } from "@/services/displayDistance";
 import { getETAToDistanceFromDistance } from "@/services/etaCalculator";
+import {
+  ridingDistanceBetween,
+  type FerryDistanceSpan,
+  type FerryTimingCrossing,
+} from "@/services/ferryCrossings";
 import { isOpenAt } from "@/services/openingHoursParser";
 import { stitchPOIs } from "@/services/stitchingService";
 import { formatDistance, formatDuration, formatETA } from "@/utils/formatters";
@@ -83,6 +88,8 @@ interface RowModelInput {
   cumulativeTime: number[] | null;
   plannedStops?: readonly PlannedStop[] | null;
   etaStartTimeMs?: number | null;
+  ferrySpans?: readonly FerryDistanceSpan[];
+  ferries?: readonly FerryTimingCrossing[];
   starredPOIIds: ReadonlySet<string>;
   units: UnitSystem;
   searchQuery?: string;
@@ -162,6 +169,8 @@ export function buildPOIListRowModels({
   cumulativeTime,
   plannedStops,
   etaStartTimeMs,
+  ferrySpans,
+  ferries,
   starredPOIIds,
   units,
   searchQuery,
@@ -179,6 +188,8 @@ export function buildPOIListRowModels({
       cumulativeTime,
       plannedStops,
       etaStartTimeMs,
+      ferrySpans,
+      ferries,
       starredPOIIds,
       units,
       referenceTime,
@@ -302,10 +313,18 @@ function buildCommonPOIRowModel({
   plannedStops,
   etaStartTimeMs,
   units,
+  ferrySpans,
+  ferries,
 }: CommonPOIRowModelInput) {
   const meta = getCategoryMeta(poi.category) ?? FALLBACK_CATEGORY_META;
   const distanceReferenceMeters = currentDistanceMeters ?? 0;
-  const distAhead = poi.effectiveDistanceMeters - distanceReferenceMeters;
+  const geometricDistanceAhead = poi.effectiveDistanceMeters - distanceReferenceMeters;
+  const ridingDistance = ridingDistanceBetween(
+    Math.min(distanceReferenceMeters, poi.effectiveDistanceMeters),
+    Math.max(distanceReferenceMeters, poi.effectiveDistanceMeters),
+    ferrySpans ?? [],
+  );
+  const distAhead = geometricDistanceAhead >= 0 ? ridingDistance : -ridingDistance;
   const distanceText = formatDistance(Math.abs(distAhead), units);
   const distanceDirectionLabel = distAhead >= 0 ? ("ahead" as const) : ("behind" as const);
   const etaResult = resolvePOIETA({
@@ -315,6 +334,7 @@ function buildCommonPOIRowModel({
     cumulativeTime,
     plannedStops,
     etaStartTimeMs,
+    ferries,
   });
   const ridingTimeText =
     etaResult && etaResult.ridingTimeSeconds > 0
@@ -360,6 +380,7 @@ function resolvePOIETA({
   cumulativeTime,
   plannedStops,
   etaStartTimeMs,
+  ferries = [],
 }: {
   poi: DisplayPOI;
   currentDistanceMeters: number | null;
@@ -367,6 +388,7 @@ function resolvePOIETA({
   cumulativeTime: number[] | null;
   plannedStops?: readonly PlannedStop[] | null;
   etaStartTimeMs?: number | null;
+  ferries?: readonly FerryTimingCrossing[];
 }): ETAResult | null {
   if (!cumulativeTime || !routePoints?.length || currentDistanceMeters == null) return null;
   if (poi.effectiveDistanceMeters <= currentDistanceMeters) return null;
@@ -375,6 +397,7 @@ function resolvePOIETA({
     routePoints,
     currentDistanceMeters,
     poi.effectiveDistanceMeters,
+    ferries,
   );
   const stopOffsetSeconds = plannedStopOffsetSecondsBeforeDistance(
     plannedStops,

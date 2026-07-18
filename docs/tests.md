@@ -2,7 +2,7 @@
 
 Current test strategy and remaining gaps.
 
-Last reviewed: 2026-07-14
+Last reviewed: 2026-07-18
 
 ## Commands
 
@@ -15,7 +15,7 @@ Last reviewed: 2026-07-14
 
 ## Current Coverage
 
-The app has a pure-logic Vitest suite for the bug classes that TypeScript and linting cannot catch. As of this review: 48 test files, 280 tests.
+The app has a pure-logic Vitest suite for the bug classes that TypeScript and linting cannot catch. As of this review: 59 test files, 384 tests.
 
 Covered areas:
 
@@ -30,6 +30,7 @@ Covered areas:
 - Sequential active-collection route loading and chunked collection-segment ETA totals
 - Native and web planning-database transport, validation, and replacement behavior
 - Weather service behavior and route-aware upcoming timeline helpers
+- Ferry schema recovery, span mapping, local OSM lookup, stored map geometry, riding-distance/elevation exclusion, ETA propagation, horizons, transport persistence, and Upcoming rows
 - Route, POI, offline, and ETA/climb store behavior through focused store tests
 
 ## Manual / Native Coverage

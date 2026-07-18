@@ -13,13 +13,14 @@ import {
 import type {
   DisplayClimb,
   DisplayDistanceMeters,
+  DisplayFerryCrossing,
   DisplayPOI,
   ETAResult,
   RoutePoint,
   StitchedSegmentInfo,
 } from "@/types";
 
-export type UpcomingEventKind = "poi" | "climb-span" | "segment-transition" | "finish";
+export type UpcomingEventKind = "poi" | "ferry" | "climb-span" | "segment-transition" | "finish";
 
 interface UpcomingEventBase {
   id: string;
@@ -40,6 +41,13 @@ export interface UpcomingClimbSpanEvent extends UpcomingEventBase {
   isActive: boolean;
 }
 
+export interface UpcomingFerryEvent extends UpcomingEventBase {
+  kind: "ferry";
+  ferry: DisplayFerryCrossing;
+  landingEta: ETAResult | null;
+  isActive: boolean;
+}
+
 export interface UpcomingSegmentTransitionEvent extends UpcomingEventBase {
   kind: "segment-transition";
   fromSegment: StitchedSegmentInfo;
@@ -53,6 +61,7 @@ export interface UpcomingFinishEvent extends UpcomingEventBase {
 
 export type UpcomingEvent =
   | UpcomingPOIEvent
+  | UpcomingFerryEvent
   | UpcomingClimbSpanEvent
   | UpcomingSegmentTransitionEvent
   | UpcomingFinishEvent;
@@ -61,6 +70,7 @@ export interface BuildUpcomingTimelineInput {
   pois: DisplayPOI[];
   starredPOIIds: ReadonlySet<string>;
   climbs: DisplayClimb[];
+  ferries?: DisplayFerryCrossing[];
   segments: StitchedSegmentInfo[] | null;
   totalDistanceMeters: number;
   currentDistanceMeters: number | null;
@@ -74,7 +84,8 @@ export interface BuildUpcomingTimelineInput {
 const EVENT_ORDER: Record<UpcomingEventKind, number> = {
   "segment-transition": 0,
   poi: 1,
-  "climb-span": 2,
+  ferry: 2,
+  "climb-span": 3,
   finish: 5,
 };
 
@@ -82,6 +93,7 @@ export function buildUpcomingTimeline({
   pois,
   starredPOIIds,
   climbs,
+  ferries = [],
   segments,
   totalDistanceMeters,
   currentDistanceMeters,
@@ -107,8 +119,54 @@ export function buildUpcomingTimeline({
         poi.effectiveDistanceMeters,
         etaStartTimeMs,
         plannedStops,
+        ferries,
       ),
       poi,
+    });
+  }
+
+  for (const ferry of ferries) {
+    if (
+      !isDistanceRangeInUpcomingWindow(
+        ferry.effectiveStartDistanceMeters,
+        ferry.effectiveEndDistanceMeters,
+        horizonWindow,
+        anchorDistanceMeters,
+      ) ||
+      ferry.effectiveEndDistanceMeters < anchorDistanceMeters
+    ) {
+      continue;
+    }
+    const isActive =
+      ferry.effectiveStartDistanceMeters <= anchorDistanceMeters &&
+      ferry.effectiveEndDistanceMeters > anchorDistanceMeters;
+    const quayDistance = (
+      isActive ? anchorDistanceMeters : ferry.effectiveStartDistanceMeters
+    ) as DisplayDistanceMeters;
+    events.push({
+      id: `ferry:${ferry.id}:${ferry.effectiveStartDistanceMeters}`,
+      kind: "ferry",
+      distanceMeters: quayDistance,
+      eta: resolveETA(
+        cumulativeTime,
+        routePoints,
+        anchorDistanceMeters,
+        quayDistance,
+        etaStartTimeMs,
+        plannedStops,
+        ferries,
+      ),
+      landingEta: resolveETA(
+        cumulativeTime,
+        routePoints,
+        anchorDistanceMeters,
+        ferry.effectiveEndDistanceMeters,
+        etaStartTimeMs,
+        plannedStops,
+        ferries,
+      ),
+      ferry,
+      isActive,
     });
   }
 
@@ -134,6 +192,7 @@ export function buildUpcomingTimeline({
       climb.effectiveEndDistanceMeters,
       etaStartTimeMs,
       plannedStops,
+      ferries,
     );
 
     events.push({
@@ -151,6 +210,7 @@ export function buildUpcomingTimeline({
             climb.effectiveStartDistanceMeters,
             etaStartTimeMs,
             plannedStops,
+            ferries,
           ),
       climb,
       endEta,
@@ -175,6 +235,7 @@ export function buildUpcomingTimeline({
           distanceMeters,
           etaStartTimeMs,
           plannedStops,
+          ferries,
         ),
         fromSegment,
         toSegment,
@@ -198,6 +259,7 @@ export function buildUpcomingTimeline({
         finishDistanceMeters,
         etaStartTimeMs,
         plannedStops,
+        ferries,
       ),
       label: segments ? "Collection finish" : "Route finish",
     });
@@ -214,6 +276,7 @@ export function resolveUpcomingHorizonETA({
   cumulativeTime,
   etaStartTimeMs,
   plannedStops,
+  ferries,
 }: Pick<
   BuildUpcomingTimelineInput,
   | "totalDistanceMeters"
@@ -223,6 +286,7 @@ export function resolveUpcomingHorizonETA({
   | "cumulativeTime"
   | "etaStartTimeMs"
   | "plannedStops"
+  | "ferries"
 >): ETAResult | null {
   const anchorDistanceMeters = Math.max(0, currentDistanceMeters ?? 0);
   const targetDistanceMeters = horizonWindow?.endDistanceMeters ?? totalDistanceMeters;
@@ -234,6 +298,7 @@ export function resolveUpcomingHorizonETA({
     Math.min(totalDistanceMeters, targetDistanceMeters) as DisplayDistanceMeters,
     etaStartTimeMs,
     plannedStops,
+    ferries,
   );
 }
 
@@ -283,6 +348,7 @@ function resolveETA(
   targetDistanceMeters: DisplayDistanceMeters,
   etaStartTimeMs?: number | null,
   plannedStops?: readonly PlannedStop[] | null,
+  ferries: readonly DisplayFerryCrossing[] = [],
 ): ETAResult | null {
   if (!cumulativeTime || !routePoints?.length) return null;
   const eta = getETAToDistanceFromDistance(
@@ -290,6 +356,7 @@ function resolveETA(
     routePoints,
     currentDistanceMeters,
     targetDistanceMeters,
+    ferries,
   );
   const stopOffsetSeconds = plannedStopOffsetSecondsBeforeDistance(
     plannedStops,

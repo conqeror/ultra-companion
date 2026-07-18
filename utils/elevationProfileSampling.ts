@@ -3,6 +3,8 @@ import type { RoutePoint } from "@/types";
 export interface ElevationProfileSample {
   distanceMeters: number;
   elevationMeters: number;
+  /** Starts a new terrain subpath; the previous sample must not be connected. */
+  breakBefore?: boolean;
 }
 
 export interface ElevationProfileSamplingOptions {
@@ -47,7 +49,11 @@ export interface ElevationTileDistanceRangeOptions {
 interface PendingElevationSample {
   distanceMeters: number;
   elevationMeters: number | null;
+  breakBefore: boolean;
+  breakAfter: boolean;
 }
+
+interface CanonicalRouteElevation extends PendingElevationSample {}
 
 interface ElevationBoundaryAnchor {
   hasBefore: boolean;
@@ -96,14 +102,23 @@ function upperBound(
 
 function forEachCanonicalRouteElevation(
   points: readonly RoutePoint[],
-  visitor: (distanceMeters: number, elevationMeters: number | null) => void,
+  visitor: (sample: CanonicalRouteElevation) => void,
 ): void {
   let hasPendingSample = false;
   let pendingDistanceMeters = 0;
   let pendingElevationMeters: number | null = null;
+  let pendingBreakBefore = false;
+  let pendingBreakAfter = false;
+  let breakBeforeNextSample = false;
 
   const flushPendingSample = () => {
-    if (hasPendingSample) visitor(pendingDistanceMeters, pendingElevationMeters);
+    if (!hasPendingSample) return;
+    visitor({
+      distanceMeters: pendingDistanceMeters,
+      elevationMeters: pendingElevationMeters,
+      breakBefore: pendingBreakBefore,
+      breakAfter: pendingBreakAfter,
+    });
   };
 
   for (let pointIndex = 0; pointIndex < points.length; pointIndex++) {
@@ -125,13 +140,24 @@ function forEachCanonicalRouteElevation(
 
     if (distanceMeters < pendingDistanceMeters) continue;
     if (distanceMeters === pendingDistanceMeters) {
-      if (elevationMeters != null) pendingElevationMeters = elevationMeters;
+      if (elevationMeters != null) {
+        pendingElevationMeters = elevationMeters;
+      } else if (pendingElevationMeters != null) {
+        // Ferry profile projection emits a finite boarding point followed by a
+        // null landing sentinel at the same riding distance. Keep the boarding
+        // elevation, and start a disconnected segment at the next route point.
+        pendingBreakAfter = true;
+        breakBeforeNextSample = true;
+      }
       continue;
     }
 
     flushPendingSample();
     pendingDistanceMeters = distanceMeters;
     pendingElevationMeters = elevationMeters;
+    pendingBreakBefore = breakBeforeNextSample;
+    pendingBreakAfter = false;
+    breakBeforeNextSample = false;
   }
 
   flushPendingSample();
@@ -195,67 +221,82 @@ export function buildElevationProfileSamples(
   points: readonly RoutePoint[],
 ): ElevationProfileSample[] {
   const pending: PendingElevationSample[] = [];
-
-  for (const point of points) {
-    const distanceMeters = point.distanceFromStartMeters;
-    if (!Number.isFinite(distanceMeters)) continue;
-
-    const elevationMeters =
-      point.elevationMeters != null && Number.isFinite(point.elevationMeters)
-        ? point.elevationMeters
-        : null;
-    const previous = pending[pending.length - 1];
-
-    if (previous && distanceMeters < previous.distanceMeters) continue;
-    if (previous && distanceMeters === previous.distanceMeters) {
-      if (elevationMeters != null) previous.elevationMeters = elevationMeters;
-      continue;
-    }
-
-    pending.push({ distanceMeters, elevationMeters });
-  }
+  forEachCanonicalRouteElevation(points, (sample) => pending.push(sample));
 
   if (pending.length === 0) return [];
-
-  const firstKnownIndex = pending.findIndex((sample) => sample.elevationMeters != null);
-  if (firstKnownIndex === -1) {
-    return pending.map(({ distanceMeters }) => ({ distanceMeters, elevationMeters: 0 }));
-  }
-
   const elevations = Array.from({ length: pending.length }, () => 0);
-  const firstKnownElevation = pending[firstKnownIndex].elevationMeters!;
-  for (let index = 0; index <= firstKnownIndex; index++) {
-    elevations[index] = firstKnownElevation;
-  }
 
-  let previousKnownIndex = firstKnownIndex;
-  for (let index = firstKnownIndex + 1; index < pending.length; index++) {
-    const nextElevation = pending[index].elevationMeters;
-    if (nextElevation == null) continue;
+  const fillSegment = (startIndex: number, endIndexExclusive: number) => {
+    let firstKnownIndex = -1;
+    for (let index = startIndex; index < endIndexExclusive; index++) {
+      if (pending[index].elevationMeters != null) {
+        firstKnownIndex = index;
+        break;
+      }
+    }
+    if (firstKnownIndex === -1) return;
 
-    const previousElevation = pending[previousKnownIndex].elevationMeters!;
-    const previousDistance = pending[previousKnownIndex].distanceMeters;
-    const distanceSpan = pending[index].distanceMeters - previousDistance;
-
-    for (let gapIndex = previousKnownIndex + 1; gapIndex < index; gapIndex++) {
-      const progress =
-        distanceSpan > 0 ? (pending[gapIndex].distanceMeters - previousDistance) / distanceSpan : 0;
-      elevations[gapIndex] = previousElevation + (nextElevation - previousElevation) * progress;
+    const firstKnownElevation = pending[firstKnownIndex].elevationMeters!;
+    for (let index = startIndex; index <= firstKnownIndex; index++) {
+      elevations[index] = firstKnownElevation;
     }
 
-    elevations[index] = nextElevation;
-    previousKnownIndex = index;
-  }
+    let previousKnownIndex = firstKnownIndex;
+    for (let index = firstKnownIndex + 1; index < endIndexExclusive; index++) {
+      const nextElevation = pending[index].elevationMeters;
+      if (nextElevation == null) continue;
 
-  const lastKnownElevation = elevations[previousKnownIndex];
-  for (let index = previousKnownIndex + 1; index < pending.length; index++) {
-    elevations[index] = lastKnownElevation;
-  }
+      const previousElevation = pending[previousKnownIndex].elevationMeters!;
+      const previousDistance = pending[previousKnownIndex].distanceMeters;
+      const distanceSpan = pending[index].distanceMeters - previousDistance;
+      for (let gapIndex = previousKnownIndex + 1; gapIndex < index; gapIndex++) {
+        const progress =
+          distanceSpan > 0
+            ? (pending[gapIndex].distanceMeters - previousDistance) / distanceSpan
+            : 0;
+        elevations[gapIndex] = previousElevation + (nextElevation - previousElevation) * progress;
+      }
+      elevations[index] = nextElevation;
+      previousKnownIndex = index;
+    }
 
-  return pending.map(({ distanceMeters }, index) => ({
-    distanceMeters,
-    elevationMeters: elevations[index],
-  }));
+    const lastKnownElevation = elevations[previousKnownIndex];
+    for (let index = previousKnownIndex + 1; index < endIndexExclusive; index++) {
+      elevations[index] = lastKnownElevation;
+    }
+  };
+
+  let segmentStartIndex = 0;
+  for (let index = 1; index < pending.length; index++) {
+    if (!pending[index].breakBefore) continue;
+    fillSegment(segmentStartIndex, index);
+    segmentStartIndex = index;
+  }
+  fillSegment(segmentStartIndex, pending.length);
+
+  return pending.map(({ distanceMeters, breakBefore }, index) =>
+    breakBefore
+      ? { distanceMeters, elevationMeters: elevations[index], breakBefore: true }
+      : { distanceMeters, elevationMeters: elevations[index] },
+  );
+}
+
+/** Splits finite profile samples into renderer-neutral disconnected subpaths. */
+export function splitElevationProfileSamplesAtBreaks(
+  samples: readonly ElevationProfileSample[],
+): ElevationProfileSample[][] {
+  const segments: ElevationProfileSample[][] = [];
+  let segment: ElevationProfileSample[] = [];
+
+  for (const sample of samples) {
+    if (sample.breakBefore && segment.length > 0) {
+      segments.push(segment);
+      segment = [];
+    }
+    segment.push(sample);
+  }
+  if (segment.length > 0) segments.push(segment);
+  return segments;
 }
 
 export function interpolateElevationAtDistance(
@@ -281,6 +322,42 @@ export function interpolateElevationAtDistance(
   return previous.elevationMeters + (next.elevationMeters - previous.elevationMeters) * progress;
 }
 
+function isInsideElevationBreak(
+  samples: readonly ElevationProfileSample[],
+  distanceMeters: number,
+): boolean {
+  const nextIndex = lowerBound(samples, distanceMeters);
+  if (nextIndex <= 0 || nextIndex >= samples.length) return false;
+
+  const previous = samples[nextIndex - 1];
+  const next = samples[nextIndex];
+  return (
+    next.breakBefore === true &&
+    distanceMeters > previous.distanceMeters &&
+    distanceMeters < next.distanceMeters
+  );
+}
+
+function boundaryElevationSample(
+  samples: readonly ElevationProfileSample[],
+  distanceMeters: number,
+  preserveBreakBefore: boolean,
+): ElevationProfileSample {
+  const exactIndex = lowerBound(samples, distanceMeters);
+  const exact = samples[exactIndex];
+  if (exact?.distanceMeters === distanceMeters) {
+    return {
+      distanceMeters,
+      elevationMeters: exact.elevationMeters,
+      ...(preserveBreakBefore && exact.breakBefore ? { breakBefore: true } : {}),
+    };
+  }
+  return {
+    distanceMeters,
+    elevationMeters: interpolateElevationAtDistance(samples, distanceMeters),
+  };
+}
+
 /** Returns a distance-clamped sample window with interpolated samples at both edges. */
 export function sliceElevationSamples(
   samples: readonly ElevationProfileSample[],
@@ -300,12 +377,10 @@ export function sliceElevationSamples(
 
   const start = clamp(requestedStart, firstDistance, lastDistance);
   const end = clamp(requestedEnd, firstDistance, lastDistance);
-  const result: ElevationProfileSample[] = [
-    {
-      distanceMeters: start,
-      elevationMeters: interpolateElevationAtDistance(samples, start),
-    },
-  ];
+  const result: ElevationProfileSample[] = [];
+  const startInsideBreak = isInsideElevationBreak(samples, start);
+  const endInsideBreak = isInsideElevationBreak(samples, end);
+  if (!startInsideBreak) result.push(boundaryElevationSample(samples, start, false));
 
   if (end === start) return result;
 
@@ -315,11 +390,39 @@ export function sliceElevationSamples(
     result.push(samples[index]);
   }
 
-  result.push({
-    distanceMeters: end,
-    elevationMeters: interpolateElevationAtDistance(samples, end),
-  });
+  if (!endInsideBreak) result.push(boundaryElevationSample(samples, end, true));
   return result;
+}
+
+function mergeElevationProfileSamples(
+  selected: readonly ElevationProfileSample[],
+  required: readonly ElevationProfileSample[],
+): ElevationProfileSample[] {
+  if (required.length === 0) return Array.from(selected);
+
+  const byDistance = new Map<number, ElevationProfileSample>();
+  for (const sample of [...selected, ...required]) {
+    const previous = byDistance.get(sample.distanceMeters);
+    byDistance.set(sample.distanceMeters, {
+      distanceMeters: sample.distanceMeters,
+      elevationMeters: sample.elevationMeters,
+      ...(previous?.breakBefore || sample.breakBefore ? { breakBefore: true } : {}),
+    });
+  }
+  return [...byDistance.values()].sort((a, b) => a.distanceMeters - b.distanceMeters);
+}
+
+function preserveElevationBreakSamples(
+  source: readonly ElevationProfileSample[],
+  selected: readonly ElevationProfileSample[],
+): ElevationProfileSample[] {
+  const required: ElevationProfileSample[] = [];
+  for (let index = 0; index < source.length; index++) {
+    if (!source[index].breakBefore) continue;
+    if (index > 0) required.push(source[index - 1]);
+    required.push(source[index]);
+  }
+  return mergeElevationProfileSamples(selected, required);
 }
 
 /**
@@ -338,7 +441,7 @@ export function downsampleElevationExtrema(
 
   const first = samples[0];
   const last = samples[samples.length - 1];
-  if (budget === 2) return [first, last];
+  if (budget === 2) return preserveElevationBreakSamples(samples, [first, last]);
 
   if (budget === 3) {
     const distanceSpan = last.distanceMeters - first.distanceMeters;
@@ -359,7 +462,7 @@ export function downsampleElevationExtrema(
       }
     }
 
-    return [first, samples[selectedIndex], last];
+    return preserveElevationBreakSamples(samples, [first, samples[selectedIndex], last]);
   }
 
   const bucketCount = Math.floor((budget - 2) / 2);
@@ -409,7 +512,7 @@ export function downsampleElevationExtrema(
   }
 
   result.push(last);
-  return result;
+  return preserveElevationBreakSamples(samples, result);
 }
 
 export function getElevationSampleBudget(
@@ -471,7 +574,7 @@ export function sampleElevationProfileForPixels(
   let firstRouteDistanceMeters = 0;
   let lastRouteDistanceMeters = 0;
 
-  forEachCanonicalRouteElevation(points, (distanceMeters) => {
+  forEachCanonicalRouteElevation(points, ({ distanceMeters }) => {
     if (!hasRouteDistance) {
       hasRouteDistance = true;
       firstRouteDistanceMeters = distanceMeters;
@@ -504,8 +607,30 @@ export function sampleElevationProfileForPixels(
 
   const startAnchor = emptyBoundaryAnchor();
   const endAnchor = emptyBoundaryAnchor();
-  forEachCanonicalRouteElevation(points, (distanceMeters, elevationMeters) => {
+  const requiredBreakSamples: ElevationProfileSample[] = [];
+  let breakBeforeNextFiniteSample = false;
+  forEachCanonicalRouteElevation(points, (sample) => {
+    const { distanceMeters, elevationMeters } = sample;
+    if (sample.breakBefore) breakBeforeNextFiniteSample = true;
     if (elevationMeters == null) return;
+
+    if (
+      sample.breakAfter &&
+      distanceMeters >= startDistanceMeters &&
+      distanceMeters <= endDistanceMeters
+    ) {
+      requiredBreakSamples.push({ distanceMeters, elevationMeters });
+    }
+    if (breakBeforeNextFiniteSample) {
+      if (distanceMeters > startDistanceMeters && distanceMeters <= endDistanceMeters) {
+        requiredBreakSamples.push({
+          distanceMeters,
+          elevationMeters,
+          breakBefore: true,
+        });
+      }
+      breakBeforeNextFiniteSample = false;
+    }
 
     updateBoundaryAnchor(startAnchor, startDistanceMeters, distanceMeters, elevationMeters);
     updateBoundaryAnchor(endAnchor, endDistanceMeters, distanceMeters, elevationMeters);
@@ -536,17 +661,19 @@ export function sampleElevationProfileForPixels(
     distanceMeters: startDistanceMeters,
     elevationMeters: startElevationMeters,
   };
-  if (distanceSpan === 0) return [firstSample];
+  if (distanceSpan === 0) return mergeElevationProfileSamples([firstSample], requiredBreakSamples);
 
   const lastSample = { distanceMeters: endDistanceMeters, elevationMeters: endElevationMeters };
-  if (budget === 2) return [firstSample, lastSample];
+  if (budget === 2) {
+    return mergeElevationProfileSamples([firstSample, lastSample], requiredBreakSamples);
+  }
 
   if (budget === 3) {
     let selectedDistanceMeters = 0;
     let selectedElevationMeters = 0;
     let largestDeviation = -1;
 
-    forEachCanonicalRouteElevation(points, (distanceMeters, elevationMeters) => {
+    forEachCanonicalRouteElevation(points, ({ distanceMeters, elevationMeters }) => {
       if (
         elevationMeters == null ||
         distanceMeters <= startDistanceMeters ||
@@ -566,16 +693,18 @@ export function sampleElevationProfileForPixels(
       }
     });
 
-    return largestDeviation >= 0
-      ? [
-          firstSample,
-          {
-            distanceMeters: selectedDistanceMeters,
-            elevationMeters: selectedElevationMeters,
-          },
-          lastSample,
-        ]
-      : [firstSample, lastSample];
+    const selected =
+      largestDeviation >= 0
+        ? [
+            firstSample,
+            {
+              distanceMeters: selectedDistanceMeters,
+              elevationMeters: selectedElevationMeters,
+            },
+            lastSample,
+          ]
+        : [firstSample, lastSample];
+    return mergeElevationProfileSamples(selected, requiredBreakSamples);
   }
 
   const result: ElevationProfileSample[] = [firstSample];
@@ -601,7 +730,7 @@ export function sampleElevationProfileForPixels(
     }
   }
   result.push(lastSample);
-  return result;
+  return mergeElevationProfileSamples(result, requiredBreakSamples);
 }
 
 /**

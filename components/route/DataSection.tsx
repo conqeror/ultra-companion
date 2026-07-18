@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { View, Alert } from "react-native";
 import { Text } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
-import type { POIFetchedSource, RoutePoint } from "@/types";
+import type { FerryCrossing, POIFetchedSource, RoutePoint } from "@/types";
 import { poiDiscoveryCategoriesForSource } from "@/constants";
 import { usePoiStore, DEFAULT_SOURCE_INFO, type SourceInfo } from "@/store/poiStore";
 import { useOfflineStore } from "@/store/offlineStore";
@@ -20,6 +20,7 @@ interface DataSectionProps {
   totalDistanceMeters: number;
   totalAscentMeters: number;
   totalDescentMeters: number;
+  ferries: FerryCrossing[];
 }
 
 function formatDate(iso: string): string {
@@ -56,6 +57,7 @@ export default function DataSection({
   totalDistanceMeters,
   totalAscentMeters,
   totalDescentMeters,
+  ferries,
 }: DataSectionProps) {
   const [isPreparingOffline, setIsPreparingOffline] = useState(false);
 
@@ -87,8 +89,9 @@ export default function DataSection({
       totalDistanceMeters,
       totalAscentMeters,
       totalDescentMeters,
+      ferries,
     }),
-    [points, routeId, totalAscentMeters, totalDescentMeters, totalDistanceMeters],
+    [ferries, points, routeId, totalAscentMeters, totalDescentMeters, totalDistanceMeters],
   );
   const etaDescriptor = useMemo(
     () => buildRelativeETACacheDescriptor(etaInput, powerConfig),

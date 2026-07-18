@@ -60,9 +60,14 @@ import {
   getZoomLevelToFitBounds,
 } from "@/utils/climbGeometry";
 import { buildClimbDistanceMarkerFeatureCollection } from "@/utils/climbDistanceMarkers";
+import {
+  buildFerryMapFeatureCollections,
+  type FerryMapFeatureCollections,
+} from "@/utils/ferryMapFeatures";
 import { displayTemperatureC, temperatureGradientColor } from "@/utils/temperatureOverlay";
 import type {
   DisplayClimb,
+  DisplayFerryCrossing,
   DisplayPOI,
   DistanceMarkerMode,
   POI,
@@ -117,6 +122,7 @@ interface MapCanvasProps {
   activeContextKey: string | null;
   activeTotalDistanceMeters: number | null;
   activeProgressDistanceMeters: number | null;
+  activeFerries: DisplayFerryCrossing[];
   mapOverlayMode: MapOverlayMode;
   activeVariantOverlays: VariantOverlay[];
   weatherRouteId: string | null;
@@ -575,6 +581,10 @@ function addRouteMarkerLayers(
   markerDistanceRange: DistanceMarkerDistanceRange | null | undefined,
   etaLabelForDistanceMeters: ((distanceMeters: number) => string | null) | undefined,
   hiddenDistanceRange: HighlightedClimbMapState | null,
+  ferryDistanceSpans: readonly {
+    startDistanceMeters: number;
+    endDistanceMeters: number;
+  }[],
   colors: ReturnType<typeof useThemeColors>,
 ): void {
   const showDistanceMarkers = distanceMarkerMode !== "off";
@@ -584,6 +594,7 @@ function addRouteMarkerLayers(
     markerIntervalKm,
     markerDistanceRange,
     etaLabelForDistanceMeters,
+    excludedDistanceSpans: ferryDistanceSpans,
   });
   upsertSource(map, "route-marker-source", shape);
 
@@ -758,6 +769,129 @@ function addCollectionSegmentBoundaryLayers(
   });
 }
 
+function addFerryLineLayers(
+  map: mapboxgl.Map,
+  features: FerryMapFeatureCollections,
+  colors: ReturnType<typeof useThemeColors>,
+  dimmed: boolean,
+): void {
+  if (features.lines.features.length === 0) return;
+
+  upsertSource(map, "ferry-crossing-line-source", features.lines);
+  addLayer(map, {
+    id: MAP_LAYER_IDS.ferryCrossingOutline,
+    type: "line",
+    source: "ferry-crossing-line-source",
+    layout: {
+      "line-cap": "round",
+      "line-join": "round",
+      "line-sort-key": SORT_KEY_FIELD,
+    },
+    paint: {
+      "line-color": colors.surface,
+      "line-width": 10,
+      "line-opacity": dimmed ? 0.48 : 0.9,
+    },
+  });
+  addLayer(map, {
+    id: MAP_LAYER_IDS.ferryCrossingLine,
+    type: "line",
+    source: "ferry-crossing-line-source",
+    layout: {
+      "line-cap": "round",
+      "line-join": "round",
+      "line-sort-key": SORT_KEY_FIELD,
+    },
+    paint: {
+      "line-color": colors.info,
+      "line-width": 6,
+      "line-opacity": dimmed ? 0.58 : 0.98,
+      "line-dasharray": [1.25, 1],
+    },
+  });
+}
+
+function addFerrySymbolLayers(
+  map: mapboxgl.Map,
+  features: FerryMapFeatureCollections,
+  colors: ReturnType<typeof useThemeColors>,
+  dimmed: boolean,
+): void {
+  if (features.lines.features.length === 0) return;
+
+  upsertSource(map, "ferry-crossing-name-source", features.labels);
+  addLayer(map, {
+    id: MAP_LAYER_IDS.ferryNameLabel,
+    type: "symbol",
+    source: "ferry-crossing-name-source",
+    minzoom: 9,
+    layout: {
+      "text-field": ["get", "label"],
+      "text-size": 12,
+      "text-offset": [0, -1.15],
+      "text-max-width": 14,
+      "text-allow-overlap": false,
+      "text-ignore-placement": false,
+      "symbol-sort-key": SORT_KEY_FIELD,
+    },
+    paint: {
+      "text-color": dimmed ? colors.textSecondary : colors.textPrimary,
+      "text-halo-color": colors.surface,
+      "text-halo-width": 2.5,
+    },
+  });
+
+  upsertSource(map, "ferry-crossing-endpoint-source", features.endpoints);
+  addLayer(map, {
+    id: MAP_LAYER_IDS.ferryEndpointCircle,
+    type: "circle",
+    source: "ferry-crossing-endpoint-source",
+    minzoom: 7,
+    layout: { "circle-sort-key": SORT_KEY_FIELD },
+    paint: {
+      "circle-color": colors.info,
+      "circle-radius": 9,
+      "circle-opacity": dimmed ? 0.62 : 0.96,
+      "circle-stroke-color": colors.surface,
+      "circle-stroke-width": 3,
+    },
+  });
+  addLayer(map, {
+    id: MAP_LAYER_IDS.ferryEndpointLabel,
+    type: "symbol",
+    source: "ferry-crossing-endpoint-source",
+    minzoom: 7,
+    layout: {
+      "text-field": ["get", "label"],
+      "text-size": 11,
+      "text-allow-overlap": true,
+      "text-ignore-placement": true,
+      "symbol-sort-key": SORT_KEY_FIELD,
+    },
+    paint: { "text-color": colors.surface },
+  });
+  addLayer(map, {
+    id: MAP_LAYER_IDS.ferryEndpointRoleLabel,
+    type: "symbol",
+    source: "ferry-crossing-endpoint-source",
+    minzoom: 12,
+    layout: {
+      "text-field": ["get", "roleLabel"],
+      "text-size": 11,
+      "text-offset": [0, 1.45],
+      "text-anchor": "top",
+      "text-allow-overlap": false,
+      "text-ignore-placement": false,
+      "symbol-sort-key": SORT_KEY_FIELD,
+    },
+    paint: {
+      "text-color": dimmed ? colors.textSecondary : colors.textPrimary,
+      "text-halo-color": colors.surface,
+      "text-halo-width": 2.5,
+    },
+  });
+}
+
 function MapCanvas({
   mapRef,
   cameraRef,
@@ -776,6 +910,7 @@ function MapCanvas({
   activeContextKey,
   activeTotalDistanceMeters,
   activeProgressDistanceMeters,
+  activeFerries,
   mapOverlayMode,
   activeVariantOverlays,
   weatherRouteId,
@@ -812,21 +947,42 @@ function MapCanvas({
   const selectedClimb = useClimbStore((s) => s.selectedClimb);
   const routeClimbs = useClimbStore(useShallow((s) => pickRouteRecords(s.climbs, activeRouteIds)));
   const derivedProgressDistanceMeters = bucketDistanceForDerivedWork(activeProgressDistanceMeters);
+  const ferryDistanceSpans = useMemo(
+    () =>
+      activeFerries.map((ferry) => ({
+        startDistanceMeters: ferry.effectiveStartDistanceMeters,
+        endDistanceMeters: ferry.effectiveEndDistanceMeters,
+      })),
+    [activeFerries],
+  );
 
   const climbHorizonWindow = useMemo(
     () =>
       createClimbHorizonWindow(
         derivedProgressDistanceMeters,
         ridingHorizonMetersForMode(panelModeForClimbs),
-        { totalDistanceMeters: activeTotalDistanceMeters ?? undefined },
+        {
+          totalDistanceMeters: activeTotalDistanceMeters ?? undefined,
+          ferrySpans: activeFerries.map((ferry) => ({
+            startDistanceMeters: ferry.effectiveStartDistanceMeters,
+            endDistanceMeters: ferry.effectiveEndDistanceMeters,
+          })),
+        },
       ),
-    [derivedProgressDistanceMeters, panelModeForClimbs, activeTotalDistanceMeters],
+    [derivedProgressDistanceMeters, panelModeForClimbs, activeTotalDistanceMeters, activeFerries],
   );
 
   const highlightedClimb = useMemo(() => {
     if (mapOverlayMode !== "climbs") return null;
     const displayed = filterClimbsToRidingHorizon(
-      getClimbsForDisplay(activeRouteIds, activeSegments),
+      getClimbsForDisplay(activeRouteIds, activeSegments).filter(
+        (climb) =>
+          !activeFerries.some(
+            (ferry) =>
+              climb.effectiveEndDistanceMeters > ferry.effectiveStartDistanceMeters &&
+              climb.effectiveStartDistanceMeters < ferry.effectiveEndDistanceMeters,
+          ),
+      ),
       climbHorizonWindow,
     );
     const selected =
@@ -844,6 +1000,7 @@ function MapCanvas({
     derivedProgressDistanceMeters,
     climbHorizonWindow,
     routeClimbs,
+    activeFerries,
     getClimbsForDisplay,
   ]);
 
@@ -857,7 +1014,13 @@ function MapCanvas({
     const distanceWindow = createRidingHorizonWindow(
       activeProgressDistanceMeters,
       ridingHorizonMetersForMode(panelMode),
-      { behindMeters: POI_BEHIND_THRESHOLD_M },
+      {
+        behindMeters: POI_BEHIND_THRESHOLD_M,
+        ferrySpans: activeFerries.map((ferry) => ({
+          startDistanceMeters: ferry.effectiveStartDistanceMeters,
+          endDistanceMeters: ferry.effectiveEndDistanceMeters,
+        })),
+      },
     );
 
     if (activeSegments) {
@@ -894,6 +1057,7 @@ function MapCanvas({
     activeRouteIds,
     activeSegments,
     activeProgressDistanceMeters,
+    activeFerries,
     panelMode,
     allPois,
     enabledCategories,
@@ -932,6 +1096,10 @@ function MapCanvas({
       weatherTimeline,
       weatherTemperatureMode,
     ],
+  );
+  const ferryMapFeatures = useMemo(
+    () => buildFerryMapFeatureCollections(activeFerries),
+    [activeFerries],
   );
   useEffect(() => {
     if (!containerRef.current) return;
@@ -1088,6 +1256,12 @@ function MapCanvas({
       "climb-highlight-outline",
       "climb-highlight-line",
       "climb-distance-marker-label",
+      MAP_LAYER_IDS.ferryCrossingOutline,
+      MAP_LAYER_IDS.ferryCrossingLine,
+      MAP_LAYER_IDS.ferryNameLabel,
+      MAP_LAYER_IDS.ferryEndpointCircle,
+      MAP_LAYER_IDS.ferryEndpointLabel,
+      MAP_LAYER_IDS.ferryEndpointRoleLabel,
       ...DISTANCE_MARKER_BUCKETS.map((bucket) => routeDistanceMarkerLayerId(bucket.intervalKm)),
       "route-endpoint-label",
       "route-finish-marker",
@@ -1117,6 +1291,9 @@ function MapCanvas({
       "weather-temperature-label-source",
       "climb-highlight-source",
       "climb-distance-marker-source",
+      "ferry-crossing-line-source",
+      "ferry-crossing-name-source",
+      "ferry-crossing-endpoint-source",
       "route-marker-source",
       "poi-clustered-source",
       "poi-starred-source",
@@ -1315,6 +1492,8 @@ function MapCanvas({
       }
     }
 
+    addFerryLineLayers(map, ferryMapFeatures, colors, hasClimbHighlight);
+
     if (activeRoutePoints?.length) {
       addRouteMarkerLayers(
         map,
@@ -1324,6 +1503,7 @@ function MapCanvas({
         markerDistanceRange,
         etaLabelForDistanceMeters,
         climbHighlight.hiddenRange,
+        ferryDistanceSpans,
         colors,
       );
     }
@@ -1334,6 +1514,8 @@ function MapCanvas({
       colors,
       hasClimbHighlight,
     );
+
+    addFerrySymbolLayers(map, ferryMapFeatures, colors, hasClimbHighlight);
 
     if (poiFeatureCollections.clustered.features.length > 0) {
       upsertSource(map, "poi-clustered-source", poiFeatureCollections.clustered, {
@@ -1511,6 +1693,8 @@ function MapCanvas({
     markerDistanceRange,
     etaLabelForDistanceMeters,
     etaLabelVersion,
+    ferryMapFeatures,
+    ferryDistanceSpans,
     userPosition,
     weatherOverlay,
   ]);

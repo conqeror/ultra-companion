@@ -32,6 +32,7 @@ import {
 import {
   interpolateElevationAtDistance,
   sliceElevationSamples,
+  splitElevationProfileSamplesAtBreaks,
   type ElevationProfileSample,
 } from "@/utils/elevationProfileSampling";
 import { yieldToUI } from "@/utils/yieldToUI";
@@ -108,42 +109,37 @@ function buildPaths(
   domain: ElevationYDomain,
 ): ProfilePaths {
   let linePath = "";
-  for (let index = 0; index < samples.length; index++) {
-    const sample = samples[index];
-    const x =
-      scaleElevationDistanceToX(
-        sample.distanceMeters,
-        layout.totalDistanceMeters,
-        layout.contentWidthPixels,
-      ) - tileXPixels;
-    const y = scaleElevationToY(
-      sample.elevationMeters,
-      domain,
-      layout.plotHeightPixels,
-      layout.plotTopPixels,
-    );
-    linePath += index === 0 ? `M${x},${y}` : ` L${x},${y}`;
+  let fillPath = "";
+  for (const segment of splitElevationProfileSamplesAtBreaks(samples)) {
+    let segmentLinePath = "";
+    let firstX = 0;
+    let lastX = 0;
+    for (let index = 0; index < segment.length; index++) {
+      const sample = segment[index];
+      const x =
+        scaleElevationDistanceToX(
+          sample.distanceMeters,
+          layout.totalDistanceMeters,
+          layout.contentWidthPixels,
+        ) - tileXPixels;
+      const y = scaleElevationToY(
+        sample.elevationMeters,
+        domain,
+        layout.plotHeightPixels,
+        layout.plotTopPixels,
+      );
+      if (index === 0) firstX = x;
+      lastX = x;
+      segmentLinePath += index === 0 ? `M${x},${y}` : ` L${x},${y}`;
+    }
+    if (!segmentLinePath) continue;
+    linePath += `${linePath ? " " : ""}${segmentLinePath}`;
+    fillPath += `${fillPath ? " " : ""}${segmentLinePath} L${lastX},${
+      layout.axisYPixels
+    } L${firstX},${layout.axisYPixels} Z`;
   }
 
-  if (!linePath) return { linePath: "", fillPath: "" };
-  const first = samples[0];
-  const last = samples[samples.length - 1];
-  const firstX =
-    scaleElevationDistanceToX(
-      first.distanceMeters,
-      layout.totalDistanceMeters,
-      layout.contentWidthPixels,
-    ) - tileXPixels;
-  const lastX =
-    scaleElevationDistanceToX(
-      last.distanceMeters,
-      layout.totalDistanceMeters,
-      layout.contentWidthPixels,
-    ) - tileXPixels;
-  return {
-    linePath,
-    fillPath: `${linePath} L${lastX},${layout.axisYPixels} L${firstX},${layout.axisYPixels} Z`,
-  };
+  return { linePath, fillPath };
 }
 
 function buildGradientStops(

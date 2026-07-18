@@ -83,6 +83,26 @@ interface StarredItem {
 
 Starred POIs are stored in SQLite in `starred_items`, not only in MMKV. The app still keeps an in-memory `starredPOIIds` set in `poiStore` for fast rendering and map/list reactivity. Existing MMKV `starredPOIIds` values are migrated into SQLite on app startup.
 
+### Ferry Crossing
+
+```typescript
+interface FerryCrossing {
+  id: string;
+  routeId: string;
+  name: string;
+  startDistanceMeters: number;
+  endDistanceMeters: number;
+  durationMinutes: number;
+  assumedWaitMinutes: number;
+  boardingBufferMinutes: number;
+  source: "manual" | "osm";
+  timetableUrl: string | null;
+  providerRefs: Record<string, string>;
+}
+```
+
+Ferries are stored as raw, route-local spans in `ferry_crossings`. Terminal coordinates and source metadata are persisted with the fields above. `DisplayFerryCrossing` adds effective start/end distances for stitched collections without changing the imported `RoutePoint` geometry. For an OSM-assisted ferry, `providerRefs.osmGeometryV1` contains a JSON-encoded GeoJSON-order `[longitude, latitude][]` polyline capped at 2,048 points; invalid or missing metadata falls back to the snapped boarding-to-landing chord.
+
 ### Power Model
 
 ```typescript
@@ -147,6 +167,14 @@ POI data needs structured route/source/category/distance queries across thousand
 
 OSM opening hours are often missing or wrong for the categories where open/closed matters most. Google Places has user-reported, verified hours for groceries, gas stations, bakeries, pharmacies, and bike shops. Infrastructure categories stay on Overpass (free, no API key, good coverage for water, toilets/showers, shelters, campsites, repair stands, and pumps).
 
+### Point-assisted ferry crossings
+
+Ferry discovery is deliberately local and user-triggered. After the rider taps a known boarding point, the app queries a small Overpass bounding box for `route=ferry` geometry, matches candidate endpoints to the imported route, and asks for confirmation. A two-tap manual path remains available offline and stores the same model.
+
+Imported route points, snapping, and geometric distance remain unchanged. For OSM-assisted crossings, a validated and oriented copy of the OSM polyline is stored as versioned provider metadata and replaces only the corresponding map-display span; manual crossings fall back to their terminal endpoints. Map preparation keeps road and ferry pieces separate so long-route simplification cannot erase a short ferry curve. Ferry-aware helpers derive riding distance, elevation, profile coordinates, climbs, horizons, and ETA by excluding each water span. ETA then applies the boarding buffer, assumed wait, and crossing duration once at the landing boundary. Collection mapping only includes a crossing when its complete raw span belongs to one active source span, preventing a patch boundary from splitting and double-charging one ferry.
+
+Recurring timetables are intentionally not modeled here. Opaque `providerRefs` and the provider-neutral timetable types form the boundary for a later concrete-departure cache; manual duration and assumed wait remain the offline fallback.
+
 ### Collections and Stitching
 
 Routes are stored individually. Collections reference routes via `collection_segments` table with position-based slots. At display time, selected segments are stitched (points concatenated with distance offsets). `RoutePoint[]` consumers (snapping, ETA cumulative time, weather, elevation rendering) receive the stitched array unchanged — their input is already in "stitched coords".
@@ -184,4 +212,4 @@ Routes and stitched collections export as GPX 1.1 tracks. Starred POIs and saved
 
 ### Planning Database Transfer
 
-The browser and iOS app exchange complete planning state through `.ultra-plan.db` files. The transport validates a schema version, includes routes, points, collections, POIs, climbs, starred state, and planning metadata, and replaces the destination planning workspace on import. It is a file-based offline workflow rather than account synchronization; the transfer file should therefore be treated as a snapshot, not as a mergeable or continuously synced database.
+The browser and iOS app exchange complete planning state through `.ultra-plan.db` files. Transport version 2 includes routes, points, collections, POIs, climbs, ferries, starred state, and planning metadata; version 1 files remain importable. Import replaces the destination planning workspace. It is a file-based offline workflow rather than account synchronization, so the transfer file should be treated as a snapshot rather than mergeable or continuously synced state.

@@ -1,4 +1,9 @@
 import type { DisplayClimb, PanelMode } from "@/types";
+import {
+  geometricDistanceAtRidingDistance,
+  ridingDistanceAtGeometricDistance,
+  type FerryDistanceSpan,
+} from "@/services/ferryCrossings";
 
 export interface DistanceWindow {
   startDistanceMeters?: number;
@@ -43,17 +48,32 @@ export function createRidingHorizonWindow(
   options: {
     behindMeters?: number;
     totalDistanceMeters?: number;
+    ferrySpans?: readonly FerryDistanceSpan[];
   } = {},
 ): DistanceWindow | undefined {
   if (horizonMeters == null) return undefined;
 
   const anchor = Math.max(0, currentDistanceMeters ?? 0);
-  const startDistanceMeters = Math.max(0, anchor - (options.behindMeters ?? 0));
-  const rawEndDistanceMeters = anchor + horizonMeters;
-  const endDistanceMeters =
-    options.totalDistanceMeters != null
-      ? Math.min(options.totalDistanceMeters, rawEndDistanceMeters)
-      : rawEndDistanceMeters;
+  const ferries = options.ferrySpans ?? [];
+  const totalDistanceMeters = Math.max(
+    anchor,
+    options.totalDistanceMeters ?? anchor + horizonMeters,
+  );
+  const anchorRidingDistance = ridingDistanceAtGeometricDistance(anchor, ferries);
+  const startRidingDistance = Math.max(0, anchorRidingDistance - (options.behindMeters ?? 0));
+  const endRidingDistance = anchorRidingDistance + horizonMeters;
+  const startDistanceMeters = geometricDistanceAtRidingDistance(
+    startRidingDistance,
+    totalDistanceMeters,
+    ferries,
+    "boarding",
+  );
+  const endDistanceMeters = geometricDistanceAtRidingDistance(
+    endRidingDistance,
+    totalDistanceMeters,
+    ferries,
+    "landing",
+  );
 
   return { startDistanceMeters, endDistanceMeters };
 }

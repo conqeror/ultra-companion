@@ -3,7 +3,7 @@ import { addNetworkStateListener, getNetworkStateAsync } from "expo-network";
 import { createKeyValueStorage, type KeyValueStorage } from "@/lib/keyValueStorage";
 import type { OfflineRouteInfo, RoutePoint } from "@/types";
 import { poiDiscoveryCategoriesForSource } from "@/constants";
-import { getPOICountsBySource, getRoute } from "@/db/database";
+import { getFerryCrossingsForRoute, getPOICountsBySource, getRoute } from "@/db/database";
 import {
   downloadRouteTiles,
   deleteRoutePacks,
@@ -77,12 +77,13 @@ async function ensureRouteETAForOffline(routeId: string, points: RoutePoint[]): 
   if (points.length === 0) return;
 
   try {
-    const [{ useEtaStore }, route] = await Promise.all([
+    const [{ useEtaStore }, route, ferries] = await Promise.all([
       import("@/store/etaStore"),
       getRoute(routeId).catch((error) => {
         console.warn(`Failed to read route metadata before ETA prep for ${routeId}:`, error);
         return null;
       }),
+      getFerryCrossingsForRoute(routeId).catch(() => []),
     ]);
     const lastPoint = points[points.length - 1];
     await useEtaStore.getState().ensureRelativeETA({
@@ -92,6 +93,7 @@ async function ensureRouteETAForOffline(routeId: string, points: RoutePoint[]): 
       totalDistanceMeters: route?.totalDistanceMeters ?? lastPoint.distanceFromStartMeters,
       totalAscentMeters: route?.totalAscentMeters ?? null,
       totalDescentMeters: route?.totalDescentMeters ?? null,
+      ferries,
     });
   } catch (error) {
     console.warn(`Failed to prepare ETA cache for route ${routeId}:`, error);

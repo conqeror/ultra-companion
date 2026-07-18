@@ -17,6 +17,10 @@ interface RouteMarkerLayerProps {
   markerDistanceRange?: DistanceMarkerDistanceRange | null;
   etaLabelForDistanceMeters?: (distanceMeters: number) => string | null;
   etaLabelVersion?: string | number | null;
+  excludedDistanceSpans?: readonly {
+    startDistanceMeters: number;
+    endDistanceMeters: number;
+  }[];
   aboveLayerID?: string;
   hiddenDistanceRange?: {
     startDistanceMeters: number;
@@ -70,6 +74,7 @@ export default function RouteMarkerLayer({
   markerDistanceRange,
   etaLabelForDistanceMeters,
   etaLabelVersion,
+  excludedDistanceSpans,
   aboveLayerID,
   hiddenDistanceRange,
 }: RouteMarkerLayerProps) {
@@ -84,6 +89,7 @@ export default function RouteMarkerLayer({
       markerIntervalKm,
       markerDistanceRange,
       etaLabelForDistanceMeters,
+      excludedDistanceSpans,
     });
   }, [
     points,
@@ -92,6 +98,7 @@ export default function RouteMarkerLayer({
     markerDistanceRange,
     etaLabelForDistanceMeters,
     etaLabelVersion,
+    excludedDistanceSpans,
   ]);
 
   const layers = useMemo(() => {

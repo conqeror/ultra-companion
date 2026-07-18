@@ -11,6 +11,7 @@ import type {
   Climb,
   Collection,
   CollectionSegment,
+  FerryCrossing,
   POI,
   POIFetchedSource,
   POISource,
@@ -19,7 +20,7 @@ import type {
   StarredItem,
 } from "@/types";
 
-export const PLANNING_TRANSPORT_VERSION = 1;
+export const PLANNING_TRANSPORT_VERSION = 2;
 export const PLANNER_FETCHED_SOURCES_METADATA_KEY = "planner_fetched_sources";
 export const PLANNING_EXPORT_FILE_NAME = "ultra-plan.ultra-plan.db";
 export const PLANNING_SQLITE_MIME_TYPE = "application/x-sqlite3";
@@ -59,6 +60,16 @@ interface RawPOIRow extends Omit<POI, "source" | "category" | "tags"> {
   tags: string | Record<string, string>;
 }
 
+interface RawFerryCrossingRow extends Omit<
+  FerryCrossing,
+  "source" | "bicycleAccess" | "providerRefs" | "tags"
+> {
+  source: string;
+  bicycleAccess: string;
+  providerRefs: string | Record<string, string>;
+  tags: string | Record<string, string>;
+}
+
 interface RawStarredItemRow extends Omit<StarredItem, "entityType"> {
   entityType: string;
 }
@@ -82,6 +93,7 @@ export interface PlanningImportSummary {
   pois: number;
   starredItems: number;
   climbs: number;
+  ferries: number;
   replacedFetchedSources: number;
 }
 
@@ -137,7 +149,7 @@ function chunk<T>(items: T[], size = INSERT_BATCH_SIZE): T[][] {
   return chunks;
 }
 
-function parseTags(value: RawPOIRow["tags"]): Record<string, string> {
+function parseStringRecord(value: string | Record<string, string>): Record<string, string> {
   if (value && typeof value === "object") return value;
   if (typeof value !== "string" || !value.trim()) return {};
   try {
@@ -198,7 +210,18 @@ function normalizePOI(row: RawPOIRow): POI {
     ...row,
     source: row.source as POISource,
     category: row.category as POI["category"],
-    tags: parseTags(row.tags),
+    tags: parseStringRecord(row.tags),
+  };
+}
+
+function normalizeFerryCrossing(row: RawFerryCrossingRow): FerryCrossing {
+  return {
+    ...row,
+    source: row.source === "osm" ? "osm" : "manual",
+    bicycleAccess:
+      row.bicycleAccess === "yes" || row.bicycleAccess === "no" ? row.bicycleAccess : "unknown",
+    providerRefs: parseStringRecord(row.providerRefs),
+    tags: parseStringRecord(row.tags),
   };
 }
 
@@ -226,7 +249,7 @@ async function readMetadataValue(database: SQLiteDatabase, key: string): Promise
   );
 }
 
-async function requirePlanningTransport(database: SQLiteDatabase): Promise<void> {
+async function requirePlanningTransport(database: SQLiteDatabase): Promise<1 | 2> {
   for (const table of [
     METADATA_TABLE,
     "routes",
@@ -243,11 +266,15 @@ async function requirePlanningTransport(database: SQLiteDatabase): Promise<void>
   }
 
   const version = Number(await readMetadataValue(database, "transport_version"));
-  if (version !== PLANNING_TRANSPORT_VERSION) {
+  if (version !== 1 && version !== PLANNING_TRANSPORT_VERSION) {
     throw new Error(
-      `Unsupported planning database version ${version || "unknown"}. Expected ${PLANNING_TRANSPORT_VERSION}.`,
+      `Unsupported planning database version ${version || "unknown"}. Expected 1 or ${PLANNING_TRANSPORT_VERSION}.`,
     );
   }
+  if (version >= 2 && !(await tableExists(database, "ferry_crossings"))) {
+    throw new Error("This is not an Ultra planning database. Missing table: ferry_crossings");
+  }
+  return version;
 }
 
 async function selectAll<T>(
@@ -373,7 +400,9 @@ export async function importPlanningDatabaseFromBytes(
 export async function importPlanningDatabase(
   source: SQLiteDatabase,
 ): Promise<PlanningImportSummary> {
-  await withImportStage("validate planning database", () => requirePlanningTransport(source));
+  const transportVersion = await withImportStage("validate planning database", () =>
+    requirePlanningTransport(source),
+  );
 
   const importedRoutes = (
     await withImportStage("read routes", () =>
@@ -409,6 +438,17 @@ export async function importPlanningDatabase(
   const importedClimbs = await withImportStage("read climbs", () =>
     selectAll<Climb>(source, "SELECT * FROM climbs ORDER BY routeId, startDistanceMeters"),
   );
+  const importedFerries =
+    transportVersion >= 2
+      ? (
+          await withImportStage("read ferries", () =>
+            selectAll<RawFerryCrossingRow>(
+              source,
+              "SELECT * FROM ferry_crossings ORDER BY routeId, startDistanceMeters",
+            ),
+          )
+        ).map(normalizeFerryCrossing)
+      : [];
   const importedMetadata = await withImportStage("read planning metadata", () =>
     selectAll<RawPlanningMetadataRow>(source, "SELECT * FROM planning_metadata"),
   );
@@ -430,6 +470,7 @@ export async function importPlanningDatabase(
       await target.runAsync("DELETE FROM starred_items");
       await target.runAsync("DELETE FROM climbs");
       await target.runAsync("DELETE FROM pois");
+      await target.runAsync("DELETE FROM ferry_crossings");
       await target.runAsync("DELETE FROM collection_segments");
       await target.runAsync("DELETE FROM route_points");
       await target.runAsync("DELETE FROM collections");
@@ -599,6 +640,60 @@ export async function importPlanningDatabase(
 
       await insertRows(
         target,
+        "ferry_crossings",
+        [
+          "id",
+          "routeId",
+          "name",
+          "startDistanceMeters",
+          "endDistanceMeters",
+          "startLatitude",
+          "startLongitude",
+          "endLatitude",
+          "endLongitude",
+          "durationMinutes",
+          "assumedWaitMinutes",
+          "boardingBufferMinutes",
+          "source",
+          "sourceId",
+          "sourceUrl",
+          "operator",
+          "timetableUrl",
+          "bicycleAccess",
+          "providerRefs",
+          "tags",
+          "createdAt",
+          "updatedAt",
+        ],
+        importedFerries,
+        (ferry) => [
+          ferry.id,
+          ferry.routeId,
+          ferry.name,
+          ferry.startDistanceMeters,
+          ferry.endDistanceMeters,
+          ferry.startLatitude,
+          ferry.startLongitude,
+          ferry.endLatitude,
+          ferry.endLongitude,
+          ferry.durationMinutes,
+          ferry.assumedWaitMinutes,
+          ferry.boardingBufferMinutes,
+          ferry.source,
+          ferry.sourceId,
+          ferry.sourceUrl,
+          ferry.operator,
+          ferry.timetableUrl,
+          ferry.bicycleAccess,
+          JSON.stringify(ferry.providerRefs),
+          JSON.stringify(ferry.tags),
+          ferry.createdAt,
+          ferry.updatedAt,
+        ],
+      );
+
+      await insertRows(
+        target,
         "planning_metadata",
         ["key", "value", "updatedAt"],
         importedMetadata,
@@ -613,6 +708,7 @@ export async function importPlanningDatabase(
     pois: importedPOIs.length,
     starredItems: importedStarredItems.length,
     climbs: importedClimbs.length,
+    ferries: importedFerries.length,
     replacedFetchedSources: fetchedPairs.length,
   };
 }

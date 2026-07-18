@@ -31,7 +31,11 @@ export interface CollectionSegmentMapFeatureCollections {
   boundaries: GeoJSON.FeatureCollection<GeoJSON.Point, CollectionSegmentBoundaryProperties>;
 }
 
-export type PreparedCollectionSegmentLine = GeoJSON.Feature<GeoJSON.LineString> | null | undefined;
+export type PreparedCollectionSegmentLine =
+  | GeoJSON.Feature<GeoJSON.LineString>
+  | readonly GeoJSON.Feature<GeoJSON.LineString>[]
+  | null
+  | undefined;
 
 export function buildCollectionSegmentProfileBoundaries(
   segments: readonly StitchedSegmentInfo[] | null | undefined,
@@ -136,7 +140,13 @@ export function buildCollectionSegmentMapFeatureCollectionsFromPreparedLines(
 
   segments.forEach((segment, index) => {
     const preparedLine = preparedLines[index];
-    if (preparedLine && preparedLine.geometry.coordinates.length >= 2) {
+    const preparedPieces = Array.isArray(preparedLine)
+      ? preparedLine
+      : preparedLine
+        ? [preparedLine]
+        : [];
+    preparedPieces.forEach((piece, pieceIndex) => {
+      if (piece.geometry.coordinates.length < 2) return;
       lines.push({
         type: "Feature",
         properties: {
@@ -144,11 +154,11 @@ export function buildCollectionSegmentMapFeatureCollectionsFromPreparedLines(
           routeName: segment.routeName,
           segmentIndex: index,
           colorRole: segmentColorRole(index),
-          sortKey: index,
+          sortKey: index + pieceIndex / Math.max(1, preparedPieces.length),
         },
-        geometry: preparedLine.geometry,
+        geometry: piece.geometry,
       });
-    }
+    });
 
     if (index === 0) return;
     const boundaryPoint = points[segment.startPointIndex];

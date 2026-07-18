@@ -19,14 +19,8 @@ import { useCollectionStore } from "@/store/collectionStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import { useClimbStore } from "@/store/climbStore";
 import { usePoiStore } from "@/store/poiStore";
-import type {
-  Collection,
-  CollectionSegmentWithRoute,
-  POI,
-  Route,
-  RoutePoint,
-  StitchedCollection,
-} from "@/types";
+import { useFerryStore } from "@/store/ferryStore";
+import type { Collection, CollectionSegmentWithRoute, POI, StitchedCollection } from "@/types";
 import { formatDistance, formatElevation } from "@/utils/formatters";
 import {
   getStitchedSourceRouteIds,
@@ -49,6 +43,19 @@ import { shareGPXFile } from "@/utils/gpxExportShare";
 import { buildCollectionSegmentProfileBoundaries } from "@/utils/collectionSegmentDisplay";
 import { measureSync } from "@/utils/perfMarks";
 import { yieldToUI } from "@/utils/yieldToUI";
+import {
+  computeRidingElevationTotals,
+  mapFerryCrossingsToSourceSpans,
+  projectRoutePointsForRidingProfile,
+  ridingDistanceAtGeometricDistance,
+  totalRidingDistanceMeters,
+} from "@/services/ferryCrossings";
+import { toDisplayDistanceMeters } from "@/services/displayDistance";
+import { buildFerryAwarePreviewLayers } from "@/utils/ferryMapRoute";
+import {
+  buildCollectionVariantPreviewOverlays,
+  collectionVariantKey,
+} from "@/services/collectionVariantGeometry";
 
 function getErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof Error && error.message) return error.message;
@@ -72,11 +79,6 @@ interface PatchBaseSelection {
   routeId: string;
   routeName: string;
   position: number;
-}
-
-interface VariantRouteOverlay {
-  route: Route;
-  points: RoutePoint[];
 }
 
 interface CollectionDetailData {
@@ -123,6 +125,8 @@ export default function CollectionDetailScreen() {
   const poisByRouteId = usePoiStore((s) => s.pois);
   const starredPOIIds = usePoiStore((s) => s.starredPOIIds);
   const setSelectedPOI = usePoiStore((s) => s.setSelectedPOI);
+  const loadFerries = useFerryStore((s) => s.loadFerries);
+  const allFerries = useFerryStore((s) => s.ferries);
 
   const loadData = useCallback(
     async (showInitialStages = false) => {
@@ -241,43 +245,17 @@ export default function CollectionDetailScreen() {
     [collection?.name],
   );
 
-  const variantRouteOverlays = useMemo<VariantRouteOverlay[]>(() => {
-    if (!stitched) return [];
-    const selectedByPosition = new Map<number, CollectionSegmentWithRoute>();
-    for (const sw of segmentsWithRoutes) {
-      if (sw.segment.isSelected) selectedByPosition.set(sw.segment.position, sw);
-    }
-    return segmentsWithRoutes
-      .filter((sw) => !sw.segment.isSelected)
-      .map((sw) => {
-        const rawPoints = stitched.pointsByRouteId[sw.route.id] ?? null;
-        const selectedVariant = selectedByPosition.get(sw.segment.position);
-        const points =
-          rawPoints &&
-          sw.segment.variantKind === "full" &&
-          selectedVariant?.segment.variantKind === "patch" &&
-          selectedVariant.segment.baseRouteId === sw.route.id &&
-          selectedVariant.segment.replaceStartDistanceMeters != null &&
-          selectedVariant.segment.replaceEndDistanceMeters != null
-            ? sliceRoutePointsByDistance(
-                rawPoints,
-                selectedVariant.segment.replaceStartDistanceMeters,
-                selectedVariant.segment.replaceEndDistanceMeters,
-              )
-            : rawPoints;
-        if (!points || points.length < 2) return null;
-        return {
-          route: {
-            ...sw.route,
-            id: `variant-${sw.route.id}`,
-            isActive: false,
-            isVisible: true,
-          },
-          points,
-        };
-      })
-      .filter((overlay): overlay is VariantRouteOverlay => overlay != null);
-  }, [segmentsWithRoutes, stitched]);
+  const variantPreviewOverlays = useMemo(
+    () =>
+      stitched
+        ? buildCollectionVariantPreviewOverlays(
+            segmentsWithRoutes,
+            stitched.pointsByRouteId,
+            allFerries,
+          )
+        : {},
+    [allFerries, segmentsWithRoutes, stitched],
+  );
 
   const selectedRouteLayerId = useMemo(
     () => (collection ? `collection-${collection.id}` : "collection"),
@@ -285,12 +263,20 @@ export default function CollectionDetailScreen() {
   );
 
   const previewLayers = useMemo<RoutePreviewMapLayer[]>(() => {
-    const layers = variantRouteOverlays.map((overlay) => ({
-      id: overlay.route.id,
-      cacheKey: overlay.route.id,
-      points: overlay.points,
-      isActive: false,
-    }));
+    const layers = segmentsWithRoutes.flatMap((sw): RoutePreviewMapLayer[] => {
+      if (sw.segment.isSelected) return [];
+      const overlay = variantPreviewOverlays[collectionVariantKey(sw)];
+      if (!overlay) return [];
+      return [
+        {
+          id: `variant-${sw.route.id}`,
+          cacheKey: overlay.cacheKey,
+          points: [],
+          geoJSON: overlay.geoJSON,
+          isActive: false,
+        },
+      ];
+    });
     if (stitched?.points.length) {
       layers.push({
         id: selectedRouteLayerId,
@@ -300,7 +286,7 @@ export default function CollectionDetailScreen() {
       });
     }
     return layers;
-  }, [selectedRouteLayerId, stitched?.points, variantRouteOverlays]);
+  }, [segmentsWithRoutes, selectedRouteLayerId, stitched?.points, variantPreviewOverlays]);
 
   const existingRouteIds = useMemo(
     () => new Set(segmentsWithRoutes.map((sw) => sw.route.id)),
@@ -603,11 +589,61 @@ export default function CollectionDetailScreen() {
   useEffect(() => {
     if (stitched) {
       for (const routeId of getStitchedSourceRouteIds(stitched.segments)) {
-        loadClimbs(routeId);
-        loadPOIs(routeId);
+        void loadClimbs(routeId);
+        void loadPOIs(routeId);
       }
     }
   }, [stitched, loadClimbs, loadPOIs]);
+
+  const previewFerryRouteIds = useMemo(() => {
+    const routeIds = new Set(stitched ? getStitchedSourceRouteIds(stitched.segments) : []);
+    for (const sw of segmentsWithRoutes) {
+      routeIds.add(sw.route.id);
+      if (sw.segment.variantKind === "patch" && sw.segment.baseRouteId) {
+        routeIds.add(sw.segment.baseRouteId);
+      }
+    }
+    return [...routeIds];
+  }, [segmentsWithRoutes, stitched]);
+
+  useEffect(() => {
+    for (const routeId of previewFerryRouteIds) void loadFerries(routeId);
+  }, [loadFerries, previewFerryRouteIds]);
+
+  const displayFerries = useMemo(() => {
+    if (!stitched) return [];
+    const routeIds = getStitchedSourceRouteIds(stitched.segments);
+    return mapFerryCrossingsToSourceSpans(
+      routeIds.flatMap((routeId) => allFerries[routeId] ?? []),
+      stitched.sourceSpans,
+      stitched.pointsByRouteId,
+    );
+  }, [allFerries, stitched]);
+  const ferryAwarePreviewLayers = useMemo(
+    () => buildFerryAwarePreviewLayers(previewLayers, displayFerries),
+    [displayFerries, previewLayers],
+  );
+  const ferrySpans = useMemo(
+    () =>
+      displayFerries.map((ferry) => ({
+        startDistanceMeters: ferry.effectiveStartDistanceMeters,
+        endDistanceMeters: ferry.effectiveEndDistanceMeters,
+      })),
+    [displayFerries],
+  );
+  const ridingStats = useMemo(() => {
+    if (!stitched) return null;
+    const elevation = computeRidingElevationTotals(stitched.points, ferrySpans);
+    return {
+      distance: totalRidingDistanceMeters(stitched.totalDistanceMeters, ferrySpans),
+      ascent: elevation.ascent,
+      descent: elevation.descent,
+    };
+  }, [ferrySpans, stitched]);
+  const profilePoints = useMemo(
+    () => (stitched ? projectRoutePointsForRidingProfile(stitched.points, ferrySpans) : []),
+    [ferrySpans, stitched],
+  );
 
   const collectionClimbs = useMemo(() => {
     if (!stitched) return [];
@@ -627,6 +663,44 @@ export default function CollectionDetailScreen() {
     }
     return stitchPOIs(stitched.segments, poisByRoute);
   }, [stitched, poisByRouteId, starredPOIIds]);
+  const profilePOIs = useMemo(
+    () =>
+      collectionPOIs.map((poi) =>
+        Object.assign({}, poi, {
+          effectiveDistanceMeters: toDisplayDistanceMeters(
+            ridingDistanceAtGeometricDistance(poi.effectiveDistanceMeters, ferrySpans),
+          ),
+        }),
+      ),
+    [collectionPOIs, ferrySpans],
+  );
+  const profileClimbs = useMemo(
+    () =>
+      collectionClimbs
+        .filter(
+          (climb) =>
+            !ferrySpans.some(
+              (ferry) =>
+                climb.effectiveEndDistanceMeters > ferry.startDistanceMeters &&
+                climb.effectiveStartDistanceMeters < ferry.endDistanceMeters,
+            ),
+        )
+        .map((climb) => {
+          const effectiveStartDistanceMeters = toDisplayDistanceMeters(
+            ridingDistanceAtGeometricDistance(climb.effectiveStartDistanceMeters, ferrySpans),
+          );
+          const effectiveEndDistanceMeters = toDisplayDistanceMeters(
+            ridingDistanceAtGeometricDistance(climb.effectiveEndDistanceMeters, ferrySpans),
+          );
+          return Object.assign({}, climb, {
+            lengthMeters: effectiveEndDistanceMeters - effectiveStartDistanceMeters,
+            effectiveDistanceMeters: effectiveStartDistanceMeters,
+            effectiveStartDistanceMeters,
+            effectiveEndDistanceMeters,
+          });
+        }),
+    [collectionClimbs, ferrySpans],
+  );
 
   const handleExportGPX = useCallback(async () => {
     if (!collection || !stitched) return;
@@ -665,8 +739,12 @@ export default function CollectionDetailScreen() {
   }, [stitched]);
 
   const segmentBoundaries = useMemo(() => {
-    return buildCollectionSegmentProfileBoundaries(stitched?.segments);
-  }, [stitched?.segments]);
+    return buildCollectionSegmentProfileBoundaries(stitched?.segments).map((boundary) =>
+      Object.assign({}, boundary, {
+        distanceMeters: ridingDistanceAtGeometricDistance(boundary.distanceMeters, ferrySpans),
+      }),
+    );
+  }, [stitched?.segments, ferrySpans]);
 
   if (initialLoadStage) {
     return (
@@ -703,23 +781,23 @@ export default function CollectionDetailScreen() {
         contentContainerStyle={{ paddingBottom: 48 }}
       >
         {/* Mini map */}
-        {previewLayers.length > 0 && (
+        {ferryAwarePreviewLayers.length > 0 && (
           <View className="mx-4 mt-4 rounded-xl overflow-hidden" style={{ height: 250 }}>
-            <RoutePreviewMap layers={previewLayers} />
+            <RoutePreviewMap layers={ferryAwarePreviewLayers} ferries={displayFerries} />
           </View>
         )}
 
         {/* Stats */}
         {stitched && (
           <View className="flex-row px-4 mt-3 mb-3 gap-3">
-            <StatBox label="Distance" value={formatDistance(stitched.totalDistanceMeters, units)} />
+            <StatBox label="Distance" value={formatDistance(ridingStats?.distance ?? 0, units)} />
             <StatBox
               label="Ascent"
-              value={"↑ " + formatElevation(stitched.totalAscentMeters, units)}
+              value={"↑ " + formatElevation(ridingStats?.ascent ?? 0, units)}
             />
             <StatBox
               label="Descent"
-              value={"↓ " + formatElevation(stitched.totalDescentMeters, units)}
+              value={"↓ " + formatElevation(ridingStats?.descent ?? 0, units)}
             />
           </View>
         )}
@@ -786,13 +864,13 @@ export default function CollectionDetailScreen() {
             </Text>
             <View className="mx-4 rounded-xl overflow-hidden bg-surface">
               <ElevationProfile
-                points={stitched.points}
+                points={profilePoints}
                 units={units}
                 width={chartWidth}
                 height={chartHeight}
                 segmentBoundaries={segmentBoundaries}
-                climbs={collectionClimbs}
-                pois={collectionPOIs}
+                climbs={profileClimbs}
+                pois={profilePOIs}
                 onPOIPress={setSelectedPOI}
               />
             </View>

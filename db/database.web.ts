@@ -5,10 +5,15 @@ import {
   type SQLiteDatabase,
 } from "expo-sqlite";
 import migrations from "../drizzle/migrations";
+import {
+  hasSupportedFerryCrossingsSchema,
+  shouldPrepareFerryCrossingsSchema,
+} from "./ferrySchemaCompatibility";
 import type {
   Climb,
   Collection,
   CollectionSegment,
+  FerryCrossing,
   POI,
   POICategory,
   POISource,
@@ -49,6 +54,16 @@ type RawCollectionSegment = Omit<CollectionSegment, "isSelected" | "variantKind"
 type RawPOI = Omit<POI, "source" | "category" | "tags"> & {
   source: string;
   category: string;
+  tags: string | Record<string, string>;
+};
+
+type RawFerryCrossing = Omit<
+  FerryCrossing,
+  "source" | "bicycleAccess" | "providerRefs" | "tags"
+> & {
+  source: string;
+  bicycleAccess: string;
+  providerRefs: string | Record<string, string>;
   tags: string | Record<string, string>;
 };
 
@@ -140,6 +155,29 @@ function normalizePOI(row: RawPOI): POI {
   };
 }
 
+function parseStringRecord(value: string | Record<string, string>): Record<string, string> {
+  if (value && typeof value === "object") return value;
+  if (typeof value !== "string" || !value.trim()) return {};
+  try {
+    const parsed = JSON.parse(value);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as Record<string, string>;
+    }
+  } catch {}
+  return {};
+}
+
+function normalizeFerryCrossing(row: RawFerryCrossing): FerryCrossing {
+  return {
+    ...row,
+    source: row.source === "osm" ? "osm" : "manual",
+    bicycleAccess:
+      row.bicycleAccess === "yes" || row.bicycleAccess === "no" ? row.bicycleAccess : "unknown",
+    providerRefs: parseStringRecord(row.providerRefs),
+    tags: parseStringRecord(row.tags),
+  };
+}
+
 function normalizeStarredItem(row: RawStarredItem): StarredItem {
   return {
     ...row,
@@ -201,6 +239,42 @@ function migrationStatements(sql: string): string[] {
     .filter(Boolean);
 }
 
+async function prepareFerryCrossingsSchema(database: SQLiteDatabase): Promise<void> {
+  const migrationsTable = await database.getFirstAsync<{ name: string }>(
+    "SELECT name FROM sqlite_master WHERE type = 'table' AND name = '__drizzle_migrations'",
+  );
+  const latestMigration = migrationsTable
+    ? await database.getFirstAsync<{ created_at: number | string }>(
+        "SELECT created_at FROM __drizzle_migrations ORDER BY created_at DESC LIMIT 1",
+      )
+    : null;
+  if (!shouldPrepareFerryCrossingsSchema(Number(latestMigration?.created_at ?? 0))) return;
+
+  const ferryTable = await database.getFirstAsync<{ name: string }>(
+    "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'ferry_crossings'",
+  );
+
+  if (ferryTable) {
+    const columns = await database.getAllAsync<{ name: string }>(
+      "PRAGMA table_info(`ferry_crossings`)",
+    );
+    const foreignKeys = await database.getAllAsync<{
+      table: string;
+      from: string;
+      to: string;
+      on_delete: string;
+    }>("PRAGMA foreign_key_list(`ferry_crossings`)");
+    if (!hasSupportedFerryCrossingsSchema(columns, foreignKeys)) {
+      await database.execAsync("DROP TABLE IF EXISTS `ferry_crossings`;");
+      console.warn("[database] Removed incompatible experimental ferry_crossings table");
+    }
+  }
+
+  for (const statement of migrationStatements(migrations.migrations.m0007)) {
+    await database.execAsync(statement);
+  }
+}
+
 async function runMigrations(database: SQLiteDatabase): Promise<void> {
   await database.execAsync(`
     CREATE TABLE IF NOT EXISTS ${MIGRATIONS_TABLE} (
@@ -247,6 +321,7 @@ export async function getWebSQLiteDatabase(): Promise<SQLiteDatabase> {
       // workspace, not the native source of truth.
       await database.execAsync("PRAGMA journal_mode = MEMORY;");
       await database.execAsync("PRAGMA foreign_keys = ON;");
+      await database.withTransactionAsync(() => prepareFerryCrossingsSchema(database));
       await runMigrations(database);
       return database;
     })().catch((error) => {
@@ -493,6 +568,108 @@ export async function getRoutePoints(routeId: string): Promise<RoutePoint[]> {
   return getAll<RoutePoint>("SELECT * FROM route_points WHERE routeId = ? ORDER BY idx ASC", [
     routeId,
   ]);
+}
+
+// --- Ferry Crossing CRUD ---
+
+async function invalidateFerryRelativeETACaches(routeId: string): Promise<void> {
+  await run(
+    `DELETE FROM relative_eta_cache
+     WHERE (scope = 'route' AND scopeId = ?)
+        OR (scope = 'collection' AND scopeId IN (
+          SELECT DISTINCT collectionId
+          FROM collection_segments
+          WHERE routeId = ? OR baseRouteId = ?
+        ))`,
+    [routeId, routeId, routeId],
+  );
+}
+
+export async function upsertFerryCrossing(crossing: FerryCrossing): Promise<void> {
+  await run(
+    `INSERT INTO ferry_crossings (
+       id, routeId, name, startDistanceMeters, endDistanceMeters,
+       startLatitude, startLongitude, endLatitude, endLongitude,
+       durationMinutes, assumedWaitMinutes, boardingBufferMinutes,
+       source, sourceId, sourceUrl, operator, timetableUrl, bicycleAccess,
+       providerRefs, tags, createdAt, updatedAt
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET
+       routeId = excluded.routeId,
+       name = excluded.name,
+       startDistanceMeters = excluded.startDistanceMeters,
+       endDistanceMeters = excluded.endDistanceMeters,
+       startLatitude = excluded.startLatitude,
+       startLongitude = excluded.startLongitude,
+       endLatitude = excluded.endLatitude,
+       endLongitude = excluded.endLongitude,
+       durationMinutes = excluded.durationMinutes,
+       assumedWaitMinutes = excluded.assumedWaitMinutes,
+       boardingBufferMinutes = excluded.boardingBufferMinutes,
+       source = excluded.source,
+       sourceId = excluded.sourceId,
+       sourceUrl = excluded.sourceUrl,
+       operator = excluded.operator,
+       timetableUrl = excluded.timetableUrl,
+       bicycleAccess = excluded.bicycleAccess,
+       providerRefs = excluded.providerRefs,
+       tags = excluded.tags,
+       updatedAt = excluded.updatedAt`,
+    [
+      crossing.id,
+      crossing.routeId,
+      crossing.name,
+      crossing.startDistanceMeters,
+      crossing.endDistanceMeters,
+      crossing.startLatitude,
+      crossing.startLongitude,
+      crossing.endLatitude,
+      crossing.endLongitude,
+      crossing.durationMinutes,
+      crossing.assumedWaitMinutes,
+      crossing.boardingBufferMinutes,
+      crossing.source,
+      crossing.sourceId,
+      crossing.sourceUrl,
+      crossing.operator,
+      crossing.timetableUrl,
+      crossing.bicycleAccess,
+      JSON.stringify(crossing.providerRefs),
+      JSON.stringify(crossing.tags),
+      crossing.createdAt,
+      crossing.updatedAt,
+    ],
+  );
+  await invalidateFerryRelativeETACaches(crossing.routeId);
+}
+
+export async function getFerryCrossingsForRoute(routeId: string): Promise<FerryCrossing[]> {
+  return (
+    await getAll<RawFerryCrossing>(
+      "SELECT * FROM ferry_crossings WHERE routeId = ? ORDER BY startDistanceMeters ASC",
+      [routeId],
+    )
+  ).map(normalizeFerryCrossing);
+}
+
+export async function getFerryCrossingsForRoutes(routeIds: string[]): Promise<FerryCrossing[]> {
+  if (routeIds.length === 0) return [];
+  return (
+    await getAll<RawFerryCrossing>(
+      `SELECT * FROM ferry_crossings WHERE routeId IN (${placeholders(routeIds.length)})
+       ORDER BY routeId ASC, startDistanceMeters ASC`,
+      routeIds,
+    )
+  ).map(normalizeFerryCrossing);
+}
+
+export async function deleteFerryCrossing(crossingId: string): Promise<void> {
+  const crossing = await getFirst<{ routeId: string }>(
+    "SELECT routeId FROM ferry_crossings WHERE id = ?",
+    [crossingId],
+  );
+  await run("DELETE FROM ferry_crossings WHERE id = ?", [crossingId]);
+  if (crossing) await invalidateFerryRelativeETACaches(crossing.routeId);
 }
 
 export async function deleteRoute(routeId: string): Promise<void> {

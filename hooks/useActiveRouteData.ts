@@ -1,17 +1,28 @@
 import { useMemo } from "react";
 import { useRouteStore } from "@/store/routeStore";
 import { useCollectionStore } from "@/store/collectionStore";
+import { useFerryStore } from "@/store/ferryStore";
 import { getStitchedSourceRouteIds } from "@/services/stitchingService";
-import type { ActiveRouteData, Collection, Route, RoutePoint, StitchedCollection } from "@/types";
+import { mapFerryCrossingsToSourceSpans } from "@/services/ferryCrossings";
+import type {
+  ActiveRouteData,
+  Collection,
+  FerryCrossing,
+  Route,
+  RoutePoint,
+  StitchedCollection,
+} from "@/types";
 
 function buildActiveRouteData(
   collections: Collection[],
   activeStitchedCollection: StitchedCollection | null,
   routes: Route[],
   visibleRoutePoints: Record<string, RoutePoint[]>,
+  ferriesByRouteId: Record<string, FerryCrossing[]>,
 ): ActiveRouteData | null {
   const activeCollection = collections.find((c) => c.isActive);
   if (activeCollection && activeStitchedCollection?.collectionId === activeCollection.id) {
+    const routeIds = getStitchedSourceRouteIds(activeStitchedCollection.segments);
     return {
       type: "collection",
       id: activeCollection.id,
@@ -21,8 +32,13 @@ function buildActiveRouteData(
       totalAscentMeters: activeStitchedCollection.totalAscentMeters,
       totalDescentMeters: activeStitchedCollection.totalDescentMeters,
       segments: activeStitchedCollection.segments,
-      routeIds: getStitchedSourceRouteIds(activeStitchedCollection.segments),
+      routeIds,
       pointsByRouteId: activeStitchedCollection.pointsByRouteId,
+      ferries: mapFerryCrossingsToSourceSpans(
+        routeIds.flatMap((routeId) => ferriesByRouteId[routeId] ?? []),
+        activeStitchedCollection.sourceSpans,
+        activeStitchedCollection.pointsByRouteId,
+      ),
     };
   }
 
@@ -39,6 +55,7 @@ function buildActiveRouteData(
       segments: null,
       routeIds: [activeRoute.id],
       pointsByRouteId: { [activeRoute.id]: visibleRoutePoints[activeRoute.id] },
+      ferries: mapFerryCrossingsToSourceSpans(ferriesByRouteId[activeRoute.id] ?? [], null),
     };
   }
 
@@ -50,10 +67,18 @@ export function useActiveRouteData(): ActiveRouteData | null {
   const visibleRoutePoints = useRouteStore((s) => s.visibleRoutePoints);
   const collections = useCollectionStore((s) => s.collections);
   const activeStitchedCollection = useCollectionStore((s) => s.activeStitchedCollection);
+  const ferriesByRouteId = useFerryStore((s) => s.ferries);
 
   return useMemo(
-    () => buildActiveRouteData(collections, activeStitchedCollection, routes, visibleRoutePoints),
-    [routes, visibleRoutePoints, collections, activeStitchedCollection],
+    () =>
+      buildActiveRouteData(
+        collections,
+        activeStitchedCollection,
+        routes,
+        visibleRoutePoints,
+        ferriesByRouteId,
+      ),
+    [routes, visibleRoutePoints, collections, activeStitchedCollection, ferriesByRouteId],
   );
 }
 
@@ -67,5 +92,6 @@ export function getActiveRouteDataImperative(): ActiveRouteData | null {
     useCollectionStore.getState().activeStitchedCollection,
     useRouteStore.getState().routes,
     useRouteStore.getState().visibleRoutePoints,
+    useFerryStore.getState().ferries,
   );
 }

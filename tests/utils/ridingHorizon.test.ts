@@ -70,6 +70,17 @@ describe("ridingHorizon", () => {
     expect(isDistanceInWindow(55_001, window)).toBe(false);
   });
 
+  it("projects the riding horizon across excluded ferry distance", () => {
+    const window = createRidingHorizonWindow(2_000, 10_000, {
+      totalDistanceMeters: 20_000,
+      ferrySpans: [{ startDistanceMeters: 4_000, endDistanceMeters: 8_000 }],
+    });
+
+    expect(window).toEqual({ startDistanceMeters: 2_000, endDistanceMeters: 16_000 });
+    expect(isDistanceInWindow(15_999, window)).toBe(true);
+    expect(isDistanceInWindow(16_001, window)).toBe(false);
+  });
+
   it("falls back to a route-start horizon when the rider is not snapped", () => {
     expect(createRidingHorizonWindow(null, 25_000, { totalDistanceMeters: 80_000 })).toEqual({
       startDistanceMeters: 0,

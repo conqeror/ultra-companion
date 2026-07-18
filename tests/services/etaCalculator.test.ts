@@ -9,10 +9,11 @@ import {
   getETABetweenIndices,
   getETAToDistance,
   getETAToDistanceFromDistance,
+  getTimeAtDistance,
 } from "@/services/etaCalculator";
 import { DEFAULT_POWER_CONFIG } from "@/constants";
 import { computeSegmentTime } from "@/services/powerModel";
-import type { RoutePoint } from "@/types";
+import type { FerryCrossing, RoutePoint } from "@/types";
 
 const basePoint = (
   distanceFromStartMeters: number,
@@ -24,6 +25,32 @@ const basePoint = (
   distanceFromStartMeters,
   elevationMeters,
   idx,
+});
+
+const ferryCrossing = (overrides: Partial<FerryCrossing> = {}): FerryCrossing => ({
+  id: "ferry-1",
+  routeId: "r1",
+  name: "Test ferry",
+  startDistanceMeters: 1_000,
+  endDistanceMeters: 3_000,
+  startLatitude: 0,
+  startLongitude: 0,
+  endLatitude: 0,
+  endLongitude: 0,
+  durationMinutes: 5,
+  assumedWaitMinutes: 3,
+  boardingBufferMinutes: 2,
+  source: "manual",
+  sourceId: null,
+  sourceUrl: null,
+  operator: null,
+  timetableUrl: null,
+  bicycleAccess: "unknown",
+  providerRefs: {},
+  tags: {},
+  createdAt: "2026-01-01T00:00:00.000Z",
+  updatedAt: "2026-01-01T00:00:00.000Z",
+  ...overrides,
 });
 
 describe("etaCalculator", () => {
@@ -240,6 +267,68 @@ describe("etaCalculator", () => {
 
     expect(result?.distanceMeters).toBe(1_250);
     expect(result?.ridingTimeSeconds).toBe(125);
+  });
+
+  it("excludes ferry kilometres and cycling time from route ETA", () => {
+    const points = [
+      basePoint(0, 100, 0),
+      basePoint(1_000, 100, 1),
+      basePoint(2_000, 100, 2),
+      basePoint(3_000, 100, 3),
+      basePoint(4_000, 100, 4),
+    ];
+    const ferry = ferryCrossing({
+      durationMinutes: 0,
+      assumedWaitMinutes: 0,
+      boardingBufferMinutes: 0,
+    });
+    const roadSegmentSeconds = computeSegmentTime(1_000, 0, DEFAULT_POWER_CONFIG);
+
+    const cumulative = computeRouteETA(points, DEFAULT_POWER_CONFIG, [ferry]);
+    const routeETA = getETAToDistanceFromDistance(cumulative, points, 0, 4_000, [ferry]);
+
+    expect(cumulative.at(-1)).toBeCloseTo(roadSegmentSeconds * 2);
+    expect(routeETA?.distanceMeters).toBe(2_000);
+    expect(routeETA?.ridingTimeSeconds).toBeCloseTo(roadSegmentSeconds * 2);
+  });
+
+  it("charges ferry delay exactly once when the landing is reached", () => {
+    const points = [
+      basePoint(0, 100, 0),
+      basePoint(1_000, 100, 1),
+      basePoint(2_000, 100, 2),
+      basePoint(3_000, 100, 3),
+      basePoint(4_000, 100, 4),
+    ];
+    const ferry = ferryCrossing();
+    const roadSegmentSeconds = computeSegmentTime(1_000, 0, DEFAULT_POWER_CONFIG);
+    const ferryDelaySeconds = 10 * 60;
+
+    const cumulative = computeRouteETA(points, DEFAULT_POWER_CONFIG, [ferry]);
+
+    expect(cumulative[1]).toBeCloseTo(roadSegmentSeconds);
+    expect(cumulative[2]).toBeCloseTo(roadSegmentSeconds);
+    expect(cumulative[3]).toBeCloseTo(roadSegmentSeconds + ferryDelaySeconds);
+    expect(cumulative[4]).toBeCloseTo(roadSegmentSeconds * 2 + ferryDelaySeconds);
+    expect(cumulative[3] - cumulative[2]).toBeCloseTo(ferryDelaySeconds);
+    expect(cumulative[4] - cumulative[3]).toBeCloseTo(roadSegmentSeconds);
+  });
+
+  it("interpolates a ferry delay discretely at a landing between raw points", () => {
+    const points = [basePoint(0, 100, 0), basePoint(20_000, 100, 1)];
+    const ferry = ferryCrossing({
+      startDistanceMeters: 10_000,
+      endDistanceMeters: 12_000,
+      durationMinutes: 10,
+      assumedWaitMinutes: 0,
+      boardingBufferMinutes: 0,
+    });
+    // 18 km of road at 60 s/km plus the 10-minute ferry delay.
+    const cumulative = [0, 1_680];
+
+    expect(getTimeAtDistance(cumulative, points, 11_999, [ferry])).toBeCloseTo(600);
+    expect(getTimeAtDistance(cumulative, points, 12_000, [ferry])).toBeCloseTo(1_200);
+    expect(getTimeAtDistance(cumulative, points, 13_000, [ferry])).toBeCloseTo(1_260);
   });
 
   it("getETAToDistance returns null for invalid cases and extrapolates after final point", () => {

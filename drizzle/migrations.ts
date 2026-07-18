@@ -11,6 +11,7 @@ export default {
       { idx: 4, when: 1777986758000, tag: "0004_add_patch_route_variants", breakpoints: true },
       { idx: 5, when: 1777986759000, tag: "0005_add_planning_metadata", breakpoints: true },
       { idx: 6, when: 1777986760000, tag: "0006_add_relative_eta_cache", breakpoints: true },
+      { idx: 7, when: 1784372400000, tag: "0007_add_ferry_crossings", breakpoints: true },
     ],
   },
   migrations: {
@@ -129,6 +130,38 @@ CREATE INDEX \`idx_collection_segments_base_route\` ON \`collection_segments\` (
 );
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS \`idx_relative_eta_cache_scope\` ON \`relative_eta_cache\` (\`scope\`,\`scopeId\`);
+`,
+    m0007: `CREATE TABLE IF NOT EXISTS \`ferry_crossings\` (
+	\`id\` text PRIMARY KEY NOT NULL,
+	\`routeId\` text NOT NULL,
+	\`name\` text NOT NULL,
+	\`startDistanceMeters\` real NOT NULL,
+	\`endDistanceMeters\` real NOT NULL,
+	\`startLatitude\` real NOT NULL,
+	\`startLongitude\` real NOT NULL,
+	\`endLatitude\` real NOT NULL,
+	\`endLongitude\` real NOT NULL,
+	\`durationMinutes\` real NOT NULL,
+	\`assumedWaitMinutes\` real DEFAULT 0 NOT NULL,
+	\`boardingBufferMinutes\` real DEFAULT 0 NOT NULL,
+	\`source\` text DEFAULT 'manual' NOT NULL,
+	\`sourceId\` text,
+	\`sourceUrl\` text,
+	\`operator\` text,
+	\`timetableUrl\` text,
+	\`bicycleAccess\` text DEFAULT 'unknown' NOT NULL,
+	\`providerRefs\` text NOT NULL,
+	\`tags\` text NOT NULL,
+	\`createdAt\` text NOT NULL,
+	\`updatedAt\` text NOT NULL,
+	FOREIGN KEY (\`routeId\`) REFERENCES \`routes\`(\`id\`) ON UPDATE no action ON DELETE cascade,
+	CHECK (\`endDistanceMeters\` > \`startDistanceMeters\`),
+	CHECK (\`durationMinutes\` >= 0),
+	CHECK (\`assumedWaitMinutes\` >= 0),
+	CHECK (\`boardingBufferMinutes\` >= 0)
+);
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS \`idx_ferry_crossings_route_start\` ON \`ferry_crossings\` (\`routeId\`,\`startDistanceMeters\`);
 `,
   },
 };

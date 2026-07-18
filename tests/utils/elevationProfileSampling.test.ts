@@ -11,6 +11,7 @@ import {
   interpolateElevationAtDistance,
   sampleElevationProfileForPixels,
   sliceElevationSamples,
+  splitElevationProfileSamplesAtBreaks,
   type ElevationProfileSample,
 } from "@/utils/elevationProfileSampling";
 
@@ -144,6 +145,44 @@ describe("elevation profile sampling", () => {
 
     expect(samples).toEqual([sample(0, 120), sample(100, 120), sample(300, 180), sample(400, 180)]);
     expect(samples.length).toBeLessThanOrEqual(100);
+  });
+
+  it("preserves an intentional ferry break without connecting through a zero elevation", () => {
+    const points = [
+      point(0, 0, 100),
+      point(1, 1_000, 120),
+      point(2, 1_000, null),
+      point(3, 1_100, 35),
+      point(4, 2_000, 80),
+    ];
+
+    const normalized = buildElevationProfileSamples(points);
+    expect(normalized).toEqual([
+      sample(0, 100),
+      sample(1_000, 120),
+      { ...sample(1_100, 35), breakBefore: true },
+      sample(2_000, 80),
+    ]);
+    expect(splitElevationProfileSamplesAtBreaks(normalized)).toEqual([
+      [sample(0, 100), sample(1_000, 120)],
+      [{ ...sample(1_100, 35), breakBefore: true }, sample(2_000, 80)],
+    ]);
+
+    const pixelSamples = sampleElevationProfileForPixels(points, {
+      pixelWidth: 2,
+      maxSamples: 2,
+    });
+    expect(pixelSamples).toEqual(normalized);
+    expect(downsampleElevationExtrema(normalized, 2)).toEqual(normalized);
+    expect(
+      splitElevationProfileSamplesAtBreaks(sliceElevationSamples(normalized, 500, 1_500)).map(
+        (segment) => segment.map(({ distanceMeters }) => distanceMeters),
+      ),
+    ).toEqual([
+      [500, 1_000],
+      [1_100, 1_500],
+    ]);
+    expect(pixelSamples.every(({ elevationMeters }) => elevationMeters > 0)).toBe(true);
   });
 
   it("derives a sample budget from pixel density and an explicit upper cap", () => {

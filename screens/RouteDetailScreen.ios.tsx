@@ -9,11 +9,25 @@ import { useRouteStore } from "@/store/routeStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import { usePoiStore } from "@/store/poiStore";
 import { useClimbStore } from "@/store/climbStore";
-import type { RouteWithPoints, Climb } from "@/types";
+import { useFerryStore } from "@/store/ferryStore";
+import type { RouteWithPoints, Climb, FerryCrossing } from "@/types";
 import { formatDistance, formatElevation } from "@/utils/formatters";
-import { computeElevationProgressAtDistance, findPointIndexAtOrAfterDistance } from "@/utils/geo";
+import { findPointIndexAtOrAfterDistance } from "@/utils/geo";
 import { resolveRouteProgress } from "@/utils/routeProgress";
-import { toDisplayClimbs, toDisplayPOIs } from "@/services/displayDistance";
+import {
+  toDisplayClimbs,
+  toDisplayDistanceMeters,
+  toDisplayPOIs,
+} from "@/services/displayDistance";
+import {
+  computeRidingElevationTotals,
+  filterClimbsOutsideFerries,
+  projectRoutePointsForRidingProfile,
+  ridingDistanceAtGeometricDistance,
+  ridingDistanceBetween,
+  toDisplayFerryCrossing,
+  totalRidingDistanceMeters,
+} from "@/services/ferryCrossings";
 import ElevationProfile from "@/components/elevation/ElevationProfile";
 import RoutePreviewMap, { type RoutePreviewMapLayer } from "@/components/map/RoutePreviewMap";
 import StatBox from "@/components/common/StatBox";
@@ -24,8 +38,11 @@ import { serializeRouteToGPX } from "@/services/gpxSerializer";
 import { shareGPXFile } from "@/utils/gpxExportShare";
 import { measureSync } from "@/utils/perfMarks";
 import { yieldToUI } from "@/utils/yieldToUI";
+import RouteFerriesSection from "@/components/ferry/RouteFerriesSection";
+import { buildFerryAwarePreviewLayers } from "@/utils/ferryMapRoute";
 
 const EMPTY_CLIMBS: Climb[] = [];
+const EMPTY_FERRIES: FerryCrossing[] = [];
 
 export default function RouteDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -44,6 +61,10 @@ export default function RouteDetailScreen() {
   const getStarredPOIs = usePoiStore((s) => s.getStarredPOIs);
   const starredPOIIds = usePoiStore((s) => s.starredPOIIds);
   const setSelectedPOI = usePoiStore((s) => s.setSelectedPOI);
+  const loadFerries = useFerryStore((s) => s.loadFerries);
+  const routeFerries = useFerryStore((s) =>
+    id ? (s.ferries[id] ?? EMPTY_FERRIES) : EMPTY_FERRIES,
+  );
 
   useEffect(() => {
     if (!id) return;
@@ -61,8 +82,9 @@ export default function RouteDetailScreen() {
     if (id) {
       loadPOIs(id);
       loadClimbs(id);
+      loadFerries(id);
     }
-  }, [id, loadPOIs, loadClimbs]);
+  }, [id, loadPOIs, loadClimbs, loadFerries]);
 
   const activeRouteProgress = useMemo(
     () => resolveRouteProgress(snappedPosition, id, route?.points),
@@ -70,41 +92,112 @@ export default function RouteDetailScreen() {
   );
   const currentDistanceMeters = activeRouteProgress?.distanceAlongRouteMeters;
 
+  const ridingStats = useMemo(() => {
+    if (!route) return null;
+    const elevation = computeRidingElevationTotals(route.points, routeFerries);
+    return {
+      distance: totalRidingDistanceMeters(route.totalDistanceMeters, routeFerries),
+      ascent: elevation.ascent,
+      descent: elevation.descent,
+    };
+  }, [route, routeFerries]);
+  const profilePoints = useMemo(
+    () => (route ? projectRoutePointsForRidingProfile(route.points, routeFerries) : []),
+    [route, routeFerries],
+  );
+  const currentRidingDistanceMeters = useMemo(
+    () =>
+      currentDistanceMeters == null
+        ? undefined
+        : ridingDistanceAtGeometricDistance(currentDistanceMeters, routeFerries),
+    [currentDistanceMeters, routeFerries],
+  );
   const currentPointIndex = useMemo(() => {
-    if (currentDistanceMeters == null || !route?.points.length) return undefined;
-    return findPointIndexAtOrAfterDistance(route.points, currentDistanceMeters);
-  }, [currentDistanceMeters, route]);
+    if (currentRidingDistanceMeters == null || profilePoints.length === 0) return undefined;
+    return findPointIndexAtOrAfterDistance(profilePoints, currentRidingDistanceMeters);
+  }, [currentRidingDistanceMeters, profilePoints]);
 
   const elevProgress = useMemo(() => {
     if (currentDistanceMeters == null || !route) return null;
-    return computeElevationProgressAtDistance(route.points, currentDistanceMeters);
-  }, [currentDistanceMeters, route]);
+    const done = computeRidingElevationTotals(route.points, routeFerries, 0, currentDistanceMeters);
+    const remaining = computeRidingElevationTotals(
+      route.points,
+      routeFerries,
+      currentDistanceMeters,
+      route.totalDistanceMeters,
+    );
+    return {
+      ascentDone: done.ascent,
+      descentDone: done.descent,
+      ascentRemaining: remaining.ascent,
+      descentRemaining: remaining.descent,
+    };
+  }, [currentDistanceMeters, route, routeFerries]);
 
   const screenOptions = useMemo(() => ({ title: route?.name ?? "Route" }), [route?.name]);
 
   const chartPOIs = useMemo(() => {
     if (!id) return [];
-    return toDisplayPOIs(getStarredPOIs(id));
+    return toDisplayPOIs(getStarredPOIs(id)).map((poi) =>
+      Object.assign({}, poi, {
+        effectiveDistanceMeters: toDisplayDistanceMeters(
+          ridingDistanceAtGeometricDistance(poi.effectiveDistanceMeters, routeFerries),
+        ),
+      }),
+    );
     // starredPOIIds is a reactivity trigger: getStarredPOIs reads store via get() and is not itself reactive
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, getStarredPOIs, starredPOIIds]);
+  }, [id, getStarredPOIs, starredPOIIds, routeFerries]);
 
-  const chartClimbs = useMemo(() => toDisplayClimbs(routeClimbs), [routeClimbs]);
-
-  const previewLayers = useMemo<RoutePreviewMapLayer[]>(
+  const chartClimbs = useMemo(
     () =>
-      route?.points.length
-        ? [
-            {
-              id: route.id,
-              cacheKey: route.id,
-              points: route.points,
-              isActive: true,
-            },
-          ]
-        : [],
-    [route],
+      toDisplayClimbs(filterClimbsOutsideFerries(routeClimbs, routeFerries)).map((climb) => {
+        const effectiveStartDistanceMeters = toDisplayDistanceMeters(
+          ridingDistanceAtGeometricDistance(climb.startDistanceMeters, routeFerries),
+        );
+        const effectiveEndDistanceMeters = toDisplayDistanceMeters(
+          ridingDistanceAtGeometricDistance(climb.endDistanceMeters, routeFerries),
+        );
+        return Object.assign({}, climb, {
+          lengthMeters: effectiveEndDistanceMeters - effectiveStartDistanceMeters,
+          effectiveDistanceMeters: effectiveStartDistanceMeters,
+          effectiveStartDistanceMeters,
+          effectiveEndDistanceMeters,
+        });
+      }),
+    [routeClimbs, routeFerries],
   );
+
+  const displayFerries = useMemo(
+    () =>
+      route
+        ? routeFerries.map((crossing) =>
+            toDisplayFerryCrossing(
+              crossing,
+              crossing.startDistanceMeters,
+              crossing.endDistanceMeters,
+              0,
+              route.points,
+            ),
+          )
+        : [],
+    [route, routeFerries],
+  );
+
+  const previewLayers = useMemo<RoutePreviewMapLayer[]>(() => {
+    if (!route?.points.length) return [];
+    return buildFerryAwarePreviewLayers(
+      [
+        {
+          id: route.id,
+          cacheKey: route.id,
+          points: route.points,
+          isActive: true,
+        },
+      ],
+      displayFerries,
+    );
+  }, [displayFerries, route]);
 
   const savedPOITargets = useMemo<SavedPOITarget[]>(() => {
     if (!route) return [];
@@ -161,19 +254,21 @@ export default function RouteDetailScreen() {
         {/* Mini map */}
         {previewLayers.length > 0 && (
           <View className="mx-4 mt-4 rounded-xl overflow-hidden" style={{ height: 250 }}>
-            <RoutePreviewMap layers={previewLayers} />
+            <RoutePreviewMap layers={previewLayers} ferries={displayFerries} />
           </View>
         )}
 
         {/* Stats */}
         <View className="flex-row px-4 mt-3 mb-3 gap-3">
-          <StatBox label="Distance" value={formatDistance(route.totalDistanceMeters, units)} />
-          <StatBox label="Ascent" value={"↑ " + formatElevation(route.totalAscentMeters, units)} />
+          <StatBox label="Distance" value={formatDistance(ridingStats?.distance ?? 0, units)} />
+          <StatBox label="Ascent" value={"↑ " + formatElevation(ridingStats?.ascent ?? 0, units)} />
           <StatBox
             label="Descent"
-            value={"↓ " + formatElevation(route.totalDescentMeters, units)}
+            value={"↓ " + formatElevation(ridingStats?.descent ?? 0, units)}
           />
         </View>
+
+        <RouteFerriesSection route={route} />
 
         {/* Elevation Profile */}
         <Text className="text-[22px] font-barlow-semibold text-foreground px-4 mt-2 mb-3">
@@ -181,12 +276,12 @@ export default function RouteDetailScreen() {
         </Text>
         <View className="mx-4 rounded-xl overflow-hidden bg-surface">
           <ElevationProfile
-            points={route.points}
+            points={profilePoints}
             units={units}
             width={chartWidth}
             height={chartHeight}
             currentPointIndex={currentPointIndex}
-            currentDistanceMeters={currentDistanceMeters}
+            currentDistanceMeters={currentRidingDistanceMeters}
             pois={chartPOIs}
             onPOIPress={setSelectedPOI}
             climbs={chartClimbs}
@@ -210,6 +305,7 @@ export default function RouteDetailScreen() {
           totalDistanceMeters={route.totalDistanceMeters}
           totalAscentMeters={route.totalAscentMeters}
           totalDescentMeters={route.totalDescentMeters}
+          ferries={routeFerries}
         />
 
         {/* Progress (if snapped) */}
@@ -219,10 +315,20 @@ export default function RouteDetailScreen() {
               Progress
             </Text>
             <View className="flex-row px-4 mb-3 gap-3">
-              <StatBox label="Completed" value={formatDistance(currentDistanceMeters, units)} />
+              <StatBox
+                label="Completed"
+                value={formatDistance(currentRidingDistanceMeters ?? 0, units)}
+              />
               <StatBox
                 label="Remaining"
-                value={formatDistance(route.totalDistanceMeters - currentDistanceMeters, units)}
+                value={formatDistance(
+                  ridingDistanceBetween(
+                    currentDistanceMeters,
+                    route.totalDistanceMeters,
+                    routeFerries,
+                  ),
+                  units,
+                )}
               />
             </View>
             <View className="flex-row px-4 mb-3 gap-3">

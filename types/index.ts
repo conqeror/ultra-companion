@@ -49,6 +49,43 @@ export interface RouteWithPoints extends Route {
   points: RoutePoint[];
 }
 
+// Ferry crossings remain anchored in the imported route's raw distance space.
+// Display/riding distances are derived so map geometry and snapping stay stable.
+export type FerryCrossingSource = "manual" | "osm";
+export type FerryBicycleAccess = "yes" | "no" | "unknown";
+
+export interface FerryCrossing {
+  id: string;
+  routeId: string;
+  name: string;
+  startDistanceMeters: number;
+  endDistanceMeters: number;
+  startLatitude: number;
+  startLongitude: number;
+  endLatitude: number;
+  endLongitude: number;
+  durationMinutes: number;
+  assumedWaitMinutes: number;
+  boardingBufferMinutes: number;
+  source: FerryCrossingSource;
+  sourceId: string | null;
+  sourceUrl: string | null;
+  operator: string | null;
+  timetableUrl: string | null;
+  bicycleAccess: FerryBicycleAccess;
+  providerRefs: Record<string, string>;
+  tags: Record<string, string>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DisplayFerryCrossing extends FerryCrossing {
+  /** Geometric distance in the active stitched route. */
+  effectiveStartDistanceMeters: DisplayDistanceMeters;
+  /** Geometric distance in the active stitched route. */
+  effectiveEndDistanceMeters: DisplayDistanceMeters;
+}
+
 export interface RouteImportFailure {
   fileName: string;
   reason: string;
@@ -374,6 +411,7 @@ export interface ActiveRouteData {
   segments: StitchedSegmentInfo[] | null;
   routeIds: string[];
   pointsByRouteId: Record<string, RoutePoint[]>;
+  ferries?: DisplayFerryCrossing[];
 }
 
 // --- Climb Detection ---

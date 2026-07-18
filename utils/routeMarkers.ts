@@ -1,4 +1,10 @@
 import { haversineDistance, interpolateRoutePointAtDistance } from "./geo";
+import {
+  geometricDistanceAtRidingDistance,
+  ridingDistanceAtGeometricDistance,
+  totalRidingDistanceMeters,
+  type FerryDistanceSpan,
+} from "@/services/ferryCrossings";
 import type { DistanceMarkerMode, RoutePoint } from "@/types";
 
 export type RouteMarkerKind = "start" | "finish" | "distance";
@@ -142,25 +148,50 @@ export function buildDistanceMarkerFeatures(
     range?: DistanceMarkerDistanceRange | null;
     labelFormatter?: DistanceMarkerLabelFormatter;
     labelKind?: "distance" | "custom";
+    excludedDistanceSpans?: readonly FerryDistanceSpan[];
   } = {},
 ): RouteMarkerFeature[] {
   if (points.length < 2) return [];
 
-  const totalDistanceMeters = points[points.length - 1].distanceFromStartMeters;
+  const totalGeometricDistanceMeters = points[points.length - 1].distanceFromStartMeters;
+  const excludedDistanceSpans = options.excludedDistanceSpans ?? [];
+  const totalMarkerDistanceMeters = totalRidingDistanceMeters(
+    totalGeometricDistanceMeters,
+    excludedDistanceSpans,
+  );
+  const markerRange = options.range
+    ? {
+        startDistanceMeters: ridingDistanceAtGeometricDistance(
+          options.range.startDistanceMeters,
+          excludedDistanceSpans,
+        ),
+        endDistanceMeters: ridingDistanceAtGeometricDistance(
+          options.range.endDistanceMeters,
+          excludedDistanceSpans,
+        ),
+      }
+    : null;
   const features: RouteMarkerFeature[] = [];
   const labelFormatter = options.labelFormatter ?? distanceMarkerLabel;
   const labelKind = options.labelKind ?? "distance";
 
-  for (const distanceMeters of buildDistanceMarkerDistances(
-    totalDistanceMeters,
+  for (const markerDistanceMeters of buildDistanceMarkerDistances(
+    totalMarkerDistanceMeters,
     options.intervalKm,
-    options.range,
+    markerRange,
   )) {
-    const point = interpolateRoutePointAtDistance(points, distanceMeters);
+    const geometricDistanceMeters = geometricDistanceAtRidingDistance(
+      markerDistanceMeters,
+      totalGeometricDistanceMeters,
+      excludedDistanceSpans,
+    );
+    const point = interpolateRoutePointAtDistance(points, geometricDistanceMeters);
     if (!point) continue;
 
-    const km = distanceMeters / 1000;
-    const markerLabel = labelFormatter(distanceMeters);
+    const km = markerDistanceMeters / 1000;
+    const markerLabel = labelFormatter(
+      labelKind === "custom" ? geometricDistanceMeters : markerDistanceMeters,
+    );
     if (!markerLabel) continue;
 
     features.push(
@@ -208,6 +239,10 @@ export function buildRouteMarkerFeatureCollection(input: {
   markerIntervalKm?: DistanceMarkerInterval;
   markerDistanceRange?: DistanceMarkerDistanceRange | null;
   etaLabelForDistanceMeters?: DistanceMarkerLabelFormatter;
+  excludedDistanceSpans?: readonly {
+    startDistanceMeters: number;
+    endDistanceMeters: number;
+  }[];
 }): RouteMarkerFeatureCollection {
   const distanceMarkerFeatures =
     input.distanceMarkerMode === "off"
@@ -220,6 +255,7 @@ export function buildRouteMarkerFeatureCollection(input: {
               ? (input.etaLabelForDistanceMeters ?? (() => null))
               : undefined,
           labelKind: input.distanceMarkerMode === "eta" ? "custom" : "distance",
+          excludedDistanceSpans: input.excludedDistanceSpans,
         });
 
   return {

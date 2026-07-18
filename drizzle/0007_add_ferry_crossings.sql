@@ -1,0 +1,31 @@
+CREATE TABLE IF NOT EXISTS `ferry_crossings` (
+	`id` text PRIMARY KEY NOT NULL,
+	`routeId` text NOT NULL,
+	`name` text NOT NULL,
+	`startDistanceMeters` real NOT NULL,
+	`endDistanceMeters` real NOT NULL,
+	`startLatitude` real NOT NULL,
+	`startLongitude` real NOT NULL,
+	`endLatitude` real NOT NULL,
+	`endLongitude` real NOT NULL,
+	`durationMinutes` real NOT NULL,
+	`assumedWaitMinutes` real DEFAULT 0 NOT NULL,
+	`boardingBufferMinutes` real DEFAULT 0 NOT NULL,
+	`source` text DEFAULT 'manual' NOT NULL,
+	`sourceId` text,
+	`sourceUrl` text,
+	`operator` text,
+	`timetableUrl` text,
+	`bicycleAccess` text DEFAULT 'unknown' NOT NULL,
+	`providerRefs` text NOT NULL,
+	`tags` text NOT NULL,
+	`createdAt` text NOT NULL,
+	`updatedAt` text NOT NULL,
+	FOREIGN KEY (`routeId`) REFERENCES `routes`(`id`) ON UPDATE no action ON DELETE cascade,
+	CHECK (`endDistanceMeters` > `startDistanceMeters`),
+	CHECK (`durationMinutes` >= 0),
+	CHECK (`assumedWaitMinutes` >= 0),
+	CHECK (`boardingBufferMinutes` >= 0)
+);
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `idx_ferry_crossings_route_start` ON `ferry_crossings` (`routeId`,`startDistanceMeters`);

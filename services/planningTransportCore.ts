@@ -11,6 +11,7 @@ import {
   climbs,
   collectionSegments,
   collections,
+  ferryCrossings,
   pois,
   routePoints,
   routes,
@@ -20,6 +21,7 @@ import type {
   Climb,
   Collection,
   CollectionSegment,
+  FerryCrossing,
   POI,
   POIFetchedSource,
   POISource,
@@ -28,7 +30,7 @@ import type {
   StarredItem,
 } from "@/types";
 
-export const PLANNING_TRANSPORT_VERSION = 1;
+export const PLANNING_TRANSPORT_VERSION = 2;
 export const PLANNER_FETCHED_SOURCES_METADATA_KEY = "planner_fetched_sources";
 export const PLANNING_EXPORT_FILE_NAME = "ultra-plan.ultra-plan.db";
 export const PLANNING_SQLITE_MIME_TYPE = "application/x-sqlite3";
@@ -71,6 +73,16 @@ interface RawStarredItemRow extends Omit<StarredItem, "entityType"> {
 
 interface RawClimbRow extends Climb {}
 
+interface RawFerryCrossingRow extends Omit<
+  FerryCrossing,
+  "source" | "bicycleAccess" | "providerRefs" | "tags"
+> {
+  source: string;
+  bicycleAccess: string;
+  providerRefs: string | Record<string, string>;
+  tags: string | Record<string, string>;
+}
+
 type ImportedRoutePoint = RoutePoint & { routeId: string };
 
 export interface PlannerFetchedSourcePair {
@@ -84,6 +96,7 @@ export interface PlanningImportSummary {
   pois: number;
   starredItems: number;
   climbs: number;
+  ferries: number;
   replacedFetchedSources: number;
 }
 
@@ -123,7 +136,7 @@ function normalizeSQLiteTransportBytes(bytes: Uint8Array): Uint8Array {
   return normalizedBytes;
 }
 
-function parseTags(value: RawPOIRow["tags"]): Record<string, string> {
+function parseStringRecord(value: string | Record<string, string>): Record<string, string> {
   if (value && typeof value === "object") return value;
   if (typeof value !== "string" || !value.trim()) return {};
   try {
@@ -168,7 +181,7 @@ function readMetadataValue(database: SQLiteDatabase, key: string): string | null
   );
 }
 
-function requirePlanningTransport(database: SQLiteDatabase): void {
+function requirePlanningTransport(database: SQLiteDatabase): 1 | 2 {
   for (const table of [
     METADATA_TABLE,
     "routes",
@@ -185,11 +198,15 @@ function requirePlanningTransport(database: SQLiteDatabase): void {
   }
 
   const version = Number(readMetadataValue(database, "transport_version"));
-  if (version !== PLANNING_TRANSPORT_VERSION) {
+  if (version !== 1 && version !== PLANNING_TRANSPORT_VERSION) {
     throw new Error(
-      `Unsupported planning database version ${version || "unknown"}. Expected ${PLANNING_TRANSPORT_VERSION}.`,
+      `Unsupported planning database version ${version || "unknown"}. Expected 1 or ${PLANNING_TRANSPORT_VERSION}.`,
     );
   }
+  if (version >= 2 && !tableExists(database, "ferry_crossings")) {
+    throw new Error("This is not an Ultra planning database. Missing table: ferry_crossings");
+  }
+  return version;
 }
 
 function selectAll<T>(
@@ -228,7 +245,18 @@ function normalizePOI(row: RawPOIRow): POI {
     ...row,
     source: row.source as POISource,
     category: row.category as POI["category"],
-    tags: parseTags(row.tags),
+    tags: parseStringRecord(row.tags),
+  };
+}
+
+function normalizeFerryCrossing(row: RawFerryCrossingRow): FerryCrossing {
+  return {
+    ...row,
+    source: row.source === "osm" ? "osm" : "manual",
+    bicycleAccess:
+      row.bicycleAccess === "yes" || row.bicycleAccess === "no" ? row.bicycleAccess : "unknown",
+    providerRefs: parseStringRecord(row.providerRefs),
+    tags: parseStringRecord(row.tags),
   };
 }
 
@@ -299,7 +327,7 @@ export function importPlanningDatabaseFromBytes(bytes: Uint8Array): PlanningImpo
 }
 
 export function importPlanningDatabase(source: SQLiteDatabase): PlanningImportSummary {
-  requirePlanningTransport(source);
+  const transportVersion = requirePlanningTransport(source);
 
   const importedRoutes = selectAll<RawRouteRow>(source, "SELECT * FROM routes").map(normalizeRoute);
   const importedRouteIds = importedRoutes.map((route) => route.id);
@@ -326,6 +354,13 @@ export function importPlanningDatabase(source: SQLiteDatabase): PlanningImportSu
     source,
     "SELECT * FROM climbs ORDER BY routeId, startDistanceMeters",
   );
+  const importedFerries =
+    transportVersion >= 2
+      ? selectAll<RawFerryCrossingRow>(
+          source,
+          "SELECT * FROM ferry_crossings ORDER BY routeId, startDistanceMeters",
+        ).map(normalizeFerryCrossing)
+      : [];
 
   const fetchedPairs = readPlannerFetchedSources(source);
   const fetchedPairKeys = new Set(fetchedPairs.map(pairKey));
@@ -367,6 +402,12 @@ export function importPlanningDatabase(source: SQLiteDatabase): PlanningImportSu
       tx.delete(routePoints).where(inArray(routePoints.routeId, importedRouteIds)).run();
       for (const pointChunk of chunk(importedRoutePoints)) {
         tx.insert(routePoints).values(pointChunk).run();
+      }
+      if (transportVersion >= 2) {
+        tx.delete(ferryCrossings).where(inArray(ferryCrossings.routeId, importedRouteIds)).run();
+        for (const ferryChunk of chunk(importedFerries)) {
+          tx.insert(ferryCrossings).values(ferryChunk).run();
+        }
       }
     }
 
@@ -464,6 +505,7 @@ export function importPlanningDatabase(source: SQLiteDatabase): PlanningImportSu
     pois: importedPOIs.length,
     starredItems: importedStarredItems.length,
     climbs: importedClimbs.length,
+    ferries: importedFerries.length,
     replacedFetchedSources: fetchedPairs.length,
   };
 }

@@ -33,6 +33,7 @@ import { snapToRouteDetailed } from "@/services/routeSnapping";
 import { useActiveRouteData, getActiveRouteDataImperative } from "@/hooks/useActiveRouteData";
 import { usePoiStore } from "@/store/poiStore";
 import { useClimbStore } from "@/store/climbStore";
+import { useFerryStore } from "@/store/ferryStore";
 import { useEtaStore } from "@/store/etaStore";
 import { useWeatherStore } from "@/store/weatherStore";
 import { useOfflineStore } from "@/store/offlineStore";
@@ -47,11 +48,25 @@ import { routeEndDistance } from "@/services/stitchingService";
 import {
   allocateMapCoordinateBudget,
   estimateMapVisibleSpanMeters,
-  findFirstPointAtOrAfterDistance,
   haversineDistance,
   MAX_ROUTE_MAP_GEOJSON_POINTS,
 } from "@/utils/geo";
 import { buildCollectionSegmentMapFeatureCollectionsFromPreparedLines } from "@/utils/collectionSegmentDisplay";
+import { ferryMapGeometrySignature } from "@/services/ferryGeometry";
+import { getTimeAtDistance } from "@/services/etaCalculator";
+import {
+  ferryEndDistanceMeters,
+  ferryStartDistanceMeters,
+  geometricDistanceAtRidingDistance,
+  ridingDistanceAtGeometricDistance,
+  totalRidingDistanceMeters,
+  type FerryTimingCrossing,
+} from "@/services/ferryCrossings";
+import {
+  buildFerryMapLandPieces,
+  buildFerryMapRouteComposition,
+  ferriesContainedInDistanceRange,
+} from "@/utils/ferryMapRoute";
 import {
   buildDistanceMarkerDistances,
   getDistanceMarkerIntervalForZoom,
@@ -67,7 +82,13 @@ import {
 import { measureSync } from "@/utils/perfMarks";
 import { pickRouteRecords } from "@/utils/routeScopedRecords";
 import { yieldToUI } from "@/utils/yieldToUI";
-import type { CollectionSegmentWithRoute, RoutePoint, UnitSystem, UserPosition } from "@/types";
+import type {
+  ActiveRouteData,
+  CollectionSegmentWithRoute,
+  RoutePoint,
+  UnitSystem,
+  UserPosition,
+} from "@/types";
 import { Text } from "@/components/ui/text";
 
 interface MapCameraHandle {
@@ -88,9 +109,25 @@ interface MapCameraHandle {
 const ETA_MARKER_REFRESH_MS = 5 * 60_000;
 const MARKER_VIEWPORT_BUFFER_MULTIPLIER = 1.5;
 const MARKER_VIEWPORT_MIN_INTERVALS = 3;
+const EMPTY_ACTIVE_FERRIES: NonNullable<ActiveRouteData["ferries"]> = [];
 
-function collectionSegmentGeometryId(collectionId: string, segmentIndex: number): string {
-  return `collection:${collectionId}:segment:${segmentIndex}`;
+function collectionSegmentGeometryId(
+  collectionId: string,
+  segmentIndex: number,
+  pieceIndex = 0,
+): string {
+  const base = `collection:${collectionId}:segment:${segmentIndex}`;
+  return pieceIndex === 0 ? base : `${base}:land:${pieceIndex}`;
+}
+
+interface MapGeometrySource {
+  requestId: string;
+  layerId: string;
+  cacheKey: string;
+  points: RoutePoint[];
+  startPointIndex?: number;
+  endPointIndex?: number;
+  pointCount: number;
 }
 
 interface MarkerCameraState {
@@ -207,36 +244,13 @@ function mergeMarkerDistanceRange(
   };
 }
 
-function cumulativeTimeAtDistance(
-  cumulativeTime: number[],
-  points: RoutePoint[],
-  distanceMeters: number,
-  startIndex = 0,
-): { timeSeconds: number; index: number } | null {
-  if (points.length === 0 || cumulativeTime.length !== points.length) return null;
-
-  const hi = Math.min(
-    findFirstPointAtOrAfterDistance(points, distanceMeters, startIndex),
-    points.length - 1,
-  );
-  const lo = Math.max(0, hi - 1);
-
-  const loTime = cumulativeTime[lo];
-  const hiTime = cumulativeTime[hi];
-  const loDistance = points[lo].distanceFromStartMeters;
-  const hiDistance = points[hi].distanceFromStartMeters;
-  if (hiDistance - loDistance <= 0) return { timeSeconds: loTime, index: hi };
-
-  const t = (distanceMeters - loDistance) / (hiDistance - loDistance);
-  return { timeSeconds: loTime + t * (hiTime - loTime), index: hi };
-}
-
-function buildEtaMarkerLabelMap(input: {
+export function buildEtaMarkerLabelMap(input: {
   cumulativeTime: number[] | null;
   points: RoutePoint[] | null;
   fromDistanceMeters: number | null;
   markerIntervalKm: DistanceMarkerInterval;
   markerDistanceRange: DistanceMarkerDistanceRange | null;
+  ferries?: readonly FerryTimingCrossing[];
   plannedStops: readonly { distanceMeters: number; durationSeconds: number }[];
   etaBaseTimeMs: number;
 }): Map<number, string> {
@@ -244,16 +258,33 @@ function buildEtaMarkerLabelMap(input: {
   const { cumulativeTime, points, fromDistanceMeters } = input;
   if (!cumulativeTime || !points?.length || fromDistanceMeters == null) return labels;
 
-  const from = cumulativeTimeAtDistance(cumulativeTime, points, fromDistanceMeters);
-  if (!from) return labels;
+  const ferries = input.ferries ?? [];
+  const fromTimeSeconds = getTimeAtDistance(cumulativeTime, points, fromDistanceMeters, ferries);
+  if (fromTimeSeconds == null) return labels;
 
-  const targetDistances = buildDistanceMarkerDistances(
-    points[points.length - 1].distanceFromStartMeters,
+  const totalGeometricDistanceMeters = points[points.length - 1].distanceFromStartMeters;
+  const excludedDistanceSpans = ferries.map((ferry) => ({
+    startDistanceMeters: ferryStartDistanceMeters(ferry),
+    endDistanceMeters: ferryEndDistanceMeters(ferry),
+  }));
+  const markerDistanceRange = input.markerDistanceRange
+    ? {
+        startDistanceMeters: ridingDistanceAtGeometricDistance(
+          input.markerDistanceRange.startDistanceMeters,
+          excludedDistanceSpans,
+        ),
+        endDistanceMeters: ridingDistanceAtGeometricDistance(
+          input.markerDistanceRange.endDistanceMeters,
+          excludedDistanceSpans,
+        ),
+      }
+    : null;
+  const targetRidingDistances = buildDistanceMarkerDistances(
+    totalRidingDistanceMeters(totalGeometricDistanceMeters, excludedDistanceSpans),
     input.markerIntervalKm,
-    input.markerDistanceRange,
+    markerDistanceRange,
   );
 
-  let pointIndex = from.index;
   let stopIndex = 0;
   let stopOffsetSeconds = 0;
   const plannedStops = input.plannedStops;
@@ -264,25 +295,34 @@ function buildEtaMarkerLabelMap(input: {
     stopIndex++;
   }
 
-  for (const distanceMeters of targetDistances) {
-    if (distanceMeters <= fromDistanceMeters) continue;
+  for (const ridingDistanceMeters of targetRidingDistances) {
+    const geometricDistanceMeters = geometricDistanceAtRidingDistance(
+      ridingDistanceMeters,
+      totalGeometricDistanceMeters,
+      excludedDistanceSpans,
+    );
+    if (geometricDistanceMeters <= fromDistanceMeters) continue;
 
-    const target = cumulativeTimeAtDistance(cumulativeTime, points, distanceMeters, pointIndex);
-    if (!target) continue;
-    pointIndex = target.index;
+    const targetTimeSeconds = getTimeAtDistance(
+      cumulativeTime,
+      points,
+      geometricDistanceMeters,
+      ferries,
+    );
+    if (targetTimeSeconds == null) continue;
 
     while (
       stopIndex < plannedStops.length &&
-      plannedStops[stopIndex].distanceMeters < distanceMeters
+      plannedStops[stopIndex].distanceMeters < geometricDistanceMeters
     ) {
       stopOffsetSeconds += plannedStops[stopIndex].durationSeconds;
       stopIndex++;
     }
 
-    const ridingTimeSeconds = target.timeSeconds - from.timeSeconds + stopOffsetSeconds;
+    const ridingTimeSeconds = targetTimeSeconds - fromTimeSeconds + stopOffsetSeconds;
     if (ridingTimeSeconds <= 0) continue;
     labels.set(
-      distanceMeters,
+      geometricDistanceMeters,
       formatDayAwareETAMarkerLabel(
         new Date(input.etaBaseTimeMs + ridingTimeSeconds * 1000),
         input.etaBaseTimeMs,
@@ -398,6 +438,7 @@ export default function MapScreen() {
     (s) => s.getCollectionSegmentsWithRoutes,
   );
   const loadPOIs = usePoiStore((s) => s.loadPOIs);
+  const loadFerries = useFerryStore((s) => s.loadFerries);
   const ensureRelativeETA = useEtaStore((s) => s.ensureRelativeETA);
   const cumulativeTime = useEtaStore((s) => s.cumulativeTime);
   const powerConfig = useEtaStore((s) => s.powerConfig);
@@ -424,6 +465,8 @@ export default function MapScreen() {
   const timing = useActiveRouteTiming(activeData);
   const activeRouteIds = useMemo(() => activeData?.routeIds ?? [], [activeData?.routeIds]);
   const allPois = usePoiStore(useShallow((s) => pickRouteRecords(s.pois, activeRouteIds)));
+  const activeFerries = activeData?.ferries ?? EMPTY_ACTIVE_FERRIES;
+  const ferryRevision = useFerryStore((state) => state.revision);
   const plannedStops = useMemo(
     () =>
       measureSync("map.activePlannedStops", () =>
@@ -503,12 +546,14 @@ export default function MapScreen() {
             fromDistanceMeters: etaAnchorDistanceMeters,
             markerIntervalKm: markerCamera.intervalKm,
             markerDistanceRange,
+            ferries: activeFerries,
             plannedStops,
             etaBaseTimeMs: timing.futureStartMs ?? etaMarkerRefreshMs,
           })
         : new Map<number, string>(),
     [
       activeRoutePoints,
+      activeFerries,
       cumulativeTime,
       distanceMarkerMode,
       etaAnchorDistanceMeters,
@@ -563,12 +608,15 @@ export default function MapScreen() {
       await yieldToUI();
       try {
         const segments = await getCollectionSegmentsWithRoutes(activeData.id);
-        const { getRoutePoints } = await import("@/db/database");
+        const { getFerryCrossingsForRoute, getRoutePoints } = await import("@/db/database");
         const displayData = await loadCollectionVariantDisplayData(
           segments,
           powerConfig,
           getRoutePoints,
-          { shouldCancel: () => cancelled },
+          {
+            shouldCancel: () => cancelled,
+            loadRouteFerries: getFerryCrossingsForRoute,
+          },
         );
         if (cancelled) return;
 
@@ -595,6 +643,7 @@ export default function MapScreen() {
     activeData?.id,
     activeData?.type,
     activeSegmentsKey,
+    ferryRevision,
     getCollectionSegmentsWithRoutes,
     powerConfig,
   ]);
@@ -627,8 +676,9 @@ export default function MapScreen() {
     for (const routeId of activeRouteIds) {
       loadPOIs(routeId);
       loadClimbs(routeId);
+      loadFerries(routeId);
     }
-  }, [activeRouteIds, activeRouteIdsKey, loadPOIs, loadClimbs]);
+  }, [activeRouteIds, activeRouteIdsKey, loadPOIs, loadClimbs, loadFerries]);
 
   useEffect(() => {
     if (!activeData || !activeRoutePoints?.length) return;
@@ -640,6 +690,7 @@ export default function MapScreen() {
       totalAscentMeters: activeData.totalAscentMeters,
       totalDescentMeters: activeData.totalDescentMeters,
       segmentsSignature: activeSegmentsKey,
+      ferries: activeFerries,
     });
     // Intentional: depend on scalar active route fields; the full activeData object churns.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -651,6 +702,7 @@ export default function MapScreen() {
     activeData?.totalAscentMeters,
     activeData?.totalDescentMeters,
     activeSegmentsKey,
+    activeFerries,
     ensureRelativeETA,
   ]);
 
@@ -886,57 +938,136 @@ export default function MapScreen() {
     activeData?.type === "collection" && activeData.segments && activeData.segments.length > 1
       ? activeData.segments
       : null;
-  const routeGeometryRequests = useMemo<PreparedRouteGeometryRequest[]>(() => {
-    const requests: PreparedRouteGeometryRequest[] = [];
+  const activeFerryMapGeometryKey = useMemo(
+    () => ferryMapGeometrySignature(activeFerries),
+    [activeFerries],
+  );
+  const activeMapComposition = useMemo(
+    () =>
+      activeRoutePoints ? buildFerryMapRouteComposition(activeRoutePoints, activeFerries) : null,
+    [activeFerries, activeRoutePoints],
+  );
+  const activeMapRoutePoints = activeMapComposition?.displayPoints ?? activeRoutePoints;
+
+  const standaloneGeometrySources = useMemo<MapGeometrySource[]>(() => {
+    const sources: MapGeometrySource[] = [];
     for (const route of renderedRoutes) {
-      requests.push({
-        id: `route:${route.id}`,
-        cacheKey: route.id,
-        points: visibleRoutePoints[route.id],
-        toleranceMeters: routeGeometryToleranceMeters,
-        maxPoints: MAX_ROUTE_MAP_GEOJSON_POINTS,
+      const routePoints = visibleRoutePoints[route.id];
+      if (!routePoints) continue;
+      const usesActiveComposition =
+        activeData?.type === "route" && activeData.id === route.id && activeMapComposition != null;
+      const pieces = usesActiveComposition ? activeMapComposition.landPieces : [routePoints];
+      const geometryKey = usesActiveComposition ? activeFerryMapGeometryKey : "";
+      pieces.forEach((points, pieceIndex) => {
+        const requestId =
+          pieceIndex === 0 ? `route:${route.id}` : `route:${route.id}:land:${pieceIndex}`;
+        sources.push({
+          requestId,
+          layerId: pieces.length === 1 ? route.id : `${route.id}-land-${pieceIndex}`,
+          cacheKey: geometryKey
+            ? `${route.id}:ferries:${geometryKey}:land:${pieceIndex}`
+            : route.id,
+          points,
+          pointCount: points.length,
+        });
       });
     }
-    if (activeCollectionRouteId && activeRoutePoints) {
-      if (activeCollectionDisplaySegments) {
-        const segmentPointCounts = activeCollectionDisplaySegments.map((segment) =>
-          Math.max(0, segment.endPointIndex - segment.startPointIndex + 1),
-        );
-        const segmentPointBudgets = allocateMapCoordinateBudget(
-          segmentPointCounts,
-          MAX_ROUTE_MAP_GEOJSON_POINTS,
-        );
-        activeCollectionDisplaySegments.forEach((segment, segmentIndex) => {
-          requests.push({
-            id: collectionSegmentGeometryId(activeCollectionRouteId, segmentIndex),
-            cacheKey: `${activeCollectionRouteId}:${activeSegmentsKey}:segment:${segmentIndex}`,
-            points: activeRoutePoints,
-            toleranceMeters: routeGeometryToleranceMeters,
-            startPointIndex: segment.startPointIndex,
-            endPointIndex: segment.endPointIndex,
-            maxPoints: segmentPointBudgets[segmentIndex],
-          });
-        });
-      } else {
-        requests.push({
-          id: `collection:${activeCollectionRouteId}`,
-          cacheKey: `${activeCollectionRouteId}:${activeSegmentsKey}`,
-          points: activeRoutePoints,
-          toleranceMeters: routeGeometryToleranceMeters,
-          maxPoints: MAX_ROUTE_MAP_GEOJSON_POINTS,
-        });
-      }
-    }
-    return requests;
+    return sources;
   }, [
+    activeData?.id,
+    activeData?.type,
+    activeFerryMapGeometryKey,
+    activeMapComposition,
     renderedRoutes,
     visibleRoutePoints,
-    activeCollectionRouteId,
+  ]);
+
+  const collectionGeometrySources = useMemo<MapGeometrySource[][]>(() => {
+    if (!activeCollectionRouteId || !activeRoutePoints || !activeMapComposition) return [];
+    if (!activeCollectionDisplaySegments) {
+      return [
+        activeMapComposition.landPieces.map((points, pieceIndex) => ({
+          requestId:
+            pieceIndex === 0
+              ? `collection:${activeCollectionRouteId}`
+              : `collection:${activeCollectionRouteId}:land:${pieceIndex}`,
+          layerId:
+            activeMapComposition.landPieces.length === 1
+              ? activeCollectionRouteId
+              : `${activeCollectionRouteId}-land-${pieceIndex}`,
+          cacheKey: `${activeCollectionRouteId}:${activeSegmentsKey}:ferries:${activeFerryMapGeometryKey}:land:${pieceIndex}`,
+          points,
+          pointCount: points.length,
+        })),
+      ];
+    }
+
+    return activeCollectionDisplaySegments.map((segment, segmentIndex) => {
+      const startPoint = activeRoutePoints[segment.startPointIndex];
+      const endPoint = activeRoutePoints[segment.endPointIndex];
+      if (!startPoint || !endPoint) return [];
+      const segmentFerries = ferriesContainedInDistanceRange(
+        activeFerries,
+        startPoint.distanceFromStartMeters,
+        endPoint.distanceFromStartMeters,
+      );
+      if (segmentFerries.length === 0) {
+        return [
+          {
+            requestId: collectionSegmentGeometryId(activeCollectionRouteId, segmentIndex),
+            layerId: `${activeCollectionRouteId}-segment-${segmentIndex}`,
+            cacheKey: `${activeCollectionRouteId}:${activeSegmentsKey}:segment:${segmentIndex}`,
+            points: activeRoutePoints,
+            startPointIndex: segment.startPointIndex,
+            endPointIndex: segment.endPointIndex,
+            pointCount: Math.max(0, segment.endPointIndex - segment.startPointIndex + 1),
+          },
+        ];
+      }
+
+      const segmentPoints = activeRoutePoints.slice(
+        segment.startPointIndex,
+        segment.endPointIndex + 1,
+      );
+      const landPieces = buildFerryMapLandPieces(segmentPoints, segmentFerries);
+      const geometryKey = ferryMapGeometrySignature(segmentFerries);
+      return landPieces.map((points, pieceIndex) => ({
+        requestId: collectionSegmentGeometryId(activeCollectionRouteId, segmentIndex, pieceIndex),
+        layerId: `${activeCollectionRouteId}-segment-${segmentIndex}-land-${pieceIndex}`,
+        cacheKey: `${activeCollectionRouteId}:${activeSegmentsKey}:segment:${segmentIndex}:ferries:${geometryKey}:land:${pieceIndex}`,
+        points,
+        pointCount: points.length,
+      }));
+    });
+  }, [
     activeCollectionDisplaySegments,
+    activeCollectionRouteId,
+    activeFerries,
+    activeFerryMapGeometryKey,
+    activeMapComposition,
     activeRoutePoints,
     activeSegmentsKey,
-    routeGeometryToleranceMeters,
   ]);
+
+  const routeGeometrySources = useMemo(
+    () => [...standaloneGeometrySources, ...collectionGeometrySources.flat()],
+    [collectionGeometrySources, standaloneGeometrySources],
+  );
+  const routeGeometryRequests = useMemo<PreparedRouteGeometryRequest[]>(() => {
+    const pointBudgets = allocateMapCoordinateBudget(
+      routeGeometrySources.map((source) => source.pointCount),
+      MAX_ROUTE_MAP_GEOJSON_POINTS,
+    );
+    return routeGeometrySources.map((source, index) => ({
+      id: source.requestId,
+      cacheKey: source.cacheKey,
+      points: source.points,
+      toleranceMeters: routeGeometryToleranceMeters,
+      startPointIndex: source.startPointIndex,
+      endPointIndex: source.endPointIndex,
+      maxPoints: pointBudgets[index],
+    }));
+  }, [routeGeometrySources, routeGeometryToleranceMeters]);
   const preparedRouteGeometries = usePreparedRouteGeometries(routeGeometryRequests);
   const isRouteGeometryPreparing = routeGeometryRequests.some((request) => {
     if (!isRouteGeometryRequestRenderable(request)) return false;
@@ -947,45 +1078,39 @@ export default function MapScreen() {
   );
 
   const routeLayers = useMemo<MapCanvasRouteLayer[]>(() => {
-    const layers: MapCanvasRouteLayer[] = [];
-    for (const route of renderedRoutes) {
-      const prepared = preparedRouteGeometries[`route:${route.id}`];
-      if (!prepared) continue;
-      layers.push({
-        id: route.id,
-        key: `${route.id}-${mapStyle.styleKey}`,
-        isActive: true,
-        geoJSON: prepared.geoJSON,
-      });
-    }
-    if (activeCollectionRouteId && !activeCollectionDisplaySegments) {
-      const prepared = preparedRouteGeometries[`collection:${activeCollectionRouteId}`];
-      if (prepared) {
-        layers.push({
-          id: activeCollectionRouteId,
-          key: `${activeCollectionRouteId}-${mapStyle.styleKey}`,
-          isActive: true,
-          geoJSON: prepared.geoJSON,
-        });
-      }
-    }
-    return layers;
+    const layerSources = [
+      ...standaloneGeometrySources,
+      ...(!activeCollectionDisplaySegments ? (collectionGeometrySources[0] ?? []) : []),
+    ];
+    return layerSources.flatMap((source) => {
+      const prepared = preparedRouteGeometries[source.requestId];
+      return prepared
+        ? [
+            {
+              id: source.layerId,
+              key: `${source.cacheKey}-${mapStyle.styleKey}`,
+              isActive: true,
+              geoJSON: prepared.geoJSON,
+            },
+          ]
+        : [];
+    });
   }, [
-    renderedRoutes,
-    preparedRouteGeometries,
-    activeCollectionRouteId,
     activeCollectionDisplaySegments,
+    collectionGeometrySources,
     mapStyle.styleKey,
+    preparedRouteGeometries,
+    standaloneGeometrySources,
   ]);
 
   const collectionSegmentFeatures = useMemo(() => {
     const preparedLines =
       activeCollectionRouteId && activeCollectionDisplaySegments
-        ? activeCollectionDisplaySegments.map(
-            (_, segmentIndex) =>
-              preparedRouteGeometries[
-                collectionSegmentGeometryId(activeCollectionRouteId, segmentIndex)
-              ]?.geoJSON ?? null,
+        ? collectionGeometrySources.map((sources) =>
+            sources.flatMap((source) => {
+              const prepared = preparedRouteGeometries[source.requestId];
+              return prepared ? [prepared.geoJSON] : [];
+            }),
           )
         : [];
     return buildCollectionSegmentMapFeatureCollectionsFromPreparedLines(
@@ -997,6 +1122,7 @@ export default function MapScreen() {
     activeCollectionDisplaySegments,
     activeCollectionRouteId,
     activeRoutePoints,
+    collectionGeometrySources,
     preparedRouteGeometries,
   ]);
   const mapPreparationLabel = isRouteGeometryPreparing
@@ -1053,13 +1179,14 @@ export default function MapScreen() {
         routeLayers={routeLayers}
         collectionSegmentFeatures={collectionSegmentFeatures}
         isRouteGeometryPreparing={isRouteGeometryPreparing}
-        activeRoutePoints={activeRoutePoints}
+        activeRoutePoints={activeMapRoutePoints}
         activeRouteIds={activeRouteIds}
         activeSegments={activeData?.segments ?? null}
         activeDataId={activeData?.id ?? null}
         activeContextKey={activeContextKey}
         activeTotalDistanceMeters={activeData?.totalDistanceMeters ?? null}
         activeProgressDistanceMeters={activeProgressDistanceMeters}
+        activeFerries={activeFerries}
         mapOverlayMode={mapOverlayMode}
         activeVariantOverlays={activeVariantOverlays}
         weatherRouteId={weatherRouteId}

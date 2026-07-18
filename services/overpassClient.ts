@@ -28,6 +28,12 @@ export interface OverpassElement {
   lon?: number;
   center?: { lat: number; lon: number };
   geometry?: { lat: number; lon: number }[];
+  members?: Array<{
+    type: "node" | "way" | "relation";
+    ref: number;
+    role?: string;
+    geometry?: { lat: number; lon: number }[];
+  }>;
   tags?: Record<string, string>;
 }
 

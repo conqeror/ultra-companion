@@ -1,10 +1,10 @@
 import { drizzle } from "drizzle-orm/expo-sqlite";
-import { migrate } from "drizzle-orm/expo-sqlite/migrator";
 import { openDatabaseSync } from "expo-sqlite";
 import { sql, eq, and, inArray, desc, asc, count, max } from "drizzle-orm";
 import {
   routes,
   routePoints,
+  ferryCrossings,
   pois,
   starredItems,
   collections,
@@ -14,11 +14,16 @@ import {
   relativeEtaCache,
 } from "./schema";
 import migrations from "../drizzle/migrations";
+import {
+  hasSupportedFerryCrossingsSchema,
+  shouldPrepareFerryCrossingsSchema,
+} from "./ferrySchemaCompatibility";
 import { measureAsync } from "@/utils/perfMarks";
 import type {
   Route,
   RoutePoint,
   RouteWithPoints,
+  FerryCrossing,
   POI,
   POICategory,
   POISource,
@@ -37,10 +42,96 @@ export const appSQLiteDb = openDatabaseSync("ultra.db");
 appSQLiteDb.execSync("PRAGMA journal_mode = WAL;");
 appSQLiteDb.execSync("PRAGMA foreign_keys = ON;");
 
+function migrationStatements(migrationSql: string): string[] {
+  return migrationSql
+    .split("--> statement-breakpoint")
+    .map((statement) => statement.trim())
+    .filter(Boolean);
+}
+
+function prepareFerryCrossingsSchema(): void {
+  const migrationsTable = appSQLiteDb.getFirstSync<{ name: string }>(
+    "SELECT name FROM sqlite_master WHERE type = 'table' AND name = '__drizzle_migrations'",
+  );
+  const latestMigration = migrationsTable
+    ? appSQLiteDb.getFirstSync<{ created_at: number | string }>(
+        "SELECT created_at FROM __drizzle_migrations ORDER BY created_at DESC LIMIT 1",
+      )
+    : null;
+  if (!shouldPrepareFerryCrossingsSchema(Number(latestMigration?.created_at ?? 0))) return;
+
+  const ferryTable = appSQLiteDb.getFirstSync<{ name: string }>(
+    "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'ferry_crossings'",
+  );
+
+  if (ferryTable) {
+    const columns = appSQLiteDb.getAllSync<{ name: string }>(
+      "PRAGMA table_info(`ferry_crossings`)",
+    );
+    const foreignKeys = appSQLiteDb.getAllSync<{
+      table: string;
+      from: string;
+      to: string;
+      on_delete: string;
+    }>("PRAGMA foreign_key_list(`ferry_crossings`)");
+    if (!hasSupportedFerryCrossingsSchema(columns, foreignKeys)) {
+      // This exact table name was used by unreleased experiments. Its rows cannot be read safely
+      // by the supported model, so remove only this table and recreate the canonical schema.
+      appSQLiteDb.execSync("DROP TABLE IF EXISTS `ferry_crossings`;");
+      console.warn("[database] Removed incompatible experimental ferry_crossings table");
+    }
+  }
+
+  // Ensure recovery also works if migration 0007 was previously recorded or interrupted. The
+  // idempotent statements let the normal migrator record pending migrations without data loss.
+  for (const statement of migrationStatements(migrations.migrations.m0007)) {
+    appSQLiteDb.execSync(statement);
+  }
+}
+
+appSQLiteDb.withTransactionSync(prepareFerryCrossingsSchema);
+
+function runBundledMigrationsSync(): void {
+  appSQLiteDb.execSync(`
+    CREATE TABLE IF NOT EXISTS __drizzle_migrations (
+      id SERIAL PRIMARY KEY,
+      hash text NOT NULL,
+      created_at numeric
+    );
+  `);
+
+  const latestMigration = appSQLiteDb.getFirstSync<{ created_at: number | string }>(
+    "SELECT created_at FROM __drizzle_migrations ORDER BY created_at DESC LIMIT 1",
+  );
+  const latestCreatedAt = Number(latestMigration?.created_at ?? 0);
+
+  appSQLiteDb.withTransactionSync(() => {
+    for (const entry of migrations.journal.entries) {
+      if (latestCreatedAt >= entry.when) continue;
+      const migrationKey =
+        `m${entry.idx.toString().padStart(4, "0")}` as keyof typeof migrations.migrations;
+      const migrationSql = migrations.migrations[migrationKey];
+      if (!migrationSql) throw new Error(`Missing migration: ${entry.tag}`);
+
+      for (const statement of migrationStatements(migrationSql)) {
+        appSQLiteDb.execSync(statement);
+      }
+      appSQLiteDb.runSync(
+        "INSERT INTO __drizzle_migrations (hash, created_at) VALUES (?, ?)",
+        "",
+        entry.when,
+      );
+    }
+  });
+}
+
+runBundledMigrationsSync();
+
 export const db = drizzle(appSQLiteDb, {
   schema: {
     routes,
     routePoints,
+    ferryCrossings,
     pois,
     starredItems,
     collections,
@@ -50,9 +141,6 @@ export const db = drizzle(appSQLiteDb, {
     relativeEtaCache,
   },
 });
-
-// Apply schema from drizzle/migrations.ts (generated from db/schema.ts via `npm run db:migrate`)
-migrate(db, migrations);
 
 // --- Planning metadata ---
 
@@ -338,6 +426,82 @@ export async function getRoutePoints(routeId: string): Promise<RoutePoint[]> {
       [routeId],
     ),
   );
+}
+
+// --- Ferry Crossing CRUD ---
+
+function invalidateFerryRelativeETACaches(routeId: string): void {
+  appSQLiteDb.runSync(
+    `DELETE FROM relative_eta_cache
+     WHERE (scope = 'route' AND scopeId = ?)
+        OR (scope = 'collection' AND scopeId IN (
+          SELECT DISTINCT collectionId
+          FROM collection_segments
+          WHERE routeId = ? OR baseRouteId = ?
+        ))`,
+    [routeId, routeId, routeId],
+  );
+}
+
+export async function upsertFerryCrossing(crossing: FerryCrossing): Promise<void> {
+  db.insert(ferryCrossings)
+    .values(crossing)
+    .onConflictDoUpdate({
+      target: ferryCrossings.id,
+      set: {
+        routeId: crossing.routeId,
+        name: crossing.name,
+        startDistanceMeters: crossing.startDistanceMeters,
+        endDistanceMeters: crossing.endDistanceMeters,
+        startLatitude: crossing.startLatitude,
+        startLongitude: crossing.startLongitude,
+        endLatitude: crossing.endLatitude,
+        endLongitude: crossing.endLongitude,
+        durationMinutes: crossing.durationMinutes,
+        assumedWaitMinutes: crossing.assumedWaitMinutes,
+        boardingBufferMinutes: crossing.boardingBufferMinutes,
+        source: crossing.source,
+        sourceId: crossing.sourceId,
+        sourceUrl: crossing.sourceUrl,
+        operator: crossing.operator,
+        timetableUrl: crossing.timetableUrl,
+        bicycleAccess: crossing.bicycleAccess,
+        providerRefs: crossing.providerRefs,
+        tags: crossing.tags,
+        updatedAt: crossing.updatedAt,
+      },
+    })
+    .run();
+  invalidateFerryRelativeETACaches(crossing.routeId);
+}
+
+export async function getFerryCrossingsForRoute(routeId: string): Promise<FerryCrossing[]> {
+  return db
+    .select()
+    .from(ferryCrossings)
+    .where(eq(ferryCrossings.routeId, routeId))
+    .orderBy(asc(ferryCrossings.startDistanceMeters))
+    .all();
+}
+
+export async function getFerryCrossingsForRoutes(routeIds: string[]): Promise<FerryCrossing[]> {
+  if (routeIds.length === 0) return [];
+  return db
+    .select()
+    .from(ferryCrossings)
+    .where(inArray(ferryCrossings.routeId, routeIds))
+    .orderBy(asc(ferryCrossings.routeId), asc(ferryCrossings.startDistanceMeters))
+    .all();
+}
+
+export async function deleteFerryCrossing(crossingId: string): Promise<void> {
+  const crossing = db
+    .select({ routeId: ferryCrossings.routeId })
+    .from(ferryCrossings)
+    .where(eq(ferryCrossings.id, crossingId))
+    .get();
+  db.delete(ferryCrossings).where(eq(ferryCrossings.id, crossingId)).run();
+  if (crossing) invalidateFerryRelativeETACaches(crossing.routeId);
 }
 
 export async function deleteRoute(routeId: string): Promise<void> {

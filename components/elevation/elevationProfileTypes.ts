@@ -1,6 +1,7 @@
 import type { DisplayClimb, DisplayPOI, RoutePoint, UnitSystem } from "@/types";
 import type { ClimbProfileSegment } from "@/utils/climbProfile";
 import type { CollectionSegmentProfileBoundary } from "@/utils/collectionSegmentDisplay";
+import type { ElevationProfileFerrySpan } from "@/utils/elevationProfileFerries";
 
 export interface ElevationProfileProps {
   points: RoutePoint[];
@@ -26,6 +27,8 @@ export interface ElevationProfileProps {
   /** Vertical boundary lines at segment junctions (for stitched collections) */
   segmentBoundaries?: CollectionSegmentProfileBoundary[];
   climbs?: DisplayClimb[];
+  /** Ferry intervals in the profile's absolute distance space. */
+  ferries?: readonly ElevationProfileFerrySpan[];
   /** Force fit-to-width — disables horizontal scrolling and the overview minimap */
   fitToWidth?: boolean;
   /** Show the overview scrubber when the chart is horizontally scrollable. */
