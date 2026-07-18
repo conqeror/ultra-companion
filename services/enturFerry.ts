@@ -12,7 +12,7 @@ export const ENTUR_TO_STOP_PLACE_NAME_PROVIDER_REF = "enturToStopPlaceName";
 const ENTUR_STOP_SEARCH_RADIUS_KM = 2;
 const ENTUR_STOP_SEARCH_LIMIT = 20;
 const CHILD_STOP_PENALTY_METERS = 500;
-const ENTUR_SCHEDULE_CACHE_VERSION = 1;
+const ENTUR_SCHEDULE_CACHE_VERSION = 2;
 const ENTUR_SCHEDULE_QUERY_SECONDS = 36 * 60 * 60;
 const ENTUR_SCHEDULE_QUERY_LIMIT = 400;
 const ENTUR_SERVICE_TIME_ZONE = "Europe/Oslo";
@@ -52,6 +52,9 @@ query FerryDaySchedule($from: String!, $startTime: DateTime!) {
           quay {
             stopPlace {
               id
+              parent {
+                id
+              }
             }
           }
         }
@@ -500,7 +503,11 @@ function scheduledDepartureFromCall(
   const landingCall = nextCalls.find((nextCallValue) => {
     const nextCall = record(nextCallValue);
     const quay = record(nextCall?.quay);
-    return nonEmptyString(record(quay?.stopPlace)?.id) === toStopPlaceId;
+    const stopPlace = record(quay?.stopPlace);
+    return (
+      nonEmptyString(stopPlace?.id) === toStopPlaceId ||
+      nonEmptyString(record(stopPlace?.parent)?.id) === toStopPlaceId
+    );
   });
   if (!landingCall) return null;
   const aimedArrivalTime = firstDateString(record(landingCall)?.aimedArrivalTime);

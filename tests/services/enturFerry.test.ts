@@ -76,6 +76,7 @@ function estimatedCall({
   departureTime,
   arrivalTime,
   destinationId = "NSR:StopPlace:58092",
+  destinationParentId,
   mode = "water",
   serviceName = "Rv. 19 Moss-Horten",
   forBoarding = true,
@@ -83,6 +84,7 @@ function estimatedCall({
   departureTime: string;
   arrivalTime: string;
   destinationId?: string;
+  destinationParentId?: string;
   mode?: string;
   serviceName?: string;
   forBoarding?: boolean;
@@ -99,7 +101,12 @@ function estimatedCall({
       next: [
         {
           aimedArrivalTime: arrivalTime,
-          quay: { stopPlace: { id: destinationId } },
+          quay: {
+            stopPlace: {
+              id: destinationId,
+              parent: destinationParentId ? { id: destinationParentId } : null,
+            },
+          },
         },
       ],
     },
@@ -292,6 +299,8 @@ describe("Entur concrete departures", () => {
         estimatedCall({
           departureTime: "2026-07-18T14:20:00+02:00",
           arrivalTime: "2026-07-18T14:55:00+02:00",
+          destinationId: "NSR:StopPlace:child",
+          destinationParentId: "NSR:StopPlace:58092",
         }),
         estimatedCall({
           departureTime: "2026-07-18T14:25:00+02:00",
@@ -382,6 +391,7 @@ describe("Entur concrete departures", () => {
     const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
     expect(body.query).toContain("query FerryDaySchedule");
     expect(body.query).toContain("aimedDepartureTime");
+    expect(body.query).toContain("parent");
     expect(body.query).not.toContain("expectedDepartureTime");
     expect(body.query).not.toContain("realtime");
     expect(body.variables).toEqual({
