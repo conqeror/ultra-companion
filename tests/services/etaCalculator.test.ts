@@ -6,6 +6,7 @@ import {
   computeRouteETA,
   computeRouteTotalETA,
   computeRouteTotalETAInChunks,
+  getCachedRouteTotalETA,
   getETABetweenIndices,
   getETAToDistance,
   getETAToDistanceFromDistance,
@@ -232,6 +233,26 @@ describe("etaCalculator", () => {
         DEFAULT_POWER_CONFIG,
       ),
     );
+  });
+
+  it("reads a completed total ETA without starting another calculation", async () => {
+    const points = [basePoint(0, 100, 0), basePoint(500, 120, 1), basePoint(1_000, 110, 2)];
+
+    expect(getCachedRouteTotalETA("segment-read", points, DEFAULT_POWER_CONFIG)).toBeUndefined();
+
+    const computed = await computeCachedRouteTotalETAInChunks(
+      "segment-read",
+      points,
+      DEFAULT_POWER_CONFIG,
+    );
+
+    expect(
+      getCachedRouteTotalETA(
+        "segment-read",
+        points.map((point) => Object.assign({}, point)),
+        DEFAULT_POWER_CONFIG,
+      ),
+    ).toBe(computed);
   });
 
   it("getETABetweenIndices returns 0 for invalid indexes and supports reverse subtraction", () => {

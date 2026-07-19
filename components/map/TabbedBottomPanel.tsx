@@ -58,9 +58,10 @@ const ALL_TABS: TabDef[] = [
 
 interface TabbedBottomPanelProps {
   activeData: ActiveRouteData | null;
+  isLoadingActiveData?: boolean;
 }
 
-function TabbedBottomPanel({ activeData }: TabbedBottomPanelProps) {
+function TabbedBottomPanel({ activeData, isLoadingActiveData = false }: TabbedBottomPanelProps) {
   const colors = useThemeColors();
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const { top: safeTop, bottom: safeBottom } = useSafeAreaInsets();
@@ -156,6 +157,7 @@ function TabbedBottomPanel({ activeData }: TabbedBottomPanelProps) {
   const expandedContentHeight = Math.max(0, expandedHeight - tabBarHeight - DRAG_HANDLE_HEIGHT);
   const effectiveContentHeight = isExpanded ? expandedContentHeight : compactContentHeight;
   const showETAStatus =
+    !isLoadingActiveData &&
     !!activeData &&
     etaRouteId === activeData.id &&
     !cumulativeTime &&
@@ -186,7 +188,7 @@ function TabbedBottomPanel({ activeData }: TabbedBottomPanelProps) {
           animatedContentStyle,
         ]}
       >
-        <RidingHorizonSelector />
+        {!isLoadingActiveData && <RidingHorizonSelector />}
 
         <View
           className="absolute bottom-0 left-0 right-0 rounded-t-2xl shadow-lg border-t border-border"
@@ -256,17 +258,37 @@ function TabbedBottomPanel({ activeData }: TabbedBottomPanelProps) {
               </View>
             )}
             <View style={{ height: etaBodyHeight, overflow: "hidden" }}>
-              {panelTab === "profile" && (
-                <ProfileTabContent
-                  activeData={activeData}
-                  width={screenWidth}
-                  height={etaBodyHeight}
-                />
+              {isLoadingActiveData ? (
+                <View
+                  className="flex-1 items-center justify-center px-6"
+                  accessible
+                  accessibilityRole="progressbar"
+                  accessibilityLiveRegion="polite"
+                  accessibilityLabel="Loading active route"
+                >
+                  <ActivityIndicator size="large" color={colors.accent} />
+                  <Text className="mt-3 text-center text-[15px] font-barlow-medium text-foreground">
+                    Loading active route…
+                  </Text>
+                  <Text className="mt-1 text-center text-[12px] font-barlow text-muted-foreground">
+                    Restoring route data for the riding view.
+                  </Text>
+                </View>
+              ) : (
+                <>
+                  {panelTab === "profile" && (
+                    <ProfileTabContent
+                      activeData={activeData}
+                      width={screenWidth}
+                      height={etaBodyHeight}
+                    />
+                  )}
+                  {panelTab === "upcoming" && <UpcomingTabContent activeData={activeData} />}
+                  {panelTab === "weather" && <WeatherPanel activeData={activeData} />}
+                  {panelTab === "climbs" && <ClimbTabContent activeData={activeData} />}
+                  {panelTab === "pois" && <POITabContent activeData={activeData} />}
+                </>
               )}
-              {panelTab === "upcoming" && <UpcomingTabContent activeData={activeData} />}
-              {panelTab === "weather" && <WeatherPanel activeData={activeData} />}
-              {panelTab === "climbs" && <ClimbTabContent activeData={activeData} />}
-              {panelTab === "pois" && <POITabContent activeData={activeData} />}
             </View>
           </View>
         </View>
@@ -316,4 +338,8 @@ function TabbedBottomPanel({ activeData }: TabbedBottomPanelProps) {
   );
 }
 
-export default React.memo(TabbedBottomPanel, (prev, next) => prev.activeData === next.activeData);
+export default React.memo(
+  TabbedBottomPanel,
+  (prev, next) =>
+    prev.activeData === next.activeData && prev.isLoadingActiveData === next.isLoadingActiveData,
+);

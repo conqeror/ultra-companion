@@ -458,6 +458,7 @@ export default function MapScreen() {
     Record<string, CollectionVariantMetric>
   >({});
   const [isVariantDataPreparing, setIsVariantDataPreparing] = useState(false);
+  const [isRestoringActiveData, setIsRestoringActiveData] = useState(true);
 
   // Unified active context — works for both standalone routes and collections
   const activeData = useActiveRouteData();
@@ -575,20 +576,41 @@ export default function MapScreen() {
     [etaMarkerLabels],
   );
 
-  useEffect(() => {
-    loadRouteMetadata();
-    loadCollections();
-  }, [loadRouteMetadata, loadCollections]);
-
   const activeStandaloneRouteId = useMemo(
     () => routes.find((route) => route.isActive)?.id ?? null,
     [routes],
   );
 
   useEffect(() => {
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        await Promise.all([loadRouteMetadata(), loadCollections()]);
+        if (cancelled) return;
+
+        const activeRouteId =
+          useRouteStore.getState().routes.find((route) => route.isActive)?.id ?? null;
+        if (activeRouteId) {
+          await loadRoutePoints([activeRouteId], { prune: true });
+        }
+      } catch (error) {
+        console.warn("Failed to restore active route:", error);
+      } finally {
+        if (!cancelled) setIsRestoringActiveData(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [loadCollections, loadRouteMetadata, loadRoutePoints]);
+
+  useEffect(() => {
+    if (isRestoringActiveData) return;
     if (!activeStandaloneRouteId) return;
-    loadRoutePoints([activeStandaloneRouteId], { prune: true });
-  }, [activeStandaloneRouteId, loadRoutePoints]);
+    void loadRoutePoints([activeStandaloneRouteId], { prune: true });
+  }, [activeStandaloneRouteId, isRestoringActiveData, loadRoutePoints]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1230,7 +1252,7 @@ export default function MapScreen() {
       )}
 
       <MapControls onLocate={handleLocate} />
-      <TabbedBottomPanel activeData={activeData} />
+      <TabbedBottomPanel activeData={activeData} isLoadingActiveData={isRestoringActiveData} />
     </View>
   );
 }

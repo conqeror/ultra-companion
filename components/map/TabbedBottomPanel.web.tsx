@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { TouchableOpacity, View, useWindowDimensions } from "react-native";
+import { ActivityIndicator, TouchableOpacity, View, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Activity, Clock3, MapPin, Mountain } from "lucide-react-native";
 import { Text } from "@/components/ui/text";
@@ -41,9 +41,10 @@ type SidebarTab = (typeof SIDEBAR_TABS)[number]["key"];
 
 interface TabbedBottomPanelProps {
   activeData: ActiveRouteData | null;
+  isLoadingActiveData?: boolean;
 }
 
-function TabbedBottomPanel({ activeData }: TabbedBottomPanelProps) {
+function TabbedBottomPanel({ activeData, isLoadingActiveData = false }: TabbedBottomPanelProps) {
   const colors = useThemeColors();
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const { bottom: safeBottom } = useSafeAreaInsets();
@@ -112,7 +113,9 @@ function TabbedBottomPanel({ activeData }: TabbedBottomPanelProps) {
             ))}
           </View>
           <View style={{ flex: 1, overflow: "hidden" }}>
-            {sidebarTab === "upcoming" ? (
+            {isLoadingActiveData ? (
+              <ActiveRouteLoadingState />
+            ) : sidebarTab === "upcoming" ? (
               <UpcomingTabContent activeData={activeData} />
             ) : (
               <POITabContent activeData={activeData} />
@@ -153,7 +156,9 @@ function TabbedBottomPanel({ activeData }: TabbedBottomPanelProps) {
           </View>
 
           <View style={{ flex: 1, overflow: "hidden" }}>
-            {bottomTab === "profile" ? (
+            {isLoadingActiveData ? (
+              <ActiveRouteLoadingState />
+            ) : bottomTab === "profile" ? (
               <ProfileTabContent
                 activeData={activeData}
                 width={bottomPanelWidth}
@@ -170,6 +175,23 @@ function TabbedBottomPanel({ activeData }: TabbedBottomPanelProps) {
           </View>
         </View>
       </View>
+    </View>
+  );
+}
+
+function ActiveRouteLoadingState() {
+  const colors = useThemeColors();
+  return (
+    <View
+      className="flex-1 items-center justify-center px-6"
+      accessible
+      accessibilityRole="progressbar"
+      accessibilityLabel="Loading active route"
+    >
+      <ActivityIndicator size="large" color={colors.accent} />
+      <Text className="mt-3 text-[15px] font-barlow-medium text-foreground">
+        Loading active route…
+      </Text>
     </View>
   );
 }
@@ -248,4 +270,8 @@ function SidebarTabButton({
   );
 }
 
-export default React.memo(TabbedBottomPanel, (prev, next) => prev.activeData === next.activeData);
+export default React.memo(
+  TabbedBottomPanel,
+  (prev, next) =>
+    prev.activeData === next.activeData && prev.isLoadingActiveData === next.isLoadingActiveData,
+);

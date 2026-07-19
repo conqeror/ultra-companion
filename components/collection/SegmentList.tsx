@@ -14,13 +14,19 @@ import { useRouter } from "expo-router";
 import { useSettingsStore } from "@/store/settingsStore";
 import { useEtaStore } from "@/store/etaStore";
 import { useFerryStore } from "@/store/ferryStore";
-import { computeRouteTotalETAInChunks } from "@/services/etaCalculator";
+import {
+  computeCachedRouteTotalETAInChunks,
+  getCachedRouteTotalETA,
+} from "@/services/etaCalculator";
 import { buildPatchVariantRoutePoints, routeEndDistance } from "@/services/stitchingService";
 import { formatDistance, formatElevation, formatDuration } from "@/utils/formatters";
 import { computeSliceAscentFromDistance } from "@/utils/geo";
 import { yieldToUI } from "@/utils/yieldToUI";
 import { getFerryCrossingsForRoute } from "@/db/database";
-import { getEffectiveVariantFerries } from "@/services/collectionVariantGeometry";
+import {
+  collectionVariantKey,
+  getEffectiveVariantFerries,
+} from "@/services/collectionVariantGeometry";
 import {
   computeRidingElevationTotals,
   ferrySignature,
@@ -412,16 +418,13 @@ export default function SegmentList({
     }
 
     setMetricsByRouteId({});
-    setIsCalculatingSegmentTimes(true);
+    setIsCalculatingSegmentTimes(false);
 
     void (async () => {
       try {
-        // Make the progress status visible before patch construction or ETA work starts.
-        await yieldToUI();
-        if (cancelled) return;
-
         const activeRouteIds = new Set<string>();
         const metrics: Record<string, SegmentMetrics> = {};
+        let hasUncachedSegment = false;
         const ferryRouteIds = new Set<string>();
         for (const sw of segmentsWithRoutes) {
           ferryRouteIds.add(sw.route.id);
@@ -473,13 +476,31 @@ export default function SegmentList({
           const ascentMeters = points
             ? computeRidingElevationTotals(points, ferrySpans).ascent
             : getSegmentAscentMeters(sw, pointsByRouteId);
-          const ridingTime =
-            points && points.length >= 2
-              ? await computeRouteTotalETAInChunks(points, powerConfig, {
-                  shouldCancel: () => cancelled,
-                  ferries: effectiveFerries,
-                })
-              : null;
+          let ridingTime: number | null = null;
+          if (points && points.length >= 2) {
+            const routeKey = collectionVariantKey(sw);
+            const cachedRidingTime = getCachedRouteTotalETA(
+              routeKey,
+              points,
+              powerConfig,
+              effectiveFerries,
+            );
+            if (cachedRidingTime !== undefined) {
+              ridingTime = cachedRidingTime;
+            } else {
+              if (!hasUncachedSegment) {
+                hasUncachedSegment = true;
+                setIsCalculatingSegmentTimes(true);
+                // Let the uncached progress state paint before ETA work starts.
+                await yieldToUI();
+                if (cancelled) return;
+              }
+              ridingTime = await computeCachedRouteTotalETAInChunks(routeKey, points, powerConfig, {
+                shouldCancel: () => cancelled,
+                ferries: effectiveFerries,
+              });
+            }
+          }
           if (cancelled) return;
 
           metrics[routeId] = { distanceMeters, ascentMeters, ridingTime };

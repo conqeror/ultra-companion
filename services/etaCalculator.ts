@@ -217,6 +217,23 @@ export async function computeCachedRouteTotalETAInChunks(
   return total;
 }
 
+/**
+ * Read a completed total ETA without starting work. Screens use this to
+ * restore a computed value synchronously instead of flashing progress for a
+ * cache hit.
+ */
+export function getCachedRouteTotalETA(
+  routeKey: string,
+  points: RoutePoint[],
+  config: PowerModelConfig,
+  ferries: readonly FerryTimingCrossing[] = [],
+): number | null | undefined {
+  const key = `${cacheKey(routeKey, config)}:${ferrySignature(ferries)}`;
+  const fingerprint = routePointArrayFingerprint(points);
+  const cached = routeTotalEtaCache.get(key);
+  return cached?.fingerprint === fingerprint ? cached.total : undefined;
+}
+
 export function computeCachedRouteTotalETA(
   routeKey: string,
   points: RoutePoint[],
