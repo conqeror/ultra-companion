@@ -16,8 +16,6 @@ import Animated, {
   useSharedValue,
   type SharedValue,
 } from "react-native-reanimated";
-import { Ship } from "lucide-react-native";
-
 import { POI_ICON_MAP } from "@/constants/poiIcons";
 import { getCategoryMeta } from "@/constants/poiHelpers";
 import { Text } from "@/components/ui/text";
@@ -542,23 +540,6 @@ function FerryMarkers({
       <View
         style={[StyleSheet.absoluteFillObject, { backgroundColor: ferryColor, opacity: 0.14 }]}
       />
-      <View
-        style={{
-          position: "absolute",
-          left: marker.widthPixels / 2 - 8,
-          top: 2,
-          width: 16,
-          height: 16,
-          borderRadius: 8,
-          alignItems: "center",
-          justifyContent: "center",
-          backgroundColor: surfaceColor,
-          borderColor: ferryColor,
-          borderWidth: 1,
-        }}
-      >
-        <Ship color={ferryColor} size={11} strokeWidth={2.3} />
-      </View>
     </View>
   ));
 }

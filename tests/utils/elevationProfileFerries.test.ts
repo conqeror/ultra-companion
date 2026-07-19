@@ -17,7 +17,7 @@ const ferry = (
 });
 
 describe("elevation profile ferry spans", () => {
-  it("projects both ferry endpoints into riding distance without retaining ferry km", () => {
+  it("projects both ferry endpoints into riding distance while retaining ferry length", () => {
     expect(
       projectFerrySpansForRidingProfile(
         [ferry(2_000, 5_000)],
@@ -29,6 +29,7 @@ describe("elevation profile ferry spans", () => {
         name: "ferry-1",
         startDistanceMeters: 2_000,
         endDistanceMeters: 2_000,
+        routeLengthMeters: 3_000,
       },
     ]);
   });
@@ -52,9 +53,9 @@ describe("elevation profile ferry spans", () => {
     ]);
   });
 
-  it("gives an excluded zero-width crossing a visible clipped marker", () => {
+  it("scales an excluded crossing marker using its retained ferry length", () => {
     expect(
-      buildElevationProfileFerryMarkers([ferry(1_000, 1_000)], {
+      buildElevationProfileFerryMarkers([{ ...ferry(1_000, 1_000), routeLengthMeters: 600 }], {
         totalDistanceMeters: 5_000,
         contentWidthPixels: 500,
         distanceOffsetMeters: 1_000,
@@ -64,10 +65,28 @@ describe("elevation profile ferry spans", () => {
         id: "ferry-1",
         name: "ferry-1",
         leftPixels: 0,
-        widthPixels: 24,
+        widthPixels: 60,
         centerXPixels: 0,
         isCollapsed: true,
       },
+    ]);
+  });
+
+  it("keeps projected ferry widths proportional to crossing length", () => {
+    const markers = buildElevationProfileFerryMarkers(
+      [
+        { ...ferry(2_000, 2_000, "short"), routeLengthMeters: 500 },
+        { ...ferry(4_000, 4_000, "long"), routeLengthMeters: 2_000 },
+      ],
+      {
+        totalDistanceMeters: 10_000,
+        contentWidthPixels: 1_000,
+      },
+    );
+
+    expect(markers.map(({ id, widthPixels }) => ({ id, widthPixels }))).toEqual([
+      { id: "short", widthPixels: 50 },
+      { id: "long", widthPixels: 200 },
     ]);
   });
 

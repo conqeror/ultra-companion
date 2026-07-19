@@ -96,7 +96,6 @@ export default function ElevationProfileOverview({
         totalDistanceMeters: totalMeters,
         contentWidthPixels: innerWidth,
         distanceOffsetMeters,
-        minimumWidthPixels: 3,
       }),
     [distanceOffsetMeters, ferries, innerWidth, totalMeters],
   );

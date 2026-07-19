@@ -6,7 +6,6 @@ import Animated, {
   useAnimatedScrollHandler,
   useSharedValue,
 } from "react-native-reanimated";
-import { Ship } from "lucide-react-native";
 import Svg, {
   Path,
   Circle,
@@ -672,7 +671,6 @@ export default function ElevationProfile({
         totalDistanceMeters: totalMeters,
         contentWidthPixels: overviewInnerWidth,
         distanceOffsetMeters,
-        minimumWidthPixels: 3,
       }),
     [distanceOffsetMeters, ferries, overviewInnerWidth, totalMeters],
   );
@@ -943,7 +941,6 @@ export default function ElevationProfile({
         />
 
         {ferryMarkers.map((marker) => {
-          const markerCenterX = marker.leftPixels + marker.widthPixels / 2;
           const markerRightX = marker.leftPixels + marker.widthPixels;
           return (
             <G key={`ferry-${marker.id}-${marker.centerXPixels}`} pointerEvents="none">
@@ -984,17 +981,6 @@ export default function ElevationProfile({
                 strokeDasharray="3,3"
                 opacity={0.85}
               />
-              <Circle
-                cx={markerCenterX}
-                cy={PADDING.top + 10}
-                r={8}
-                fill={colors.surface}
-                stroke={colors.info}
-                strokeWidth={1}
-              />
-              <G transform={`translate(${markerCenterX - 5.5}, ${PADDING.top + 4.5})`}>
-                <Ship color={colors.info} size={11} strokeWidth={2.3} />
-              </G>
             </G>
           );
         })}

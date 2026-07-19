@@ -8,6 +8,8 @@ export interface ElevationProfileFerrySpan {
   name: string;
   startDistanceMeters: number;
   endDistanceMeters: number;
+  /** Geometric route length retained when riding-distance projection collapses the interval. */
+  routeLengthMeters?: number;
 }
 
 export interface ElevationProfileFerryMarker {
@@ -23,11 +25,9 @@ interface BuildElevationProfileFerryMarkersOptions {
   totalDistanceMeters: number;
   contentWidthPixels: number;
   distanceOffsetMeters?: number;
-  minimumWidthPixels?: number;
 }
 
 const DISTANCE_EPSILON_METERS = 0.01;
-const DEFAULT_MINIMUM_WIDTH_PIXELS = 24;
 
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(maximum, Math.max(minimum, value));
@@ -35,21 +35,30 @@ function clamp(value: number, minimum: number, maximum: number): number {
 
 /**
  * Converts raw route ferry bounds into the riding-distance coordinate system.
- * A fully excluded crossing naturally collapses to one distance; renderers give
- * that zero-width interval a small semantic marker without adding route km.
+ * A fully excluded crossing naturally collapses to one distance, so retain its
+ * geometric length separately for an accurately scaled profile band.
  */
 export function projectFerrySpansForRidingProfile(
   ferries: readonly ElevationProfileFerrySpan[],
   excludedSpans: readonly FerryDistanceSpan[],
 ): ElevationProfileFerrySpan[] {
-  return ferries.map((ferry) => ({
-    ...ferry,
-    startDistanceMeters: ridingDistanceAtGeometricDistance(
+  return ferries.map((ferry) => {
+    const startDistanceMeters = ridingDistanceAtGeometricDistance(
       ferry.startDistanceMeters,
       excludedSpans,
-    ),
-    endDistanceMeters: ridingDistanceAtGeometricDistance(ferry.endDistanceMeters, excludedSpans),
-  }));
+    );
+    const endDistanceMeters = ridingDistanceAtGeometricDistance(
+      ferry.endDistanceMeters,
+      excludedSpans,
+    );
+
+    return {
+      ...ferry,
+      startDistanceMeters,
+      endDistanceMeters,
+      routeLengthMeters: Math.abs(ferry.endDistanceMeters - ferry.startDistanceMeters),
+    };
+  });
 }
 
 /** Builds clipped pixel bands for ferry spans in a full or sliced profile. */
@@ -68,9 +77,6 @@ export function buildElevationProfileFerryMarkers(
   const distanceOffsetMeters = Number.isFinite(options.distanceOffsetMeters)
     ? (options.distanceOffsetMeters ?? 0)
     : 0;
-  const minimumWidthPixels = Number.isFinite(options.minimumWidthPixels)
-    ? Math.max(0, options.minimumWidthPixels ?? DEFAULT_MINIMUM_WIDTH_PIXELS)
-    : DEFAULT_MINIMUM_WIDTH_PIXELS;
   const markers: ElevationProfileFerryMarker[] = [];
 
   for (const ferry of ferries) {
@@ -88,7 +94,18 @@ export function buildElevationProfileFerryMarkers(
     const startX = (visibleStart / totalDistanceMeters) * contentWidthPixels;
     const endX = (visibleEnd / totalDistanceMeters) * contentWidthPixels;
     const centerXPixels = (startX + endX) / 2;
-    const widthPixels = Math.min(contentWidthPixels, Math.max(endX - startX, minimumWidthPixels));
+    const intervalLengthMeters = absoluteEnd - absoluteStart;
+    const retainedRouteLengthMeters = Number.isFinite(ferry.routeLengthMeters)
+      ? Math.max(0, ferry.routeLengthMeters ?? 0)
+      : 0;
+    const markerLengthMeters =
+      intervalLengthMeters > DISTANCE_EPSILON_METERS
+        ? visibleEnd - visibleStart
+        : retainedRouteLengthMeters;
+    const scaledWidthPixels =
+      (Math.min(totalDistanceMeters, markerLengthMeters) / totalDistanceMeters) *
+      contentWidthPixels;
+    const widthPixels = Math.min(contentWidthPixels, scaledWidthPixels);
     const leftPixels = clamp(
       centerXPixels - widthPixels / 2,
       0,
