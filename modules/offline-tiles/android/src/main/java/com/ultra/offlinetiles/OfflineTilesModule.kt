@@ -143,20 +143,32 @@ class OfflineTilesModule : Module() {
       }
     }
 
-    AsyncFunction("getAllTileRegions") { promise: Promise ->
+    AsyncFunction("getAllTileRegions") { styleURL: String, promise: Promise ->
       tileStore.getAllTileRegions { expected ->
         val regions = expected.value
         if (regions == null) {
-          promise.resolve(emptyList<Map<String, Any?>>())
+          promise.reject(TileRegionException(expected.error))
         } else {
-          promise.resolve(
-            regions.map { region ->
-              mapOf(
-                "id" to region.id,
-                "completedBytes" to region.completedResourceSize.toDouble(),
+          offlineManager.getAllStylePacks { styleResult ->
+            val styles = styleResult.value
+            if (styles == null) {
+              promise.reject("ERR_OFFLINE_STYLE_PACKS", styleResult.error?.message ?: "Could not read style packs", null)
+            } else {
+              val style = styles.firstOrNull { it.styleURI == styleURL }
+              promise.resolve(
+                regions.map { region ->
+                  mapOf(
+                    "id" to region.id,
+                    "completedBytes" to region.completedResourceSize.toDouble(),
+                    "requiredResourceCount" to region.requiredResourceCount.toDouble(),
+                    "completedResourceCount" to region.completedResourceCount.toDouble(),
+                    "stylePackRequiredResourceCount" to (style?.requiredResourceCount?.toDouble() ?: 0.0),
+                    "stylePackCompletedResourceCount" to (style?.completedResourceCount?.toDouble() ?: 0.0),
+                  )
+                },
               )
-            },
-          )
+            }
+          }
         }
       }
     }

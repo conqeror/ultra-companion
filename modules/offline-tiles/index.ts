@@ -1,4 +1,5 @@
 import { requireNativeModule, EventEmitter, type EventSubscription } from "expo-modules-core";
+import type { OfflineTileRegion } from "@/types";
 
 interface ProgressEvent {
   id: string;
@@ -39,8 +40,8 @@ export function getTileRegionSize(id: string): Promise<number> {
   return OfflineTilesModule.getTileRegionSize(id);
 }
 
-export function getAllTileRegions(): Promise<Array<{ id: string; completedBytes: number }>> {
-  return OfflineTilesModule.getAllTileRegions();
+export function getAllTileRegions(styleURL: string): Promise<OfflineTileRegion[]> {
+  return OfflineTilesModule.getAllTileRegions(styleURL);
 }
 
 export function addProgressListener(listener: (event: ProgressEvent) => void): EventSubscription {

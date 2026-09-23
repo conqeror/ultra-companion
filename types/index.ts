@@ -450,4 +450,23 @@ export interface OfflineRouteInfo {
   estimatedBytes: number;
   downloadedAt: string | null;
   error: string | null;
+  /** Version 1 requires complete tiles and a retained style pack. */
+  readinessVersion?: 1;
+}
+
+export interface OfflineTileRegion {
+  id: string;
+  completedBytes: number;
+  requiredResourceCount: number;
+  completedResourceCount: number;
+  stylePackRequiredResourceCount: number;
+  stylePackCompletedResourceCount: number;
+}
+
+export interface OfflineRoutePack {
+  routeId: string;
+  totalBytes: number;
+  requiredResourceCount: number;
+  completedResourceCount: number;
+  stylePackComplete: boolean;
 }

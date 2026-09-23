@@ -471,12 +471,18 @@ export function importPlanningDatabase(source: SQLiteDatabase): PlanningImportSu
         .run();
     }
 
-    const poisToTagUpdate = importedPOIs.filter(
+    // An ordinary export does not claim authority over whole fetched sources.
+    // Import missing POIs while keeping existing local geometry/details and
+    // applying planner tag edits, just as the previous tag-only merge did.
+    const poisToMerge = importedPOIs.filter(
       (poi) =>
         poi.source !== "custom" && !fetchedPairKeys.has(pairKey(poi as PlannerFetchedSourcePair)),
     );
-    for (const poi of poisToTagUpdate) {
-      tx.update(pois).set({ tags: poi.tags }).where(eq(pois.id, poi.id)).run();
+    for (const poiChunk of chunk(poisToMerge)) {
+      tx.insert(pois)
+        .values(poiChunk)
+        .onConflictDoUpdate({ target: pois.id, set: { tags: sql`excluded.tags` } })
+        .run();
     }
 
     const importedStarScope = [...importedPoiIds];

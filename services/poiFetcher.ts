@@ -3,7 +3,7 @@ import type { POICategory, RoutePoint } from "@/types";
 import { fetchAllPOIs } from "./overpassClient";
 import { mapOverpassToPOIs } from "./poiClassifier";
 import { fetchGooglePlacesPOIs } from "./googlePlacesClient";
-import { insertPOIs, deletePOIsBySource } from "@/db/database";
+import { replacePOIsBySource } from "@/db/database";
 import { poiDiscoveryCategoriesForSource } from "@/constants";
 import { associateAndFilterPOIs } from "@/services/poiAssociation";
 
@@ -29,8 +29,7 @@ export async function fetchOsmPOIs(
   );
   onProgress?.("Processing", 0, 1);
   const pois = associateAndFilterPOIs(classified, routeId, routePoints, corridorWidthM, "osm");
-  await deletePOIsBySource(routeId, "osm");
-  await insertPOIs(pois);
+  await replacePOIsBySource(routeId, "osm", pois);
   onProgress?.("Done", 1, 1);
   return pois.length;
 }
@@ -61,8 +60,7 @@ export async function fetchGooglePOIs(
   );
   onProgress?.("Processing", 0, 1);
   const pois = associateAndFilterPOIs(classified, routeId, routePoints, corridorWidthM, "google");
-  await deletePOIsBySource(routeId, "google");
-  await insertPOIs(pois);
+  await replacePOIsBySource(routeId, "google", pois);
   onProgress?.("Done", 1, 1);
   return pois.length;
 }

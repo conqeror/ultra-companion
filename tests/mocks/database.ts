@@ -24,6 +24,7 @@ import type {
   insertCollectionSegment,
   insertCollection,
   insertPOIs,
+  replacePOIsBySource,
   insertRoute,
   upsertRelativeETACache,
   upsertFerryCrossing,
@@ -74,6 +75,7 @@ export const databaseMocks = {
   insertCollection: vi.fn<typeof insertCollection>(),
   insertCollectionSegment: vi.fn<typeof insertCollectionSegment>(),
   insertPOIs: vi.fn<typeof insertPOIs>(),
+  replacePOIsBySource: vi.fn<typeof replacePOIsBySource>(),
   insertRoute: vi.fn<typeof insertRoute>(),
   upsertRelativeETACache: vi.fn<typeof upsertRelativeETACache>(),
   upsertFerryCrossing: vi.fn<typeof upsertFerryCrossing>(),
@@ -121,6 +123,7 @@ export function resetDatabaseMocks(): void {
   databaseMocks.insertCollection.mockResolvedValue(undefined);
   databaseMocks.insertCollectionSegment.mockResolvedValue(undefined);
   databaseMocks.insertPOIs.mockResolvedValue(undefined);
+  databaseMocks.replacePOIsBySource.mockResolvedValue(undefined);
   databaseMocks.insertRoute.mockResolvedValue(undefined);
   databaseMocks.upsertRelativeETACache.mockResolvedValue(undefined);
   databaseMocks.upsertFerryCrossing.mockResolvedValue(undefined);

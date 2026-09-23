@@ -1,15 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@/db/database", () => ({
-  deletePOIsBySource: vi.fn(),
-  insertPOIs: vi.fn(),
+  replacePOIsBySource: vi.fn(),
 }));
 
 vi.mock("@/services/overpassClient", () => ({
   fetchAllPOIs: vi.fn().mockResolvedValue([]),
 }));
 
-import { deletePOIsBySource } from "@/db/database";
+import { replacePOIsBySource } from "@/db/database";
+import { fetchAllPOIs } from "@/services/overpassClient";
 import { associateAndFilter, fetchOsmPOIs } from "@/services/poiFetcher";
 import type { RoutePoint } from "@/types";
 
@@ -25,10 +25,18 @@ const routePoints: RoutePoint[] = [
 ];
 
 describe("poiFetcher", () => {
-  it("refreshes fetched POIs without deleting persisted stars", async () => {
+  it("commits even an empty provider result through atomic source replacement", async () => {
     await fetchOsmPOIs("route-1", routePoints, 1000);
 
-    expect(vi.mocked(deletePOIsBySource).mock.calls[0]).toEqual(["route-1", "osm"]);
+    expect(replacePOIsBySource).toHaveBeenCalledWith("route-1", "osm", []);
+  });
+
+  it("keeps the saved source untouched when fetching fails", async () => {
+    vi.mocked(fetchAllPOIs).mockRejectedValueOnce(new Error("Offline"));
+
+    await expect(fetchOsmPOIs("route-1", routePoints, 1000)).rejects.toThrow("Offline");
+
+    expect(replacePOIsBySource).not.toHaveBeenCalled();
   });
 
   it("filters associated POIs with category-specific corridor widths", () => {

@@ -4,9 +4,9 @@ import {
   getAllRoutes,
   getPlanningMetadata,
   getWebSQLiteDatabase,
-  resetWebSQLiteDatabaseStorage,
   setPlanningMetadata,
 } from "@/db/database.web";
+import { withQueuedTransaction } from "@/db/transactions.web";
 import type {
   Climb,
   Collection,
@@ -456,17 +456,16 @@ export async function importPlanningDatabase(
     readPlannerFetchedSources(source),
   );
 
-  // The browser-local database is a disposable planning workspace. Unlike the
-  // native importer, web import can replace represented planning tables after
-  // validation. We use batched writes because Expo SQLite web backup can hit
-  // OPFS CANTOPEN errors in local browser contexts.
-  await withImportStage("reset browser planning workspace", () => resetWebSQLiteDatabaseStorage());
+  // Replace the browser workspace in its existing transaction so any failed
+  // write restores the previous plan. Deleting the database file first would
+  // make rollback restore an empty workspace instead.
   const target = await withImportStage("open browser planning workspace", () =>
     getWebSQLiteDatabase(),
   );
   await withImportStage("write imported planning data", async () => {
     await target.execAsync("PRAGMA foreign_keys = ON;");
-    await target.withTransactionAsync(async () => {
+    await withQueuedTransaction(target, async () => {
+      await target.runAsync("DELETE FROM relative_eta_cache");
       await target.runAsync("DELETE FROM starred_items");
       await target.runAsync("DELETE FROM climbs");
       await target.runAsync("DELETE FROM pois");

@@ -339,10 +339,8 @@ export const usePoiStore = create<POIState>((set, get) => ({
 
     set((s) => {
       const info = s.sourceInfo[routeId];
-      if (info && info.osm.count === osmCount && info.google.count === googleCount) {
-        return s;
-      }
-
+      // Counts can survive a planner import while the POI cache is cleared.
+      // Always populate the missing records, even when those counts match.
       const osm = info?.osm ?? readSourceInfo(routeId, "osm");
       const google = info?.google ?? readSourceInfo(routeId, "google");
 

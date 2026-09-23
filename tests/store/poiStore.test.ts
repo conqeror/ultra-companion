@@ -30,6 +30,26 @@ describe("poiStore starred POIs", () => {
     expect([...usePoiStore.getState().starredPOIIds]).toEqual(["poi-1", "poi-2"]);
   });
 
+  it("reloads imported POIs when the retained source counts have not changed", async () => {
+    const original = buildPoi("poi-1", "route-1", 500, { source: "osm" });
+    databaseMocks.getPOIsForRoute.mockResolvedValueOnce([original]);
+    await usePoiStore.getState().loadPOIs("route-1");
+    const sourceInfo = usePoiStore.getState().sourceInfo;
+
+    // Planner refresh clears the view cache but retains source status/counts.
+    usePoiStore.setState({ pois: {}, selectedPOI: null });
+    const imported = buildPoi("poi-1", "route-1", 500, {
+      source: "osm",
+      tags: { notes: "Refill here", planned_stop_duration_minutes: "30" },
+    });
+    databaseMocks.getPOIsForRoute.mockResolvedValueOnce([imported]);
+
+    await usePoiStore.getState().loadPOIs("route-1");
+
+    expect(usePoiStore.getState().pois["route-1"]).toEqual([imported]);
+    expect(usePoiStore.getState().sourceInfo).toEqual(sourceInfo);
+  });
+
   it("persists star toggles optimistically", async () => {
     await usePoiStore.getState().toggleStarred("poi-1");
 
