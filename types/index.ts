@@ -49,6 +49,13 @@ export interface RouteWithPoints extends Route {
   points: RoutePoint[];
 }
 
+export interface RouteDetailLoadState {
+  routeId: string | null;
+  route: RouteWithPoints | null;
+  loading: boolean;
+  error: string | null;
+}
+
 // Ferry crossings remain anchored in the imported route's raw distance space.
 // Display/riding distances are derived so map geometry and snapping stay stable.
 export type FerryCrossingSource = "manual" | "osm";
@@ -199,6 +206,12 @@ export interface POI {
 
 export interface DisplayPOI extends POI {
   effectiveDistanceMeters: DisplayDistanceMeters;
+}
+
+/** Omitted fields stay unchanged; blank notes and a zero duration clear them. */
+export interface POIRiderFieldsPatch {
+  notes?: string;
+  plannedStopDurationMinutes?: number;
 }
 
 export type StarredEntityType = "poi";

@@ -1,3 +1,4 @@
+import { openPOI, openClimb } from "@/services/mapPanelActions";
 import React, { useMemo } from "react";
 import { View, TouchableOpacity, StyleSheet, ScrollView } from "react-native";
 import { useShallow } from "zustand/react/shallow";
@@ -88,11 +89,9 @@ export default function ProfileTabContent({
 
   const panelMode = usePanelStore((s) => s.panelMode);
   const horizonScopeLabel = ridingHorizonScopeLabelForMode(panelMode);
-  const setPanelTab = usePanelStore((s) => s.setPanelTab);
   const isExpanded = usePanelStore((s) => s.isExpanded);
   const snappedPosition = useRouteStore((s) => s.snappedPosition);
   const units = useSettingsStore((s) => s.units);
-  const setSelectedPOI = usePoiStore((s) => s.setSelectedPOI);
 
   const activeRouteProgress = useMemo(
     () => resolveRouteProgress(snappedPosition, activeId, activeRoutePoints),
@@ -162,8 +161,6 @@ export default function ProfileTabContent({
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeId, activeRouteIds, activeSegments, getClimbsForDisplay, routeClimbs, ferrySpans]);
-
-  const setSelectedClimb = useClimbStore((s) => s.setSelectedClimb);
 
   // Slice bounds (matches UpcomingElevation's window)
   const { windowStartDist, windowEndDist } = useMemo(() => {
@@ -273,8 +270,10 @@ export default function ProfileTabContent({
           units={units}
           height={climbsAheadHeight}
           onClimbPress={(climb) => {
-            setSelectedClimb(climb);
-            setPanelTab("climbs");
+            const canonical = getClimbsForDisplay(activeRouteIds, activeSegments).find(
+              (candidate) => candidate.id === climb.id,
+            );
+            if (canonical) openClimb(canonical, "profile");
           }}
         />
       )}
@@ -294,7 +293,7 @@ export default function ProfileTabContent({
             ferries={profileFerries}
             segmentBoundaries={segmentBoundaries}
             onPOIPress={(poi) => {
-              setSelectedPOI(poi);
+              openPOI(poi, "profile");
             }}
           />
         ) : (
@@ -311,7 +310,7 @@ export default function ProfileTabContent({
             segmentBoundaries={segmentBoundaries}
             fitToWidth
             onPOIPress={(poi) => {
-              setSelectedPOI(poi);
+              openPOI(poi, "profile");
             }}
           />
         )}

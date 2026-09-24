@@ -1,3 +1,4 @@
+import { openPOI } from "@/services/mapPanelActions";
 import React, { useMemo, useState, useCallback, useEffect, useRef } from "react";
 import {
   View,
@@ -69,7 +70,6 @@ export default function ClimbTabContent({
   const renameClimb = useClimbStore((s) => s.renameClimb);
   const getStarredPOIs = usePoiStore((s) => s.getStarredPOIs);
   const starredPOIIds = usePoiStore((s) => s.starredPOIIds);
-  const setSelectedPOI = usePoiStore((s) => s.setSelectedPOI);
   const isExpanded = usePanelStore((s) => s.isExpanded);
   const panelMode = usePanelStore((s) => s.panelMode);
 
@@ -515,7 +515,7 @@ export default function ClimbTabContent({
                     minPixelsPerKm={expandedUsesOneKmScroll ? 28 : 2}
                     currentDistanceMeters={climbProfileCurrentDistanceMeters}
                     pois={climbProfilePOIs}
-                    onPOIPress={setSelectedPOI}
+                    onPOIPress={(poi) => openPOI(poi, "climbs")}
                     gradientSegments={climbProfile.gradientSegments}
                     lineStrokeColor={colors.textPrimary}
                     lineStrokeWidth={3.5}
@@ -635,7 +635,7 @@ export default function ClimbTabContent({
                 minPixelsPerKm={expandedUsesOneKmScroll ? 28 : 2}
                 currentDistanceMeters={climbProfileCurrentDistanceMeters}
                 pois={climbProfilePOIs}
-                onPOIPress={setSelectedPOI}
+                onPOIPress={(poi) => openPOI(poi, "climbs")}
                 gradientSegments={climbProfile.gradientSegments}
                 lineStrokeColor={colors.textPrimary}
                 lineStrokeWidth={3.5}

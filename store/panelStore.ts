@@ -68,16 +68,23 @@ interface PanelState {
 
   /** Which tab is active in the bottom panel */
   panelTab: PanelTab;
-  setPanelTab: (tab: PanelTab) => void;
+  setPanelTab: (tab: PanelTab, layout?: "single" | "split") => void;
+  /** Web displays these two regions simultaneously. */
+  bottomTab: "profile" | "climbs";
+  sidebarTab: "upcoming" | "pois";
 
   /** Whether the bottom sheet is in expanded mode */
   isExpanded: boolean;
   setIsExpanded: (isExpanded: boolean) => void;
 
   /** Tab to return to when closing a detail view opened from another tab */
-  detailReturnTab: PanelTab | null;
-  setDetailReturnTab: (tab: PanelTab | null) => void;
-  consumeDetailReturnTab: () => PanelTab | null;
+  detailReturn:
+    | (Pick<PanelState, "panelTab" | "bottomTab" | "sidebarTab"> & {
+        detailTab: "pois" | "climbs";
+      })
+    | null;
+  openDetail: (tab: "pois" | "climbs", sourceTab?: PanelTab) => void;
+  closeDetail: () => void;
 
   /** Last visible list offsets, keyed by route/filter context */
   panelScrollOffsets: PanelScrollOffsets;
@@ -107,6 +114,19 @@ function readPanelTab(): PanelTab {
   return "profile";
 }
 
+function navigationForTab(tab: PanelTab) {
+  try {
+    getStorage().set("panelTab", tab);
+  } catch {}
+  return {
+    panelTab: tab,
+    ...(tab === "profile" || tab === "climbs" ? { bottomTab: tab } : {}),
+    ...(tab === "upcoming" || tab === "pois" ? { sidebarTab: tab } : {}),
+  };
+}
+
+const initialTab = readPanelTab();
+
 export const usePanelStore = create<PanelState>((set, get) => ({
   panelMode: readPanelMode(),
 
@@ -127,13 +147,23 @@ export const usePanelStore = create<PanelState>((set, get) => ({
     set({ panelMode });
   },
 
-  panelTab: readPanelTab(),
-
-  setPanelTab: (panelTab) => {
-    try {
-      getStorage().set("panelTab", panelTab);
-    } catch {}
-    set({ panelTab });
+  panelTab: initialTab,
+  bottomTab: initialTab === "climbs" ? "climbs" : "profile",
+  sidebarTab: initialTab === "pois" ? "pois" : "upcoming",
+  setPanelTab: (tab, layout = "single") => {
+    const origin = get().detailReturn;
+    const isBottom = tab === "profile" || tab === "climbs";
+    const changesOtherRegion = origin && (origin.detailTab === "climbs") !== isBottom;
+    const sourceIsBottom = origin?.panelTab === "profile" || origin?.panelTab === "climbs";
+    let detailReturn: PanelState["detailReturn"] = null;
+    if (layout === "split" && origin && changesOtherRegion) {
+      // The other web pane stays independent, including when Back restores this detail's source.
+      detailReturn = { ...origin };
+      if (sourceIsBottom === isBottom) detailReturn.panelTab = tab;
+      if (isBottom) detailReturn.bottomTab = tab;
+      else if (tab === "pois" || tab === "upcoming") detailReturn.sidebarTab = tab;
+    }
+    set({ ...navigationForTab(tab), detailReturn });
   },
 
   isExpanded: false,
@@ -142,15 +172,30 @@ export const usePanelStore = create<PanelState>((set, get) => ({
     set({ isExpanded });
   },
 
-  detailReturnTab: null,
-  setDetailReturnTab: (detailReturnTab) => {
-    if (get().detailReturnTab === detailReturnTab) return;
-    set({ detailReturnTab });
+  detailReturn: null,
+  openDetail: (tab, sourceTab) => {
+    const state = get();
+    const source = sourceTab ?? state.panelTab;
+    const origin = {
+      detailTab: tab,
+      panelTab: source,
+      bottomTab: source === "profile" || source === "climbs" ? source : state.bottomTab,
+      sidebarTab: source === "upcoming" || source === "pois" ? source : state.sidebarTab,
+    };
+    set({
+      ...navigationForTab(tab),
+      detailReturn: source === tab ? state.detailReturn : origin,
+    });
   },
-  consumeDetailReturnTab: () => {
-    const tab = get().detailReturnTab;
-    if (tab) set({ detailReturnTab: null });
-    return tab;
+  closeDetail: () => {
+    const origin = get().detailReturn;
+    if (origin) {
+      const { panelTab, bottomTab, sidebarTab } = origin;
+      navigationForTab(panelTab);
+      set({ panelTab, bottomTab, sidebarTab, detailReturn: null });
+    } else {
+      set({ detailReturn: null });
+    }
   },
 
   panelScrollOffsets: readPanelScrollOffsets(),

@@ -39,9 +39,12 @@ import {
   type WeatherSeverity,
 } from "@/utils/weatherCodes";
 import { classifyWind } from "@/services/weatherService";
+import { weatherProjectionMatchesRoute } from "@/services/weatherProjection";
 import { displayPOIsForActiveRoute } from "@/services/activePOIs";
 import { plannedStopsFromPOIs } from "@/services/plannedStops";
 import type { ActiveRouteData, WeatherPoint, WindRelative } from "@/types";
+
+const EMPTY_WEATHER_TIMELINE: WeatherPoint[] = [];
 
 type TimelineListItem =
   | { type: "weather"; key: string; point: WeatherPoint }
@@ -373,8 +376,14 @@ function TimelineDayHeader({ label }: { label: string }) {
 
 function buildRefreshContext(activeData: ActiveRouteData | null) {
   if (!activeData?.points.length) return null;
-  const cumulativeTime = useEtaStore.getState().cumulativeTime;
-  if (!cumulativeTime) return null;
+  const etaState = useEtaStore.getState();
+  const cumulativeTime = etaState.cumulativeTime;
+  if (
+    !cumulativeTime ||
+    etaState.routeId !== activeData.id ||
+    etaState.cachedPoints !== activeData.points
+  )
+    return null;
   const timing = activeRouteTiming(activeData, useCollectionStore.getState().collections);
   const plannedStops = plannedStopsFromPOIs(
     displayPOIsForActiveRoute(
@@ -407,11 +416,23 @@ function ForecastStatus({
   warningCount: number;
 }) {
   const colors = useThemeColors();
-  const fetchStatus = useWeatherStore((s) => s.fetchStatus);
-  const lastSuccessfulFetchAtMs = useWeatherStore((s) => s.lastSuccessfulFetchAtMs);
+  const fetchStatus = useWeatherStore((s) =>
+    weatherProjectionMatchesRoute(s.requestContext, activeData?.id, activeData?.points)
+      ? s.fetchStatus
+      : "idle",
+  );
+  const lastSuccessfulFetchAtMs = useWeatherStore((s) =>
+    weatherProjectionMatchesRoute(s.projectionContext, activeData?.id, activeData?.points)
+      ? s.lastSuccessfulFetchAtMs
+      : null,
+  );
   const lastError = useWeatherStore((s) => s.lastError);
   const lastRefreshOutcome = useWeatherStore((s) => s.lastRefreshOutcome);
-  const lastRefreshMessage = useWeatherStore((s) => s.lastRefreshMessage);
+  const lastRefreshMessage = useWeatherStore((s) =>
+    weatherProjectionMatchesRoute(s.requestContext, activeData?.id, activeData?.points)
+      ? s.lastRefreshMessage
+      : null,
+  );
   const isConnected = useOfflineStore((s) => s.isConnected);
   const timing = useActiveRouteTiming(activeData);
 
@@ -546,8 +567,16 @@ function TimelineList({
 
 export default function WeatherPanel({ activeData }: { activeData: ActiveRouteData | null }) {
   const colors = useThemeColors();
-  const timeline = useWeatherStore((s) => s.timeline);
-  const fetchStatus = useWeatherStore((s) => s.fetchStatus);
+  const timeline = useWeatherStore((s) =>
+    weatherProjectionMatchesRoute(s.projectionContext, activeData?.id, activeData?.points)
+      ? s.timeline
+      : EMPTY_WEATHER_TIMELINE,
+  );
+  const fetchStatus = useWeatherStore((s) =>
+    weatherProjectionMatchesRoute(s.requestContext, activeData?.id, activeData?.points)
+      ? s.fetchStatus
+      : "idle",
+  );
   const refreshWeatherNow = useWeatherStore((s) => s.refreshWeatherNow);
   const recordManualRefreshUnavailable = useWeatherStore((s) => s.recordManualRefreshUnavailable);
   const isExpanded = usePanelStore((s) => s.isExpanded);

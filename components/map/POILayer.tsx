@@ -1,3 +1,4 @@
+import { openPOI } from "@/services/mapPanelActions";
 import React, { useMemo, useCallback, useRef } from "react";
 import { ShapeSource, CircleLayer, SymbolLayer } from "@rnmapbox/maps";
 import { usePoiStore } from "@/store/poiStore";
@@ -198,7 +199,6 @@ export default function POILayer({
   const starredPOIIds = usePoiStore((s) => s.starredPOIIds);
   const allPois = usePoiStore((s) => s.pois);
   const selectedPOI = usePoiStore((s) => s.selectedPOI);
-  const setSelectedPOI = usePoiStore((s) => s.setSelectedPOI);
   const panelMode = usePanelStore((s) => s.panelMode);
   const colors = useThemeColors();
 
@@ -298,9 +298,9 @@ export default function POILayer({
       }
 
       const bestPoi = findPressedPOI(features, event?.coordinates, visiblePOIs);
-      if (bestPoi) setSelectedPOI(bestPoi);
+      if (bestPoi) openPOI(bestPoi);
     },
-    [visiblePOIs, setSelectedPOI, onClusterPress],
+    [visiblePOIs, onClusterPress],
   );
 
   const handleStarredPress = useCallback(
@@ -309,9 +309,9 @@ export default function POILayer({
       if (!features?.length) return;
 
       const bestPoi = findPressedPOI(features, event?.coordinates, visiblePOIs);
-      if (bestPoi) setSelectedPOI(bestPoi);
+      if (bestPoi) openPOI(bestPoi);
     },
-    [visiblePOIs, setSelectedPOI],
+    [visiblePOIs],
   );
 
   if (visiblePOIs.length === 0) return null;

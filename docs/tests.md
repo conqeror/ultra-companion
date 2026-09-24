@@ -32,6 +32,9 @@ Covered areas:
 - Planner import rollback on write failure, fetched POIs missing from the native destination, and POI cache reload after import
 - Fetched POI replacement preserving rider notes/planned stops and previous data on failure, including overlapping browser transactions
 - Weather service behavior and route-aware upcoming timeline helpers
+- Weather projection invalidation, offline forecast reuse, overlapping requests, and stale completion rejection
+- Shared route-detail cancellation/error recovery and ferry-adjusted presentation
+- Active-route restoration, GPS completion against the latest plan, and native/browser panel return navigation
 - Ferry schema recovery, span mapping, local OSM lookup, stored map geometry, Entur stop/departure parsing and cache behavior, riding-distance/elevation exclusion, ETA propagation, horizons, transport persistence, and Upcoming rows
 - Route, POI, offline, and ETA/climb store behavior through focused store tests
 - Offline readiness reconciliation for partial regions, missing style packs, interrupted sessions, and native enumeration errors

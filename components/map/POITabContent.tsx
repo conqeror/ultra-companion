@@ -1,3 +1,4 @@
+import { openPOI, closePOI } from "@/services/mapPanelActions";
 import React, { useDeferredValue, useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { FlashList, type FlashListRef, type ListRenderItem } from "@shopify/flash-list";
 import {
@@ -107,7 +108,6 @@ export default function POITabContent({ activeData }: POITabContentProps) {
   const cumulativeTime = useEtaStore((s) => s.cumulativeTime);
   const isExpanded = usePanelStore((s) => s.isExpanded);
   const panelMode = usePanelStore((s) => s.panelMode);
-  const consumeDetailReturnTab = usePanelStore((s) => s.consumeDetailReturnTab);
   const setPanelScrollOffset = usePanelStore((s) => s.setPanelScrollOffset);
 
   const [searchQuery, setSearchQuery] = useState("");
@@ -295,18 +295,8 @@ export default function POITabContent({ activeData }: POITabContentProps) {
     ],
   );
 
-  const handlePOIPress = useCallback(
-    (poi: DisplayPOI) => {
-      setSelectedPOI(poi);
-    },
-    [setSelectedPOI],
-  );
-
-  const handleBackFromDetail = useCallback(() => {
-    const returnTab = consumeDetailReturnTab();
-    setSelectedPOI(null);
-    if (returnTab) usePanelStore.getState().setPanelTab(returnTab);
-  }, [consumeDetailReturnTab, setSelectedPOI]);
+  const handlePOIPress = useCallback((poi: DisplayPOI) => openPOI(poi, "pois"), []);
+  const handleBackFromDetail = closePOI;
 
   const openAddPOISheet = useCallback(async () => {
     if (!activeData) {
@@ -345,9 +335,9 @@ export default function POITabContent({ activeData }: POITabContentProps) {
   const handleSavedPOI = useCallback(
     (poi: POI) => {
       const displayPOI = toDisplayPOIForSegments(poi, segments);
-      if (displayPOI) setSelectedPOI(displayPOI);
+      if (displayPOI) openPOI(displayPOI, "pois");
     },
-    [segments, setSelectedPOI],
+    [segments],
   );
 
   const renderExpandedPOI = useCallback<ListRenderItem<POIListRowModel>>(

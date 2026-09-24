@@ -1,11 +1,7 @@
-import {
-  deleteDatabaseAsync,
-  openDatabaseAsync,
-  type SQLiteBindValue,
-  type SQLiteDatabase,
-} from "expo-sqlite";
+import { openDatabaseAsync, type SQLiteBindValue, type SQLiteDatabase } from "expo-sqlite";
 import migrations from "../drizzle/migrations";
 import { preparePOIRefresh } from "./poiRefresh";
+import { applyPOIRiderFields } from "./poiRiderFields";
 import { withQueuedTransaction } from "./transactions.web";
 import {
   hasSupportedFerryCrossingsSchema,
@@ -17,6 +13,7 @@ import type {
   CollectionSegment,
   FerryCrossing,
   POI,
+  POIRiderFieldsPatch,
   POICategory,
   POISource,
   Route,
@@ -30,12 +27,6 @@ import type {
 const CHUNK_SIZE = 500;
 const MIGRATIONS_TABLE = "__drizzle_migrations";
 const WEB_DATABASE_NAME = "ultra.db";
-const WEB_DATABASE_SIDE_FILES = [
-  WEB_DATABASE_NAME,
-  `${WEB_DATABASE_NAME}-journal`,
-  `${WEB_DATABASE_NAME}-wal`,
-  `${WEB_DATABASE_NAME}-shm`,
-];
 
 type RawBoolean = boolean | number;
 
@@ -333,28 +324,6 @@ export async function getWebSQLiteDatabase(): Promise<SQLiteDatabase> {
   }
 
   return databasePromise;
-}
-
-export async function resetWebSQLiteDatabaseStorage(): Promise<void> {
-  const currentDatabasePromise = databasePromise;
-  databasePromise = null;
-
-  if (currentDatabasePromise) {
-    try {
-      const database = await currentDatabasePromise;
-      await database.closeAsync();
-    } catch (error) {
-      console.warn("[planning-transport] Failed to close web SQLite database before reset", error);
-    }
-  }
-
-  for (const databaseName of WEB_DATABASE_SIDE_FILES) {
-    try {
-      await deleteDatabaseAsync(databaseName);
-    } catch (error) {
-      console.warn("[planning-transport] Failed to delete web SQLite file", databaseName, error);
-    }
-  }
 }
 
 async function getAll<T>(query: string, params: SQLiteBindValue[] = []): Promise<T[]> {
@@ -861,11 +830,29 @@ export async function deletePOIsBySource(
   });
 }
 
-export async function updatePOITags(poiId: string, tags: Record<string, string>): Promise<void> {
+export async function updatePOIRiderFields(
+  routeId: string,
+  poiId: string,
+  patch: POIRiderFieldsPatch,
+): Promise<POI | null> {
   const database = await getWebSQLiteDatabase();
+  let updated: POI | null = null;
   await withQueuedTransaction(database, async () => {
-    await database.runAsync("UPDATE pois SET tags = ? WHERE id = ?", [JSON.stringify(tags), poiId]);
+    const row = await database.getFirstAsync<RawPOI>(
+      "SELECT * FROM pois WHERE routeId = ? AND id = ?",
+      [routeId, poiId],
+    );
+    if (!row) return;
+    const poi = normalizePOI(row);
+    const tags = applyPOIRiderFields(poi.tags, patch);
+    await database.runAsync("UPDATE pois SET tags = ? WHERE routeId = ? AND id = ?", [
+      JSON.stringify(tags),
+      routeId,
+      poiId,
+    ]);
+    updated = { ...poi, tags };
   });
+  return updated;
 }
 
 export async function deletePOI(poiId: string): Promise<void> {

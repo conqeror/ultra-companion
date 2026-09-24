@@ -20,12 +20,14 @@ import {
 } from "./ferrySchemaCompatibility";
 import { measureAsync } from "@/utils/perfMarks";
 import { preparePOIRefresh } from "./poiRefresh";
+import { applyPOIRiderFields } from "./poiRiderFields";
 import type {
   Route,
   RoutePoint,
   RouteWithPoints,
   FerryCrossing,
   POI,
+  POIRiderFieldsPatch,
   POICategory,
   POISource,
   StarredEntityType,
@@ -699,8 +701,19 @@ export async function deletePOIsBySource(
   });
 }
 
-export async function updatePOITags(poiId: string, tags: Record<string, string>): Promise<void> {
-  db.update(pois).set({ tags }).where(eq(pois.id, poiId)).run();
+export async function updatePOIRiderFields(
+  routeId: string,
+  poiId: string,
+  patch: POIRiderFieldsPatch,
+): Promise<POI | null> {
+  return db.transaction((tx) => {
+    const where = and(eq(pois.routeId, routeId), eq(pois.id, poiId));
+    const poi = tx.select().from(pois).where(where).get();
+    if (!poi) return null;
+    const tags = applyPOIRiderFields(poi.tags, patch);
+    tx.update(pois).set({ tags }).where(where).run();
+    return { ...poi, tags };
+  });
 }
 
 export async function deletePOI(poiId: string): Promise<void> {

@@ -6,7 +6,6 @@ import type { Route } from "@/types";
 const sqliteMocks = vi.hoisted(() => ({
   openDatabaseSync: vi.fn(),
   openDatabaseAsync: vi.fn(),
-  deleteDatabaseAsync: vi.fn(),
 }));
 vi.mock("expo-sqlite", () => sqliteMocks);
 vi.mock("drizzle-orm/expo-sqlite", () => import("drizzle-orm/expo-sqlite/driver"));
@@ -20,7 +19,7 @@ type POIDatabase = Pick<
   | "setStarredItem"
   | "getStarredItems"
   | "deletePOIsBySource"
-  | "updatePOITags"
+  | "updatePOIRiderFields"
 >;
 
 function route(id: string): Route {
@@ -198,7 +197,10 @@ describe.each(["native", "web"] as const)("%s POI source replacement", (platform
         await paused;
         const tags = { notes: "New rider note", planned_stop_duration_minutes: "30" };
         const edits = Promise.all([
-          database.updatePOITags(original.id, tags),
+          database.updatePOIRiderFields("route-1", original.id, {
+            notes: "New rider note",
+            plannedStopDurationMinutes: 30,
+          }),
           database.setStarredItem("poi", original.id, starred),
         ]);
         const acknowledgedBeforeRefreshFinished = await Promise.race([
@@ -240,5 +242,87 @@ describe.each(["native", "web"] as const)("%s POI source replacement", (platform
     expect((await database.getStarredItems("poi")).map((star) => star.entityId)).toEqual([
       "custom",
     ]);
+  });
+
+  it.each([true, false])(
+    "merges concurrent note and stop edits (notes first: %s)",
+    async (notesFirst) => {
+      const original = buildPoi("saved", "route-1", 100, {
+        tags: { notes: "Old note", opening_hours: "24/7" },
+      });
+      await database.insertPOIs([original]);
+      const patches = [{ notes: "  Fresh note  " }, { plannedStopDurationMinutes: 29.6 }];
+      if (!notesFirst) patches.reverse();
+
+      const results = await Promise.all(
+        patches.map((patch) => database.updatePOIRiderFields("route-1", original.id, patch)),
+      );
+
+      const updated = {
+        ...original,
+        tags: { opening_hours: "24/7", notes: "Fresh note", planned_stop_duration_minutes: "30" },
+      };
+      expect(results[1]).toEqual(updated);
+      expect(await database.getPOIsForRoute("route-1")).toEqual([updated]);
+    },
+  );
+
+  it("merges a queued rider edit into newly refreshed provider data", async () => {
+    const original = buildPoi("saved", "route-1", 100, {
+      tags: { notes: "Old note", planned_stop_duration_minutes: "20", opening_hours: "old" },
+    });
+    await database.insertPOIs([original]);
+    const refreshed = {
+      ...original,
+      name: "Updated provider",
+      tags: { opening_hours: "24/7", phone: "+123" },
+    };
+
+    const [, updated] = await Promise.all([
+      database.replacePOIsBySource("route-1", "osm", [refreshed]),
+      database.updatePOIRiderFields("route-1", original.id, { notes: "Fresh note" }),
+    ]);
+
+    expect(updated).toEqual({
+      ...refreshed,
+      tags: {
+        opening_hours: "24/7",
+        phone: "+123",
+        notes: "Fresh note",
+        planned_stop_duration_minutes: "20",
+      },
+    });
+    expect(await database.getPOIsForRoute("route-1")).toEqual([updated]);
+  });
+
+  it("clears only the requested rider fields", async () => {
+    const original = buildPoi("saved", "route-1", 100, {
+      tags: { notes: "Old note", planned_stop_duration_minutes: "20", opening_hours: "24/7" },
+    });
+    await database.insertPOIs([original]);
+
+    expect(await database.updatePOIRiderFields("route-1", original.id, { notes: "  " })).toEqual({
+      ...original,
+      tags: { planned_stop_duration_minutes: "20", opening_hours: "24/7" },
+    });
+    expect(
+      await database.updatePOIRiderFields("route-1", original.id, {
+        plannedStopDurationMinutes: 0,
+      }),
+    ).toEqual({
+      ...original,
+      tags: { opening_hours: "24/7" },
+    });
+  });
+
+  it("returns null for absent POIs and never edits a different route", async () => {
+    const original = buildPoi("saved", "route-1", 100, { tags: { notes: "Keep" } });
+    await database.insertPOIs([original]);
+
+    expect(await database.updatePOIRiderFields("route-1", "missing", { notes: "New" })).toBeNull();
+    expect(
+      await database.updatePOIRiderFields("route-2", original.id, { notes: "New" }),
+    ).toBeNull();
+    expect(await database.getPOIsForRoute("route-1")).toEqual([original]);
   });
 });

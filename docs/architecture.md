@@ -163,6 +163,15 @@ ETA computation: for each route segment, solve `P = (Crr × m × g × cos(θ) + 
 
 ## Key Technical Decisions
 
+### Data and UI ownership
+
+- `planningTransportFormat` owns the shared planning-file constants and pure row/byte decoding. Native and web transports retain their respective merge and replacement policies.
+- `updatePOIRiderFields` applies typed note/stop patches to the latest SQLite row in a transaction and returns the committed POI. Store callers do not replace provider tags from old UI snapshots.
+- `mapPanelActions` coordinates POI/climb selection with `panelStore` navigation. Data setters have no navigation side effects. The browser's bottom panel and sidebar are separate selections owned by that same store.
+- `useRouteDetailModel` shares route/ferry loading, cancellation, error recovery, preview layers, and riding statistics between native and browser route details.
+- `useActiveRouteLifecycle`, `useActiveRoutePosition`, and `useActiveCollectionVariants` own active-plan preparation, on-demand GPS/snapping, and variant previews. `MapView` owns rendering and camera behavior. No GPS polling is introduced.
+- Weather stores reusable forecast data separately from the route/ETA/start/stop projection. Request generations reject obsolete completions; the visible timeline is checked against the active route geometry.
+
 ### SQLite over AsyncStorage for POIs
 
 POI data needs structured route/source/category/distance queries across thousands of records. AsyncStorage is key-value only and would make refresh/delete/source-state workflows awkward.

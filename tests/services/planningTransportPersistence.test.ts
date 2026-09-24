@@ -16,7 +16,6 @@ import type { Route } from "@/types";
 const databaseMocks = vi.hoisted(() => ({
   nativeDatabase: vi.fn(),
   webDatabase: vi.fn(),
-  resetWebDatabase: vi.fn(),
 }));
 
 vi.mock("expo-sqlite", () => ({
@@ -38,7 +37,6 @@ vi.mock("@/db/database", () => ({
 
 vi.mock("@/db/database.web", () => ({
   getWebSQLiteDatabase: async () => databaseMocks.webDatabase().sqlite,
-  resetWebSQLiteDatabaseStorage: databaseMocks.resetWebDatabase,
   getAllCollections: vi.fn(),
   getAllRoutes: vi.fn(),
   getPlanningMetadata: vi.fn(),
@@ -163,10 +161,6 @@ beforeEach(() => {
   target = openDatabase();
   databaseMocks.nativeDatabase.mockImplementation(() => target);
   databaseMocks.webDatabase.mockImplementation(() => target);
-  // Model the old destructive reset faithfully: it loses the previous target.
-  databaseMocks.resetWebDatabase.mockImplementation(async () => {
-    target = openDatabase();
-  });
 });
 
 afterEach(() => {
@@ -318,7 +312,6 @@ describe("browser planning import persistence", () => {
 
     expect(summary).toMatchObject({ routes: 1, collections: 1, pois: 1, starredItems: 1 });
     expect(planningRows(target)).toEqual({ ...planningRows(source), relative_eta_cache: [] });
-    expect(databaseMocks.resetWebDatabase).not.toHaveBeenCalled();
   });
 
   it("serializes overlapping imports so both complete with a whole workspace", async () => {

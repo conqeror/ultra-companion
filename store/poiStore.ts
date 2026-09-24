@@ -3,6 +3,7 @@ import { createKeyValueStorage, type KeyValueStorage } from "@/lib/keyValueStora
 import type {
   DisplayPOI,
   POI,
+  POIRiderFieldsPatch,
   POICategory,
   POIDiscoverySource,
   POIFetchStatus,
@@ -21,14 +22,13 @@ import {
   getPOIsForRoute,
   deletePOIsBySource,
   insertPOIs,
-  updatePOITags,
+  updatePOIRiderFields,
   deletePOI,
   getStarredItems,
   setStarredItem,
 } from "@/db/database";
 import { fetchOsmPOIs, fetchGooglePOIs } from "@/services/poiFetcher";
-import { setPlannedStopDurationTag } from "@/services/plannedStops";
-import { usePanelStore } from "./panelStore";
+import { toDisplayPOI } from "@/services/displayDistance";
 
 const LEGACY_STARRED_POI_IDS_KEY = "starredPOIIds";
 
@@ -91,6 +91,32 @@ function normalizePOIRecord(poi: POI): POI {
 
 function normalizePOIRecords(pois: POI[]): POI[] {
   return pois.map(normalizePOIRecord);
+}
+
+async function persistRiderFields(
+  routeId: string,
+  poiId: string,
+  patch: POIRiderFieldsPatch,
+): Promise<void> {
+  const updated = await updatePOIRiderFields(routeId, poiId, patch);
+  if (!updated) return;
+  const poi = normalizePOIRecord(updated);
+  usePoiStore.setState((state) => ({
+    // A cold route cache must remain unloaded rather than becoming a partial list.
+    pois: state.pois[routeId]
+      ? {
+          ...state.pois,
+          [routeId]: state.pois[routeId].map((current) => (current.id === poiId ? poi : current)),
+        }
+      : state.pois,
+    selectedPOI:
+      state.selectedPOI?.id === poiId
+        ? toDisplayPOI(
+            poi,
+            state.selectedPOI.effectiveDistanceMeters - state.selectedPOI.distanceAlongRouteMeters,
+          )
+        : state.selectedPOI,
+  }));
 }
 
 export interface ProgressInfo {
@@ -453,47 +479,10 @@ export const usePoiStore = create<POIState>((set, get) => ({
     });
   },
 
-  updatePOINotes: async (routeId, poiId, notes) => {
-    const routePois = get().pois[routeId] ?? normalizePOIRecords(await getPOIsForRoute(routeId));
-    const poi = routePois.find((p) => p.id === poiId);
-    if (!poi) return;
+  updatePOINotes: (routeId, poiId, notes) => persistRiderFields(routeId, poiId, { notes }),
 
-    const nextTags = { ...poi.tags };
-    const trimmed = notes.trim();
-    if (trimmed) nextTags.notes = trimmed;
-    else delete nextTags.notes;
-
-    await updatePOITags(poiId, nextTags);
-    const pois = normalizePOIRecords(await getPOIsForRoute(routeId));
-
-    set((s) => {
-      const selectedPOI =
-        s.selectedPOI?.id === poiId ? { ...s.selectedPOI, tags: nextTags } : s.selectedPOI;
-      return {
-        pois: { ...s.pois, [routeId]: pois },
-        selectedPOI,
-      };
-    });
-  },
-
-  updatePlannedStopDuration: async (routeId, poiId, durationMinutes) => {
-    const routePois = get().pois[routeId] ?? normalizePOIRecords(await getPOIsForRoute(routeId));
-    const poi = routePois.find((p) => p.id === poiId);
-    if (!poi) return;
-
-    const nextTags = setPlannedStopDurationTag(poi.tags, durationMinutes);
-    await updatePOITags(poiId, nextTags);
-    const pois = normalizePOIRecords(await getPOIsForRoute(routeId));
-
-    set((s) => {
-      const selectedPOI =
-        s.selectedPOI?.id === poiId ? { ...s.selectedPOI, tags: nextTags } : s.selectedPOI;
-      return {
-        pois: { ...s.pois, [routeId]: pois },
-        selectedPOI,
-      };
-    });
-  },
+  updatePlannedStopDuration: (routeId, poiId, durationMinutes) =>
+    persistRiderFields(routeId, poiId, { plannedStopDurationMinutes: durationMinutes }),
 
   deleteCustomPOI: async (routeId, poiId) => {
     await deletePOI(poiId);
@@ -637,13 +626,7 @@ export const usePoiStore = create<POIState>((set, get) => ({
     set((s) => buildRouteScrubPatch(s, routeId, "remove"));
   },
 
-  setSelectedPOI: (poi) => {
-    const panel = usePanelStore.getState();
-    const sourceTab = panel.panelTab;
-    panel.setDetailReturnTab(poi && sourceTab !== "pois" ? sourceTab : null);
-    set({ selectedPOI: poi });
-    if (poi) panel.setPanelTab("pois");
-  },
+  setSelectedPOI: (selectedPOI) => set({ selectedPOI }),
   getVisiblePOIs: (routeId) => {
     const state = get();
     const all = state.pois[routeId];

@@ -17,149 +17,49 @@ import {
   routes,
   starredItems,
 } from "@/db/schema";
+import type { Climb, StarredItem } from "@/types";
+import {
+  PLANNING_TRANSPORT_VERSION,
+  PLANNER_FETCHED_SOURCES_METADATA_KEY,
+  PLANNING_EXPORT_FILE_NAME,
+  PLANNING_METADATA_TABLE,
+  REQUIRED_PLANNING_TABLES,
+  normalizeSQLiteTransportBytes,
+  normalizeRoute,
+  normalizeCollection,
+  normalizeCollectionSegment,
+  normalizePOI,
+  normalizeFerryCrossing,
+  normalizeStarredItem,
+  parsePlannerFetchedSources,
+  parsePlanningTransportVersion,
+} from "@/services/planningTransportFormat";
 import type {
-  Climb,
-  Collection,
-  CollectionSegment,
-  FerryCrossing,
-  POI,
-  POIFetchedSource,
-  POISource,
-  Route,
-  RoutePoint,
-  StarredItem,
-} from "@/types";
+  RawRouteRow,
+  RawCollectionRow,
+  RawCollectionSegmentRow,
+  RawPOIRow,
+  RawStarredItemRow,
+  RawFerryCrossingRow,
+  ImportedRoutePoint,
+  PlannerFetchedSourcePair,
+  PlanningImportSummary,
+  PlanningDatabaseExport,
+} from "@/services/planningTransportFormat";
+export {
+  PLANNING_TRANSPORT_VERSION,
+  PLANNER_FETCHED_SOURCES_METADATA_KEY,
+  PLANNING_EXPORT_FILE_NAME,
+  PLANNING_SQLITE_MIME_TYPE,
+} from "@/services/planningTransportFormat";
+export type {
+  PlannerFetchedSourcePair,
+  PlanningImportSummary,
+  PlanningExportSummary,
+  PlanningDatabaseExport,
+} from "@/services/planningTransportFormat";
 
-export const PLANNING_TRANSPORT_VERSION = 2;
-export const PLANNER_FETCHED_SOURCES_METADATA_KEY = "planner_fetched_sources";
-export const PLANNING_EXPORT_FILE_NAME = "ultra-plan.ultra-plan.db";
-export const PLANNING_SQLITE_MIME_TYPE = "application/x-sqlite3";
-
-const METADATA_TABLE = "planning_metadata";
 const CHUNK_SIZE = 500;
-const SQLITE_HEADER_BYTES = [
-  0x53, 0x51, 0x4c, 0x69, 0x74, 0x65, 0x20, 0x66, 0x6f, 0x72, 0x6d, 0x61, 0x74, 0x20, 0x33, 0x00,
-];
-const SQLITE_WRITE_VERSION_OFFSET = 18;
-const SQLITE_READ_VERSION_OFFSET = 19;
-const SQLITE_ROLLBACK_JOURNAL_VERSION = 1;
-const SQLITE_WAL_JOURNAL_VERSION = 2;
-
-type RawBoolean = boolean | number;
-
-interface RawRouteRow extends Omit<Route, "isActive" | "isVisible"> {
-  isActive: RawBoolean;
-  isVisible: RawBoolean;
-}
-
-interface RawCollectionRow extends Omit<Collection, "isActive"> {
-  isActive: RawBoolean;
-}
-
-interface RawCollectionSegmentRow extends Omit<CollectionSegment, "isSelected" | "variantKind"> {
-  isSelected: RawBoolean;
-  variantKind: string;
-}
-
-interface RawPOIRow extends Omit<POI, "source" | "category" | "tags"> {
-  source: string;
-  category: string;
-  tags: string | Record<string, string>;
-}
-
-interface RawStarredItemRow extends Omit<StarredItem, "entityType"> {
-  entityType: string;
-}
-
-interface RawClimbRow extends Climb {}
-
-interface RawFerryCrossingRow extends Omit<
-  FerryCrossing,
-  "source" | "bicycleAccess" | "providerRefs" | "tags"
-> {
-  source: string;
-  bicycleAccess: string;
-  providerRefs: string | Record<string, string>;
-  tags: string | Record<string, string>;
-}
-
-type ImportedRoutePoint = RoutePoint & { routeId: string };
-
-export interface PlannerFetchedSourcePair {
-  routeId: string;
-  source: POIFetchedSource;
-}
-
-export interface PlanningImportSummary {
-  routes: number;
-  collections: number;
-  pois: number;
-  starredItems: number;
-  climbs: number;
-  ferries: number;
-  replacedFetchedSources: number;
-}
-
-export interface PlanningExportSummary {
-  routeCount: number;
-  collectionCount: number;
-  byteLength: number;
-  fileName: string;
-}
-
-export interface PlanningDatabaseExport extends PlanningExportSummary {
-  bytes: Uint8Array;
-}
-
-function toBoolean(value: RawBoolean): boolean {
-  return value === true || value === 1;
-}
-
-function isSQLiteDatabaseBytes(bytes: Uint8Array): boolean {
-  return (
-    bytes.length >= 100 &&
-    SQLITE_HEADER_BYTES.every((expectedByte, index) => bytes[index] === expectedByte)
-  );
-}
-
-function normalizeSQLiteTransportBytes(bytes: Uint8Array): Uint8Array {
-  if (!isSQLiteDatabaseBytes(bytes)) return bytes;
-
-  const isWalDatabase =
-    bytes[SQLITE_WRITE_VERSION_OFFSET] === SQLITE_WAL_JOURNAL_VERSION ||
-    bytes[SQLITE_READ_VERSION_OFFSET] === SQLITE_WAL_JOURNAL_VERSION;
-  if (!isWalDatabase) return bytes;
-
-  const normalizedBytes = new Uint8Array(bytes);
-  normalizedBytes[SQLITE_WRITE_VERSION_OFFSET] = SQLITE_ROLLBACK_JOURNAL_VERSION;
-  normalizedBytes[SQLITE_READ_VERSION_OFFSET] = SQLITE_ROLLBACK_JOURNAL_VERSION;
-  return normalizedBytes;
-}
-
-function parseStringRecord(value: string | Record<string, string>): Record<string, string> {
-  if (value && typeof value === "object") return value;
-  if (typeof value !== "string" || !value.trim()) return {};
-  try {
-    const parsed = JSON.parse(value);
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      return parsed as Record<string, string>;
-    }
-  } catch {}
-  return {};
-}
-
-function safeJsonParse<T>(value: string | null, fallback: T): T {
-  if (!value) return fallback;
-  try {
-    return JSON.parse(value) as T;
-  } catch {
-    return fallback;
-  }
-}
-
-function isFetchedSource(value: string): value is POIFetchedSource {
-  return value === "osm" || value === "google";
-}
 
 function pairKey(pair: PlannerFetchedSourcePair): string {
   return `${pair.routeId}:${pair.source}`;
@@ -175,34 +75,21 @@ function tableExists(database: SQLiteDatabase, tableName: string): boolean {
 
 function readMetadataValue(database: SQLiteDatabase, key: string): string | null {
   return (
-    database.getFirstSync<{ value: string }>(`SELECT value FROM ${METADATA_TABLE} WHERE key = ?`, [
-      key,
-    ])?.value ?? null
+    database.getFirstSync<{ value: string }>(
+      `SELECT value FROM ${PLANNING_METADATA_TABLE} WHERE key = ?`,
+      [key],
+    )?.value ?? null
   );
 }
 
 function requirePlanningTransport(database: SQLiteDatabase): 1 | 2 {
-  for (const table of [
-    METADATA_TABLE,
-    "routes",
-    "route_points",
-    "collections",
-    "collection_segments",
-    "pois",
-    "starred_items",
-    "climbs",
-  ]) {
+  for (const table of REQUIRED_PLANNING_TABLES) {
     if (!tableExists(database, table)) {
       throw new Error(`This is not an Ultra planning database. Missing table: ${table}`);
     }
   }
 
-  const version = Number(readMetadataValue(database, "transport_version"));
-  if (version !== 1 && version !== PLANNING_TRANSPORT_VERSION) {
-    throw new Error(
-      `Unsupported planning database version ${version || "unknown"}. Expected 1 or ${PLANNING_TRANSPORT_VERSION}.`,
-    );
-  }
+  const version = parsePlanningTransportVersion(readMetadataValue(database, "transport_version"));
   if (version >= 2 && !tableExists(database, "ferry_crossings")) {
     throw new Error("This is not an Ultra planning database. Missing table: ferry_crossings");
   }
@@ -217,60 +104,10 @@ function selectAll<T>(
   return database.getAllSync<T>(query, params);
 }
 
-function normalizeRoute(row: RawRouteRow): Route {
-  return {
-    ...row,
-    isActive: toBoolean(row.isActive),
-    isVisible: toBoolean(row.isVisible),
-  };
-}
-
-function normalizeCollection(row: RawCollectionRow): Collection {
-  return {
-    ...row,
-    isActive: toBoolean(row.isActive),
-  };
-}
-
-function normalizeCollectionSegment(row: RawCollectionSegmentRow): CollectionSegment {
-  return {
-    ...row,
-    isSelected: toBoolean(row.isSelected),
-    variantKind: row.variantKind === "patch" ? "patch" : "full",
-  };
-}
-
-function normalizePOI(row: RawPOIRow): POI {
-  return {
-    ...row,
-    source: row.source as POISource,
-    category: row.category as POI["category"],
-    tags: parseStringRecord(row.tags),
-  };
-}
-
-function normalizeFerryCrossing(row: RawFerryCrossingRow): FerryCrossing {
-  return {
-    ...row,
-    source: row.source === "osm" ? "osm" : "manual",
-    bicycleAccess:
-      row.bicycleAccess === "yes" || row.bicycleAccess === "no" ? row.bicycleAccess : "unknown",
-    providerRefs: parseStringRecord(row.providerRefs),
-    tags: parseStringRecord(row.tags),
-  };
-}
-
-function normalizeStarredItem(row: RawStarredItemRow): StarredItem | null {
-  if (row.entityType !== "poi") return null;
-  return { ...row, entityType: "poi" };
-}
-
 function readPlannerFetchedSources(database: SQLiteDatabase): PlannerFetchedSourcePair[] {
-  const raw = safeJsonParse<PlannerFetchedSourcePair[]>(
+  return parsePlannerFetchedSources(
     readMetadataValue(database, PLANNER_FETCHED_SOURCES_METADATA_KEY),
-    [],
   );
-  return raw.filter((pair) => pair.routeId && isFetchedSource(pair.source));
 }
 
 function chunk<T>(items: T[]): T[][] {
@@ -350,7 +187,7 @@ export function importPlanningDatabase(source: SQLiteDatabase): PlanningImportSu
   )
     .map(normalizeStarredItem)
     .filter((item): item is StarredItem => item != null);
-  const importedClimbs = selectAll<RawClimbRow>(
+  const importedClimbs = selectAll<Climb>(
     source,
     "SELECT * FROM climbs ORDER BY routeId, startDistanceMeters",
   );

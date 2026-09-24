@@ -1,3 +1,4 @@
+import { openPOI, openClimb } from "@/services/mapPanelActions";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FlashList, type FlashListRef, type ListRenderItem } from "@shopify/flash-list";
 import {
@@ -96,12 +97,9 @@ export default function UpcomingTabContent({ activeData }: UpcomingTabContentPro
   const units = useSettingsStore((s) => s.units);
   const snappedPosition = useRouteStore((s) => s.snappedPosition);
   const starredPOIIds = usePoiStore((s) => s.starredPOIIds);
-  const setSelectedPOI = usePoiStore((s) => s.setSelectedPOI);
   const getClimbsForDisplay = useClimbStore((s) => s.getClimbsForDisplay);
-  const setSelectedClimb = useClimbStore((s) => s.setSelectedClimb);
   const cumulativeTime = useEtaStore((s) => s.cumulativeTime);
   const panelMode = usePanelStore((s) => s.panelMode);
-  const setPanelTab = usePanelStore((s) => s.setPanelTab);
   const setPanelScrollOffset = usePanelStore((s) => s.setPanelScrollOffset);
   const timing = useActiveRouteTiming(activeData);
   const [ferryTimetables, setFerryTimetables] = useState<Record<string, FerryTimetableViewState>>(
@@ -404,15 +402,14 @@ export default function UpcomingTabContent({ activeData }: UpcomingTabContentPro
   const handleEventPress = useCallback(
     (event: UpcomingEvent) => {
       if (event.kind === "poi") {
-        setSelectedPOI(event.poi);
+        openPOI(event.poi, "upcoming");
       } else if (event.kind === "climb-span") {
-        setSelectedClimb(event.climb);
-        setPanelTab("climbs");
+        openClimb(event.climb, "upcoming");
       } else if (event.kind === "ferry" && expandableFerryIds.has(event.ferry.id)) {
         setExpandedFerryId((current) => (current === event.ferry.id ? null : event.ferry.id));
       }
     },
-    [expandableFerryIds, setPanelTab, setSelectedClimb, setSelectedPOI],
+    [expandableFerryIds],
   );
 
   const renderItem = useCallback<ListRenderItem<UpcomingListItemModel>>(
