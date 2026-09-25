@@ -7,31 +7,34 @@ afterEach(() => {
 });
 
 describe("overpassClient", () => {
-  it("tries the custom deployment first again after falling back to a public server", async () => {
-    const fetchMock = vi
-      .fn<typeof fetch>()
-      .mockResolvedValueOnce(new Response(null, { status: 503 }))
-      .mockImplementation(async () => Response.json({ elements: [] }));
-    vi.stubGlobal("fetch", fetchMock);
-    const points: RoutePoint[] = [0, 1_000].map((distance, idx) => ({
-      idx,
-      distanceFromStartMeters: distance,
-      latitude: 48.1,
-      longitude: 17.1 + idx * 0.01,
-      elevationMeters: 100,
-    }));
+  it.each([422, 503])(
+    "tries the custom deployment first again after a %i fallback",
+    async (status) => {
+      const fetchMock = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(new Response(null, { status }))
+        .mockImplementation(async () => Response.json({ elements: [] }));
+      vi.stubGlobal("fetch", fetchMock);
+      const points: RoutePoint[] = [0, 1_000].map((distance, idx) => ({
+        idx,
+        distanceFromStartMeters: distance,
+        latitude: 48.1,
+        longitude: 17.1 + idx * 0.01,
+        elevationMeters: 100,
+      }));
 
-    await fetchAllPOIs(points, 1000);
-    await fetchAllPOIs(points, 1000);
-    await fetchAllPOIs(points, 1000);
+      await fetchAllPOIs(points, 1000);
+      await fetchAllPOIs(points, 1000);
+      await fetchAllPOIs(points, 1000);
 
-    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
-      "https://overpass.tailedd44c.ts.net/api/interpreter",
-      "https://overpass-api.de/api/interpreter",
-      "https://overpass.tailedd44c.ts.net/api/interpreter",
-      "https://overpass.tailedd44c.ts.net/api/interpreter",
-    ]);
-  });
+      expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+        "https://overpass.tailedd44c.ts.net/api/interpreter",
+        "https://overpass-api.de/api/interpreter",
+        "https://overpass.tailedd44c.ts.net/api/interpreter",
+        "https://overpass.tailedd44c.ts.net/api/interpreter",
+      ]);
+    },
+  );
 
   it("builds padded bbox queries for infrastructure POI searches", () => {
     const query = buildOverpassQuery([{ lat: 48.1, lon: 17.1 }], 1000);
