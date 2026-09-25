@@ -10,15 +10,6 @@ import {
 } from "@/constants";
 import { splitRoutePointsByDistance } from "@/utils/geo";
 
-let nextServerIndex = 0;
-
-/** Get the next Overpass server URL (round-robin) */
-function nextServerUrl(): string {
-  const url = OVERPASS_API_URLS[nextServerIndex % OVERPASS_API_URLS.length];
-  nextServerIndex++;
-  return url;
-}
-
 // --- Raw Overpass types ---
 
 export interface OverpassElement {
@@ -191,14 +182,13 @@ async function tryOverpassRequest(
   }
 }
 
-/** Fetch a single Overpass query with server rotation and exponential backoff */
+/** Fetch a single Overpass query with ordered server fallback and exponential backoff */
 async function fetchOverpassSegment(query: string): Promise<OverpassElement[]> {
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt <= OVERPASS_RETRY_DELAYS.length; attempt++) {
-    // On each attempt, try all servers before giving up
-    for (let s = 0; s < OVERPASS_API_URLS.length; s++) {
-      const url = nextServerUrl();
+    // Start with the preferred server for every segment and retry round.
+    for (const url of OVERPASS_API_URLS) {
       const result = await tryOverpassRequest(url, query);
 
       if ("elements" in result) return result.elements;

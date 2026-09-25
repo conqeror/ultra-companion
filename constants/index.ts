@@ -237,7 +237,9 @@ export function getMaxPoiCorridorWidthM(fallbackWidthM = DEFAULT_CORRIDOR_WIDTH_
   return Math.max(fallbackWidthM, ...Object.values(DEFAULT_POI_CATEGORY_CORRIDOR_WIDTH_M));
 }
 
+// Priority order: try the custom deployment first, then public fallbacks.
 export const OVERPASS_API_URLS = [
+  "https://overpass.tailedd44c.ts.net/api/interpreter",
   "https://overpass-api.de/api/interpreter",
   "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
   "https://overpass.private.coffee/api/interpreter",
