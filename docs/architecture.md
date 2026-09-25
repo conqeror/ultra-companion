@@ -163,6 +163,30 @@ ETA computation: for each route segment, solve `P = (Crr × m × g × cos(θ) + 
 
 ## Key Technical Decisions
 
+### Online route planning (iOS)
+
+`routePlannerStore` owns an in-memory draft of ordered waypoints and its current preview.
+The iOS planner debounces point changes, calls the public BRouter HTTPS endpoint with
+the `fastbike` profile, and validates the returned GeoJSON before calculating local route
+statistics. Edits and exit cancel the current request and invalidate its generation, so
+obsolete responses cannot restore an old preview. Failures preserve selected points for retry.
+Planning requires connectivity; no routing engine or routing-data downloads run on the phone.
+
+Saving passes the preview to `routeStore.saveParsedRoute`, the same atomic route/points/climbs
+persistence path used by file imports. The saved route works with existing offline preparation,
+collections, ETA, POIs, and GPX export. Waypoints are not persisted for later editing. The draft
+is discarded on exit, with confirmation for unsaved points. The browser does not expose planning.
+
+`brouterProfileStore` persists named custom `.brf` sources and the selected profile ID in the
+device-local `brouter-profiles` key-value store. Settings supports import, pasted source, edits,
+and deletion. These preferences are not part of `.ultra-plan.db` transfers. The selected source
+is uploaded to `/brouter/profile` before each custom-profile calculation; only the returned
+temporary ID is used for that request, so server expiry cannot invalidate a saved profile.
+Provider syntax errors are shown without silently falling back to another profile. Selection,
+edits, and deletion synchronously invalidate pending calculations and previews; deleting the
+selected profile returns the picker to built-in road cycling. Saving preferences writes to disk
+before publishing the new state, so storage failures preserve the previous library.
+
 ### Data and UI ownership
 
 - `planningTransportFormat` owns the shared planning-file constants and pure row/byte decoding. Native and web transports retain their respective merge and replacement policies.

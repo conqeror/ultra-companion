@@ -21,6 +21,7 @@ import { refreshPlanningDataAfterImport } from "@/services/planningDataRefresh";
 import { POI_DISCOVERY_GROUPS } from "@/constants";
 import type { UnitSystem } from "@/types";
 import StorageSection from "@/components/offline/StorageSection";
+import BRouterProfilesSection from "@/components/settings/BRouterProfilesSection";
 import { yieldToUI } from "@/utils/yieldToUI";
 
 const UNIT_OPTIONS: { value: UnitSystem; label: string }[] = [
@@ -243,6 +244,8 @@ export default function SettingsScreen() {
     <ScrollView className="flex-1 bg-background px-4">
       <Text className="text-[22px] font-barlow-semibold text-foreground mt-6 mb-3">Units</Text>
       <OptionGroup options={UNIT_OPTIONS} value={units} onChange={setUnits} />
+
+      <BRouterProfilesSection />
 
       <Text className="text-[22px] font-barlow-semibold text-foreground mt-6 mb-3">
         POI Search Radius
