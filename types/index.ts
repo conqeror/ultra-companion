@@ -28,6 +28,12 @@ export interface RoutingWaypoint {
   longitude: number;
 }
 
+export interface BRouterProfile {
+  id: string;
+  name: string;
+  content: string;
+}
+
 export interface RoutePoint {
   latitude: number;
   longitude: number;

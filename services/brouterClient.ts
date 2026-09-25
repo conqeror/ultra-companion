@@ -1,5 +1,6 @@
-import type { ParsedRoute, RoutingWaypoint } from "@/types";
+import type { BRouterProfile, ParsedRoute, RoutingWaypoint } from "@/types";
 import { computeRouteStats } from "@/utils/geo";
+import { validateBRouterProfile } from "@/services/brouterProfiles";
 
 const BROUTER_URL = "https://brouter.de/brouter";
 const REQUEST_TIMEOUT_MS = 60_000;
@@ -60,10 +61,12 @@ export function parseBRouterRoute(value: unknown): ParsedRoute {
 export async function fetchBRouterRoute(
   waypoints: readonly RoutingWaypoint[],
   signal?: AbortSignal,
+  profile?: BRouterProfile | null,
 ): Promise<ParsedRoute> {
   if (waypoints.length < 2 || !waypoints.every(isRoutingWaypoint)) {
     throw new Error("Choose at least two valid points on the map.");
   }
+  if (profile) validateBRouterProfile(profile.name, profile.content);
   const controller = new AbortController();
   const abort = () => controller.abort();
   signal?.addEventListener("abort", abort);
@@ -74,9 +77,38 @@ export async function fetchBRouterRoute(
     controller.abort();
   }, REQUEST_TIMEOUT_MS);
   try {
+    let profileId = "fastbike";
+    if (profile) {
+      // Upload the saved source each time rather than persisting temporary server IDs.
+      // This also ensures edits take effect and expired server profiles recover naturally.
+      const upload = await fetch(`${BROUTER_URL}/profile`, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=UTF-8" },
+        body: profile.content,
+        signal: controller.signal,
+      });
+      if (!upload.ok) throw new Error("Could not upload the BRouter profile. Try again shortly.");
+      let uploaded: Record<string, unknown> | null;
+      try {
+        uploaded = record(await upload.json());
+      } catch {
+        throw new Error("BRouter could not read this profile. Check its contents in Settings.");
+      }
+      if (typeof uploaded?.error === "string" && uploaded.error) {
+        throw new Error(`BRouter rejected “${profile.name}”: ${uploaded.error.slice(0, 400)}`);
+      }
+      if (
+        typeof uploaded?.profileid !== "string" ||
+        !/^custom_[a-zA-Z0-9_-]+$/.test(uploaded.profileid)
+      ) {
+        throw new Error("BRouter returned an invalid profile response. Try again.");
+      }
+      profileId = uploaded.profileid;
+    }
+    if (controller.signal.aborted) throw new Error("Routing cancelled.");
     const lonlats = waypoints.map((p) => `${p.longitude},${p.latitude}`).join("|");
     const response = await fetch(
-      `${BROUTER_URL}?lonlats=${encodeURIComponent(lonlats)}&profile=fastbike&alternativeidx=0&format=geojson`,
+      `${BROUTER_URL}?lonlats=${encodeURIComponent(lonlats)}&profile=${encodeURIComponent(profileId)}&alternativeidx=0&format=geojson`,
       { signal: controller.signal },
     );
     if (!response.ok) {

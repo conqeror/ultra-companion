@@ -20,6 +20,7 @@ What's implemented. For the "why" behind these, see `usage-context.md`.
 ## Routes
 
 - iOS online route planning: add start, destination, and via points by tapping the map; BRouter road-cycling routing previews distance and ascent, with Undo, Clear, and retry on failure
+- Settings → BRouter profiles stores named custom `.brf` profiles on the phone: import a file or paste its contents, edit/rename, and delete. The planner offers saved profiles plus built-in road cycling, remembers the selection, and recalculates on changes.
 - Planned routes save as ordinary routes with elevation and detected climbs, and use existing POI, collection, offline-preparation, and GPX export workflows; calculating or changing the plan requires internet
 - Import GPX/KML via single or multi-select file picker, share sheet, or URL
 - Multiple routes with distinct colors

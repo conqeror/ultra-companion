@@ -12,6 +12,7 @@ vi.mock("@/services/brouterClient", async (importOriginal) => ({
 vi.mock("@/store/routeStore", () => ({ useRouteStore: { getState: () => ({ saveParsedRoute }) } }));
 import { useRoutePlannerStore } from "@/store/routePlannerStore";
 import { parseBRouterRoute } from "@/services/brouterClient";
+import { useBRouterProfileStore } from "@/store/brouterProfileStore";
 
 const first = { longitude: 17.1, latitude: 48.1 };
 const second = { longitude: 17.2, latitude: 48.2 };
@@ -39,8 +40,37 @@ function addPoints() {
 describe("route planner", () => {
   beforeEach(() => {
     state().reset();
+    useBRouterProfileStore.setState({ profiles: [], selectedProfileId: null });
     fetchRoute.mockReset().mockResolvedValue(preview);
     saveParsedRoute.mockReset();
+  });
+
+  it("invalidates previews and pending work immediately when the selected profile changes", async () => {
+    let finishOld!: (route: ParsedRoute) => void;
+    fetchRoute.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishOld = resolve;
+        }),
+    );
+    addPoints();
+    const old = state().calculate();
+    useBRouterProfileStore.getState().saveProfile("Quiet roads", "source");
+    const profile = useBRouterProfileStore.getState().profiles[0];
+    useBRouterProfileStore.getState().selectProfile(profile.id);
+    expect((fetchRoute.mock.calls[0][1] as AbortSignal).aborted).toBe(true);
+    finishOld(preview);
+    await old;
+    expect(state().preview).toBeNull();
+    expect(await state().save("Stale route")).toBeNull();
+    await state().calculate();
+    expect(fetchRoute).toHaveBeenLastCalledWith([first, second], expect.any(AbortSignal), profile);
+    expect(state().preview).toBe(preview);
+    useBRouterProfileStore.getState().saveProfile("Edited", "edited source", profile.id);
+    expect(state().preview).toBeNull();
+    await state().calculate();
+    useBRouterProfileStore.getState().deleteProfile(profile.id);
+    expect(state()).toMatchObject({ profile: null, preview: null, waypoints: [first, second] });
   });
 
   it("immediately invalidates a preview when adding or undoing a waypoint", async () => {

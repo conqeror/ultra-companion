@@ -1,9 +1,12 @@
 import { create } from "zustand";
 import { fetchBRouterRoute, isRoutingWaypoint } from "@/services/brouterClient";
 import { useRouteStore } from "@/store/routeStore";
-import type { ParsedRoute, Route, RoutingWaypoint } from "@/types";
+import type { BRouterProfile, ParsedRoute, Route, RoutingWaypoint } from "@/types";
+import { getSelectedBRouterProfile, useBRouterProfileStore } from "@/store/brouterProfileStore";
 
 interface RoutePlannerState {
+  profile: BRouterProfile | null;
+  setProfile: (profile: BRouterProfile | null) => void;
   waypoints: RoutingWaypoint[];
   preview: ParsedRoute | null;
   isRouting: boolean;
@@ -33,6 +36,12 @@ export const useRoutePlannerStore = create<RoutePlannerState>((set, get) => {
     set({ waypoints, preview: null, error: null, isRouting: false });
   };
   return {
+    profile: getSelectedBRouterProfile(),
+    setProfile: (profile) => {
+      if (get().profile === profile) return;
+      cancelRequest();
+      set({ profile, preview: null, error: null, isRouting: false });
+    },
     waypoints: [],
     preview: null,
     error: null,
@@ -52,7 +61,7 @@ export const useRoutePlannerStore = create<RoutePlannerState>((set, get) => {
       set({ waypoints: [], preview: null, error: null, isRouting: false, savedRoute: null });
     },
     calculate: async () => {
-      const { waypoints, isSaving, savedRoute } = get();
+      const { waypoints, isSaving, savedRoute, profile } = get();
       if (waypoints.length < 2 || isSaving || savedRoute) return;
       cancelRequest();
       const currentGeneration = generation;
@@ -60,7 +69,7 @@ export const useRoutePlannerStore = create<RoutePlannerState>((set, get) => {
       const signal = request.signal;
       set({ isRouting: true, preview: null, error: null });
       try {
-        const preview = await fetchBRouterRoute(waypoints, signal);
+        const preview = await fetchBRouterRoute(waypoints, signal, profile);
         if (generation === currentGeneration) set({ preview, isRouting: false });
       } catch (error) {
         if (generation === currentGeneration) {
@@ -94,4 +103,9 @@ export const useRoutePlannerStore = create<RoutePlannerState>((set, get) => {
       }
     },
   };
+});
+
+// Invalidate synchronously on selection, edits, or deletion, before an old preview can be saved.
+useBRouterProfileStore.subscribe(() => {
+  useRoutePlannerStore.getState().setProfile(getSelectedBRouterProfile());
 });

@@ -20,6 +20,7 @@ The app has a Vitest suite for the bug classes that TypeScript and linting canno
 Covered areas:
 
 - BRouter response validation, coordinate order, request failures/timeouts/cancellation, and route-planner stale-response rejection, retry, preview invalidation, and duplicate-save protection
+- Named BRouter profile persistence/restoration and storage-failure recovery, custom-profile uploads and provider errors, and preview invalidation on profile selection/edit/deletion
 - Route import/export helpers and GPX serialization
 - Route geometry, distance buckets, route markers, route progress, and riding horizon helpers
 - Bounded long-route map geometry, compact fingerprints, and keyed-cache eviction
@@ -46,6 +47,9 @@ iOS route-planner check: Routes → New Route, tap a start and end, verify the r
 add a via point by extending the route, Undo, Clear, and retry after a connection failure.
 Save with a name and check route details, elevation, and GPX export. Check that leaving an unsaved
 draft offers discard, reopening starts empty, and web Routes has no New Route action.
+Custom profiles: add/import a `.brf` profile in Settings, rename/edit it, select it in the planner,
+and switch back to built-in road cycling. Verify recalculation, profile errors, retained selection
+after restart, and fallback to built-in after deleting the selected profile.
 
 React Native component rendering, Mapbox rendering, file picker/share-sheet behavior, SQLite migrations on device, and native offline tile downloads are still verified manually through the app and AXe screenshots rather than RN component tests.
 

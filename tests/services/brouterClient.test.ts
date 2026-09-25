@@ -23,6 +23,77 @@ afterEach(() => {
 });
 
 describe("BRouter", () => {
+  const customProfile = {
+    id: "local-id",
+    name: "Quiet roads",
+    content: "---context:way\nassign costfactor = 1",
+  };
+
+  it("uploads the exact selected source and routes with the returned temporary ID", async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ profileid: "custom_123" }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => response() });
+    vi.stubGlobal("fetch", fetch);
+    await fetchBRouterRoute(waypoints, undefined, customProfile);
+    expect(fetch.mock.calls[0]).toEqual([
+      "https://brouter.de/brouter/profile",
+      expect.objectContaining({
+        method: "POST",
+        body: customProfile.content,
+        headers: { "Content-Type": "text/plain;charset=UTF-8" },
+      }),
+    ]);
+    expect(new URL(fetch.mock.calls[1][0]).searchParams.get("profile")).toBe("custom_123");
+  });
+
+  it("surfaces profile syntax errors even when the upload returns HTTP 200", async () => {
+    const fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ profileid: "custom_123", error: "Profile error: invalid expression" }),
+    });
+    vi.stubGlobal("fetch", fetch);
+    await expect(fetchBRouterRoute(waypoints, undefined, customProfile)).rejects.toThrow(
+      "invalid expression",
+    );
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([{ profileid: "../bad" }, {}, { error: "Invalid profile" }])(
+    "rejects unusable upload responses without routing (%j)",
+    async (json) => {
+      const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => json });
+      vi.stubGlobal("fetch", fetch);
+      await expect(fetchBRouterRoute(waypoints, undefined, customProfile)).rejects.toThrow();
+      expect(fetch).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("never starts routing after cancellation during a profile upload", async () => {
+    const controller = new AbortController();
+    const fetch = vi.fn().mockImplementation(async () => {
+      controller.abort();
+      return { ok: true, json: async () => ({ profileid: "custom_123" }) };
+    });
+    vi.stubGlobal("fetch", fetch);
+    await expect(fetchBRouterRoute(waypoints, controller.signal, customProfile)).rejects.toThrow();
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("uploads fresh source on later calculations instead of reusing expiring IDs", async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ profileid: "custom_123" }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => response() })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ profileid: "custom_456" }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => response() });
+    vi.stubGlobal("fetch", fetch);
+    await fetchBRouterRoute(waypoints, undefined, customProfile);
+    await fetchBRouterRoute(waypoints, undefined, { ...customProfile, content: "edited source" });
+    expect(fetch.mock.calls[2][1].body).toBe("edited source");
+    expect(new URL(fetch.mock.calls[3][0]).searchParams.get("profile")).toBe("custom_456");
+  });
+
   it("converts longitude-first coordinates and elevation into an ordinary cumulative route", () => {
     const parsed = parseBRouterRoute(response());
     expect(parsed.points[0]).toMatchObject({

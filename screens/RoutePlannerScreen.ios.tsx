@@ -12,11 +12,14 @@ import { useSettingsStore } from "@/store/settingsStore";
 import { useThemeColors } from "@/theme";
 import { formatDistance, formatElevation } from "@/utils/formatters";
 import { cn } from "@/lib/cn";
+import { ChevronDown } from "lucide-react-native";
+import BRouterProfilePicker from "@/components/route/BRouterProfilePicker";
 
 export default function RoutePlannerScreen() {
   const planner = useRoutePlannerStore();
   const {
     waypoints,
+    profile,
     preview,
     error,
     isRouting,
@@ -30,6 +33,7 @@ export default function RoutePlannerScreen() {
   } = planner;
   const units = useSettingsStore((s) => s.units);
   const [naming, setNaming] = useState(false);
+  const [choosingProfile, setChoosingProfile] = useState(false);
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -47,7 +51,7 @@ export default function RoutePlannerScreen() {
     if (waypoints.length < 2) return;
     const timer = setTimeout(() => void calculate(), 500);
     return () => clearTimeout(timer);
-  }, [waypoints, calculate]);
+  }, [waypoints, profile, calculate]);
 
   useEffect(() => () => reset(), [reset]);
 
@@ -72,7 +76,7 @@ export default function RoutePlannerScreen() {
       <RoutePlannerMap
         waypoints={waypoints}
         points={preview?.points ?? null}
-        disabled={isSaving || naming}
+        disabled={isSaving || naming || choosingProfile}
         onAddPoint={addWaypoint}
       />
       <View
@@ -80,12 +84,25 @@ export default function RoutePlannerScreen() {
         style={{ paddingBottom: Math.max(insets.bottom, 12) }}
       >
         <View>
-          <View className="flex-row items-center justify-between">
-            <Text className="text-[15px] font-barlow-semibold text-foreground">
-              Road cycling · Online
-            </Text>
+          <View className="flex-row items-center justify-between gap-3">
+            <Button
+              variant="secondary"
+              className="flex-1 px-3"
+              disabled={isSaving}
+              accessibilityRole="button"
+              accessibilityLabel={`Routing profile: ${profile?.name ?? "Road cycling"}`}
+              onPress={() => setChoosingProfile(true)}
+            >
+              <Text
+                numberOfLines={1}
+                className="flex-1 text-[15px] font-barlow-semibold text-primary"
+              >
+                {profile?.name ?? "Road cycling"}
+              </Text>
+              <ChevronDown size={20} color={colors.accent} />
+            </Button>
             <Text className="text-[13px] text-muted-foreground">
-              {waypoints.length} {waypoints.length === 1 ? "point" : "points"}
+              Online · {waypoints.length} {waypoints.length === 1 ? "point" : "points"}
             </Text>
           </View>
           <Text className="mt-1 text-[13px] text-muted-foreground">{instruction}</Text>
@@ -162,6 +179,7 @@ export default function RoutePlannerScreen() {
           · Saved routes work offline
         </Text>
       </View>
+      <BRouterProfilePicker visible={choosingProfile} onClose={() => setChoosingProfile(false)} />
       <TextPromptModal
         visible={naming}
         title="Save route"
