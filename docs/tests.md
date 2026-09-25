@@ -19,6 +19,7 @@ The app has a Vitest suite for the bug classes that TypeScript and linting canno
 
 Covered areas:
 
+- BRouter response validation, coordinate order, request failures/timeouts/cancellation, and route-planner stale-response rejection, retry, preview invalidation, and duplicate-save protection
 - Route import/export helpers and GPX serialization
 - Route geometry, distance buckets, route markers, route progress, and riding horizon helpers
 - Bounded long-route map geometry, compact fingerprints, and keyed-cache eviction
@@ -40,6 +41,11 @@ Covered areas:
 - Offline readiness reconciliation for partial regions, missing style packs, interrupted sessions, and native enumeration errors
 
 ## Manual / Native Coverage
+
+iOS route-planner check: Routes → New Route, tap a start and end, verify the route/distance/ascent,
+add a via point by extending the route, Undo, Clear, and retry after a connection failure.
+Save with a name and check route details, elevation, and GPX export. Check that leaving an unsaved
+draft offers discard, reopening starts empty, and web Routes has no New Route action.
 
 React Native component rendering, Mapbox rendering, file picker/share-sheet behavior, SQLite migrations on device, and native offline tile downloads are still verified manually through the app and AXe screenshots rather than RN component tests.
 

@@ -5,6 +5,7 @@ import {
   TouchableOpacity,
   Alert,
   ActivityIndicator,
+  Platform,
   StyleSheet,
   type AlertButton,
 } from "react-native";
@@ -546,11 +547,11 @@ export default function RoutesScreen() {
     <View className="flex-1 bg-background">
       {isEmpty ? (
         <View className="flex-1 items-center justify-center pb-[100px]">
-          <Text className="text-xl font-barlow-semibold text-foreground mb-2">
-            No routes imported
-          </Text>
+          <Text className="text-xl font-barlow-semibold text-foreground mb-2">No routes yet</Text>
           <Text className="text-[15px] text-muted-foreground">
-            Import a GPX or KML file to get started
+            {Platform.OS === "ios"
+              ? "Plan a route or import a GPX or KML file"
+              : "Import a GPX or KML file to get started"}
           </Text>
         </View>
       ) : (
@@ -559,35 +560,48 @@ export default function RoutesScreen() {
           keyExtractor={(item) => `${item.type}-${item.data.id}`}
           renderItem={renderItem}
           renderSectionHeader={renderSectionHeader}
-          contentContainerStyle={{ padding: 16, paddingBottom: 112 }}
+          contentContainerStyle={{ padding: 16, paddingBottom: Platform.OS === "ios" ? 176 : 112 }}
           stickySectionHeadersEnabled={false}
         />
       )}
 
-      <View className="absolute bottom-0 left-0 right-0 px-5 pb-8 pt-3 flex-row gap-3 bg-background">
-        <Button
-          className="flex-1"
-          variant="secondary"
-          onPress={handleCreateCollection}
-          label="New Collection"
-        />
-        <Button
-          className="flex-1"
-          onPress={handleImportRoute}
-          disabled={isLoading}
-          label={isLoading ? undefined : "Import Route"}
-        >
-          {isLoading && (
-            <View className="flex-row items-center justify-center gap-2">
-              <ActivityIndicator color="#fff" />
-              {importProgress && (
-                <Text className="text-primary-foreground text-[15px] font-barlow-semibold">
-                  {importProgress.current}/{importProgress.total}
-                </Text>
-              )}
-            </View>
-          )}
-        </Button>
+      <View className="absolute bottom-0 left-0 right-0 px-5 pb-8 pt-3 gap-3 bg-background">
+        {Platform.OS === "ios" && (
+          <Button
+            variant="secondary"
+            label="New Route"
+            accessibilityRole="button"
+            onPress={() => {
+              if (isMenuRoute) router.replace("/route/new");
+              else router.push("/route/new");
+            }}
+          />
+        )}
+        <View className="flex-row gap-3">
+          <Button
+            className="flex-1"
+            variant="secondary"
+            onPress={handleCreateCollection}
+            label="New Collection"
+          />
+          <Button
+            className="flex-1"
+            onPress={handleImportRoute}
+            disabled={isLoading}
+            label={isLoading ? undefined : "Import Route"}
+          >
+            {isLoading && (
+              <View className="flex-row items-center justify-center gap-2">
+                <ActivityIndicator color="#fff" />
+                {importProgress && (
+                  <Text className="text-primary-foreground text-[15px] font-barlow-semibold">
+                    {importProgress.current}/{importProgress.total}
+                  </Text>
+                )}
+              </View>
+            )}
+          </Button>
+        </View>
       </View>
 
       <TextPromptModal

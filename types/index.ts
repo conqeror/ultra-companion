@@ -23,6 +23,11 @@ export const MAP_STYLE_URL = "mapbox://styles/mapbox/outdoors-v12";
 
 // --- Phase 2: Route types ---
 
+export interface RoutingWaypoint {
+  latitude: number;
+  longitude: number;
+}
+
 export interface RoutePoint {
   latitude: number;
   longitude: number;

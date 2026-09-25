@@ -82,14 +82,14 @@ export default function TextPromptModal({
           />
           <View className="mt-4 flex-row gap-2">
             <Button
-              className="h-12 flex-1"
+              className="h-[48px] flex-1"
               variant="secondary"
               label={cancelLabel}
               onPress={onCancel}
               disabled={isSubmitting}
             />
             <Button
-              className={cn("h-12 flex-1", submitDisabled && "opacity-50")}
+              className={cn("h-[48px] flex-1", submitDisabled && "opacity-50")}
               label={isSubmitting ? "Saving..." : confirmLabel}
               onPress={handleSubmit}
               disabled={submitDisabled}

@@ -22,6 +22,7 @@ import type {
   RouteSnapHistorySample,
   RouteImportProgress,
   RouteImportSummary,
+  ParsedRoute,
 } from "@/types";
 
 const MAX_SNAP_HISTORY_SAMPLES = 5;
@@ -79,6 +80,11 @@ interface RouteState {
   loadRoutesAndPoints: () => Promise<void>;
   importRoute: () => Promise<RouteImportSummary | null>;
   importFromUri: (uri: string, fileName: string, options?: ImportFromUriOptions) => Promise<Route>;
+  saveParsedRoute: (
+    parsed: ParsedRoute,
+    fileName: string,
+    options?: ImportFromUriOptions,
+  ) => Promise<Route>;
   deleteRoute: (id: string) => Promise<void>;
   toggleVisibility: (id: string) => Promise<void>;
   setActiveRoute: (id: string) => Promise<void>;
@@ -167,6 +173,10 @@ export const useRouteStore = create<RouteState>((set, get) => ({
 
     const parsed = ext === "gpx" ? parseGPX(content, fileName) : parseKML(content, fileName);
 
+    return get().saveParsedRoute(parsed, fileName, options);
+  },
+
+  saveParsedRoute: async (parsed, fileName, options) => {
     const route: Route = {
       id: generateId(),
       name: parsed.name,

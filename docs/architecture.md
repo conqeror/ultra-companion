@@ -163,6 +163,20 @@ ETA computation: for each route segment, solve `P = (Crr × m × g × cos(θ) + 
 
 ## Key Technical Decisions
 
+### Online route planning (iOS)
+
+`routePlannerStore` owns an in-memory draft of ordered waypoints and its current preview.
+The iOS planner debounces point changes, calls the public BRouter HTTPS endpoint with
+the `fastbike` profile, and validates the returned GeoJSON before calculating local route
+statistics. Edits and exit cancel the current request and invalidate its generation, so
+obsolete responses cannot restore an old preview. Failures preserve selected points for retry.
+Planning requires connectivity; no routing engine or routing-data downloads run on the phone.
+
+Saving passes the preview to `routeStore.saveParsedRoute`, the same atomic route/points/climbs
+persistence path used by file imports. The saved route works with existing offline preparation,
+collections, ETA, POIs, and GPX export. Waypoints are not persisted for later editing. The draft
+is discarded on exit, with confirmation for unsaved points. The browser does not expose planning.
+
 ### Data and UI ownership
 
 - `planningTransportFormat` owns the shared planning-file constants and pure row/byte decoding. Native and web transports retain their respective merge and replacement policies.
