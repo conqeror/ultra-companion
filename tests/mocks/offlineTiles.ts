@@ -17,7 +17,7 @@ export function resetOfflineTilesMocks(): void {
   offlineTilesMocks.deleteRoutePacks.mockResolvedValue(undefined);
   offlineTilesMocks.downloadRouteTiles.mockImplementation(
     async (_routeId, _points, _onProgress, onComplete) => {
-      onComplete();
+      onComplete(0);
     },
   );
   offlineTilesMocks.estimateDownloadSize.mockReturnValue(0);

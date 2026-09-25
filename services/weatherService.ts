@@ -46,6 +46,12 @@ export interface WeatherTimelineBuildResult {
   forecastUntilMs: number | null;
 }
 
+export interface WeatherForecastRequirements {
+  forecastHours: number;
+  fromTimeMs: number;
+  untilTimeMs: number;
+}
+
 function validRouteStartDistance(points: RoutePoint[], distanceMeters: number): number | null {
   if (points.length === 0) return null;
   if (!Number.isFinite(distanceMeters)) return null;
@@ -441,9 +447,32 @@ export async function fetchWeatherForecastsForRoute(
   cumulativeTime: number[],
   options: WeatherTimelineOptions = {},
 ): Promise<HourlyForecast[]> {
-  const projectionStart = options.projectionStartTime ?? new Date();
   const waypoints = sampleWaypoints(points, fromDistanceAlongRouteM);
   if (waypoints.length === 0) return [];
+
+  const requirements = getWeatherForecastRequirements(
+    points,
+    fromDistanceAlongRouteM,
+    cumulativeTime,
+    options,
+  );
+  if (!requirements) return [];
+
+  return fetchForecasts(
+    waypoints.map((w) => ({ latitude: w.latitude, longitude: w.longitude })),
+    requirements.forecastHours,
+  );
+}
+
+/** Use the same ETA, stop plan, and provider limit for requests and cache reuse. */
+export function getWeatherForecastRequirements(
+  points: RoutePoint[],
+  fromDistanceAlongRouteM: number,
+  cumulativeTime: number[],
+  options: WeatherTimelineOptions = {},
+): WeatherForecastRequirements | null {
+  if (validRouteStartDistance(points, fromDistanceAlongRouteM) == null) return null;
+  const projectionStart = options.projectionStartTime ?? new Date();
 
   const routeEndMeters = points[points.length - 1].distanceFromStartMeters;
   const finishEta = etaToDistanceWithStops(
@@ -456,7 +485,7 @@ export async function fetchWeatherForecastsForRoute(
   const maxRidingTimeSeconds =
     finishEta?.ridingTimeSeconds ??
     Math.max(
-      ...waypoints.map((waypoint) => {
+      ...sampleWaypoints(points, fromDistanceAlongRouteM).map((waypoint) => {
         const eta = etaToDistanceWithStops(
           cumulativeTime,
           points,
@@ -468,10 +497,19 @@ export async function fetchWeatherForecastsForRoute(
       }),
     );
 
-  return fetchForecasts(
-    waypoints.map((w) => ({ latitude: w.latitude, longitude: w.longitude })),
-    forecastHoursForProjection(projectionStart, maxRidingTimeSeconds),
-  );
+  const currentHourMs = Math.floor(Date.now() / 3600_000) * 3600_000;
+  return {
+    forecastHours: forecastHoursForProjection(projectionStart, maxRidingTimeSeconds),
+    // A route may span beyond the provider horizon. Reusing its maximum available
+    // coverage must not cause repeated requests for hours the provider cannot supply.
+    fromTimeMs: Math.max(projectionStart.getTime(), currentHourMs),
+    untilTimeMs: Math.min(
+      projectionStart.getTime() +
+        maxRidingTimeSeconds * 1000 +
+        POST_FINISH_FORECAST_HOURS * 3600_000,
+      currentHourMs + (OPEN_METEO_MAX_FORECAST_HOURS - 1) * 3600_000,
+    ),
+  };
 }
 
 export function buildWeatherTimelineFromForecasts(

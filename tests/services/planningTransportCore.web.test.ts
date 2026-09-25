@@ -15,7 +15,6 @@ const databaseWebMocks = vi.hoisted(() => ({
   getAllRoutes: vi.fn(),
   getPlanningMetadata: vi.fn(),
   getWebSQLiteDatabase: vi.fn(),
-  resetWebSQLiteDatabaseStorage: vi.fn(),
   setPlanningMetadata: vi.fn(),
 }));
 
@@ -84,7 +83,6 @@ describe("planningTransportCore.web", () => {
     databaseWebMocks.getPlanningMetadata.mockResolvedValue(null);
     databaseWebMocks.setPlanningMetadata.mockResolvedValue(undefined);
     databaseWebMocks.getWebSQLiteDatabase.mockResolvedValue(createTargetDatabase());
-    databaseWebMocks.resetWebSQLiteDatabaseStorage.mockResolvedValue(undefined);
   });
 
   it("exports the current database as transport version 2", async () => {
@@ -145,6 +143,8 @@ describe("planningTransportCore.web", () => {
   });
 
   it("requires the ferry table for version 2 imports", async () => {
+    const target = createTargetDatabase();
+    databaseWebMocks.getWebSQLiteDatabase.mockResolvedValue(target);
     sqliteMocks.deserializeDatabaseAsync.mockResolvedValue(
       createSourceDatabase({ version: 2, ferryTableExists: false }),
     );
@@ -152,7 +152,7 @@ describe("planningTransportCore.web", () => {
     await expect(importPlanningDatabaseFromBytes(new Uint8Array([1, 2, 3]))).rejects.toThrow(
       "Missing table: ferry_crossings",
     );
-    expect(databaseWebMocks.resetWebSQLiteDatabaseStorage).not.toHaveBeenCalled();
+    expect(target.runAsync).not.toHaveBeenCalled();
   });
 
   it("replaces browser ferry rows and preserves ferry JSON fields on version 2 import", async () => {

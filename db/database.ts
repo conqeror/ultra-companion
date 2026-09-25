@@ -19,12 +19,15 @@ import {
   shouldPrepareFerryCrossingsSchema,
 } from "./ferrySchemaCompatibility";
 import { measureAsync } from "@/utils/perfMarks";
+import { preparePOIRefresh } from "./poiRefresh";
+import { applyPOIRiderFields } from "./poiRiderFields";
 import type {
   Route,
   RoutePoint,
   RouteWithPoints,
   FerryCrossing,
   POI,
+  POIRiderFieldsPatch,
   POICategory,
   POISource,
   StarredEntityType,
@@ -569,43 +572,59 @@ export async function updateRouteElevationData(
 
 // --- POI CRUD ---
 
+function insertPOIsInTransaction(tx: Pick<typeof db, "insert">, newPois: POI[]): void {
+  const CHUNK = 500;
+  for (let i = 0; i < newPois.length; i += CHUNK) {
+    const chunk = newPois.slice(i, i + CHUNK);
+    tx.insert(pois)
+      .values(
+        chunk.map((p) => ({
+          id: p.id,
+          sourceId: p.sourceId,
+          source: p.source,
+          routeId: p.routeId,
+          name: p.name,
+          category: p.category,
+          latitude: p.latitude,
+          longitude: p.longitude,
+          tags: p.tags,
+          distanceFromRouteMeters: p.distanceFromRouteMeters,
+          distanceAlongRouteMeters: p.distanceAlongRouteMeters,
+        })),
+      )
+      .onConflictDoUpdate({
+        target: pois.id,
+        set: {
+          name: sql`excluded.name`,
+          category: sql`excluded.category`,
+          latitude: sql`excluded.latitude`,
+          longitude: sql`excluded.longitude`,
+          tags: sql`excluded.tags`,
+          distanceFromRouteMeters: sql`excluded.distanceFromRouteMeters`,
+          distanceAlongRouteMeters: sql`excluded.distanceAlongRouteMeters`,
+        },
+      })
+      .run();
+  }
+}
+
 export async function insertPOIs(newPois: POI[]): Promise<void> {
   if (newPois.length === 0) return;
+  db.transaction((tx) => insertPOIsInTransaction(tx, newPois));
+}
 
+/** Replace fetched data atomically, preserving rider tags and existing stars. */
+export async function replacePOIsBySource(
+  routeId: string,
+  source: "osm" | "google",
+  newPois: POI[],
+): Promise<void> {
+  const where = and(eq(pois.routeId, routeId), eq(pois.source, source));
   db.transaction((tx) => {
-    const CHUNK = 500;
-    for (let i = 0; i < newPois.length; i += CHUNK) {
-      const chunk = newPois.slice(i, i + CHUNK);
-      tx.insert(pois)
-        .values(
-          chunk.map((p) => ({
-            id: p.id,
-            sourceId: p.sourceId,
-            source: p.source,
-            routeId: p.routeId,
-            name: p.name,
-            category: p.category,
-            latitude: p.latitude,
-            longitude: p.longitude,
-            tags: p.tags,
-            distanceFromRouteMeters: p.distanceFromRouteMeters,
-            distanceAlongRouteMeters: p.distanceAlongRouteMeters,
-          })),
-        )
-        .onConflictDoUpdate({
-          target: pois.id,
-          set: {
-            name: sql`excluded.name`,
-            category: sql`excluded.category`,
-            latitude: sql`excluded.latitude`,
-            longitude: sql`excluded.longitude`,
-            tags: sql`excluded.tags`,
-            distanceFromRouteMeters: sql`excluded.distanceFromRouteMeters`,
-            distanceAlongRouteMeters: sql`excluded.distanceAlongRouteMeters`,
-          },
-        })
-        .run();
-    }
+    const existing = tx.select().from(pois).where(where).all();
+    const refreshed = preparePOIRefresh(routeId, source, existing, newPois);
+    tx.delete(pois).where(where).run();
+    insertPOIsInTransaction(tx, refreshed);
   });
 }
 
@@ -682,8 +701,19 @@ export async function deletePOIsBySource(
   });
 }
 
-export async function updatePOITags(poiId: string, tags: Record<string, string>): Promise<void> {
-  db.update(pois).set({ tags }).where(eq(pois.id, poiId)).run();
+export async function updatePOIRiderFields(
+  routeId: string,
+  poiId: string,
+  patch: POIRiderFieldsPatch,
+): Promise<POI | null> {
+  return db.transaction((tx) => {
+    const where = and(eq(pois.routeId, routeId), eq(pois.id, poiId));
+    const poi = tx.select().from(pois).where(where).get();
+    if (!poi) return null;
+    const tags = applyPOIRiderFields(poi.tags, patch);
+    tx.update(pois).set({ tags }).where(where).run();
+    return { ...poi, tags };
+  });
 }
 
 export async function deletePOI(poiId: string): Promise<void> {

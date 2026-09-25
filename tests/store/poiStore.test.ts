@@ -30,6 +30,26 @@ describe("poiStore starred POIs", () => {
     expect([...usePoiStore.getState().starredPOIIds]).toEqual(["poi-1", "poi-2"]);
   });
 
+  it("reloads imported POIs when the retained source counts have not changed", async () => {
+    const original = buildPoi("poi-1", "route-1", 500, { source: "osm" });
+    databaseMocks.getPOIsForRoute.mockResolvedValueOnce([original]);
+    await usePoiStore.getState().loadPOIs("route-1");
+    const sourceInfo = usePoiStore.getState().sourceInfo;
+
+    // Planner refresh clears the view cache but retains source status/counts.
+    usePoiStore.setState({ pois: {}, selectedPOI: null });
+    const imported = buildPoi("poi-1", "route-1", 500, {
+      source: "osm",
+      tags: { notes: "Refill here", planned_stop_duration_minutes: "30" },
+    });
+    databaseMocks.getPOIsForRoute.mockResolvedValueOnce([imported]);
+
+    await usePoiStore.getState().loadPOIs("route-1");
+
+    expect(usePoiStore.getState().pois["route-1"]).toEqual([imported]);
+    expect(usePoiStore.getState().sourceInfo).toEqual(sourceInfo);
+  });
+
   it("persists star toggles optimistically", async () => {
     await usePoiStore.getState().toggleStarred("poi-1");
 
@@ -96,13 +116,12 @@ describe("poiStore starred POIs", () => {
       tags: { notes: "shop", planned_stop_duration_minutes: "15" },
     });
     usePoiStore.setState({ pois: { "route-1": [poi] }, selectedPOI: toDisplayPOI(poi) });
-    databaseMocks.getPOIsForRoute.mockResolvedValueOnce([updated]);
+    databaseMocks.updatePOIRiderFields.mockResolvedValueOnce(updated);
 
     await usePoiStore.getState().updatePlannedStopDuration("route-1", "poi-1", 15);
 
-    expect(databaseMocks.updatePOITags).toHaveBeenCalledWith("poi-1", {
-      notes: "shop",
-      planned_stop_duration_minutes: "15",
+    expect(databaseMocks.updatePOIRiderFields).toHaveBeenCalledWith("route-1", "poi-1", {
+      plannedStopDurationMinutes: 15,
     });
     expect(usePoiStore.getState().pois["route-1"]).toEqual([updated]);
     expect(usePoiStore.getState().selectedPOI?.tags.planned_stop_duration_minutes).toBe("15");
@@ -114,10 +133,57 @@ describe("poiStore starred POIs", () => {
     });
     const updated = buildPoi("poi-1", "route-1", 500, { tags: { notes: "shop" } });
     usePoiStore.setState({ pois: { "route-1": [poi] } });
-    databaseMocks.getPOIsForRoute.mockResolvedValueOnce([updated]);
+    databaseMocks.updatePOIRiderFields.mockResolvedValueOnce(updated);
 
     await usePoiStore.getState().updatePlannedStopDuration("route-1", "poi-1", 0);
 
-    expect(databaseMocks.updatePOITags).toHaveBeenCalledWith("poi-1", { notes: "shop" });
+    expect(databaseMocks.updatePOIRiderFields).toHaveBeenCalledWith("route-1", "poi-1", {
+      plannedStopDurationMinutes: 0,
+    });
+  });
+
+  it("uses the committed rider edit and preserves the selected collection offset", async () => {
+    const stale = buildPoi("poi-1", "route-1", 500, { tags: { notes: "Old note" } });
+    const updated = {
+      ...stale,
+      distanceAlongRouteMeters: 550,
+      tags: { notes: "New note", planned_stop_duration_minutes: "30", opening_hours: "24/7" },
+    };
+    const selected = toDisplayPOI(stale, 2_000);
+    usePoiStore.setState({ pois: { "route-1": [stale] }, selectedPOI: selected });
+    databaseMocks.updatePOIRiderFields.mockResolvedValueOnce(updated);
+
+    await usePoiStore.getState().updatePOINotes("route-1", "poi-1", "New note");
+
+    expect(databaseMocks.updatePOIRiderFields).toHaveBeenCalledWith("route-1", "poi-1", {
+      notes: "New note",
+    });
+    expect(usePoiStore.getState().pois["route-1"]).toEqual([updated]);
+    expect(usePoiStore.getState().selectedPOI).toEqual(toDisplayPOI(updated, 2_000));
+    expect(databaseMocks.getPOIsForRoute).not.toHaveBeenCalled();
+  });
+
+  it("updates a selected POI without creating a partial cold route cache", async () => {
+    const poi = buildPoi("poi-1", "route-1", 500);
+    usePoiStore.setState({ selectedPOI: toDisplayPOI(poi) });
+    databaseMocks.updatePOIRiderFields.mockResolvedValueOnce({ ...poi, tags: { notes: "Saved" } });
+
+    await usePoiStore.getState().updatePOINotes("route-1", "poi-1", "Saved");
+
+    expect(usePoiStore.getState().pois["route-1"]).toBeUndefined();
+    expect(usePoiStore.getState().selectedPOI?.tags.notes).toBe("Saved");
+  });
+
+  it("leaves view state unchanged when the rider edit fails", async () => {
+    const poi = buildPoi("poi-1", "route-1", 500, { tags: { notes: "Keep" } });
+    usePoiStore.setState({ pois: { "route-1": [poi] }, selectedPOI: toDisplayPOI(poi) });
+    const before = usePoiStore.getState();
+    databaseMocks.updatePOIRiderFields.mockRejectedValueOnce(new Error("Write failed"));
+
+    await expect(usePoiStore.getState().updatePOINotes("route-1", "poi-1", "New")).rejects.toThrow(
+      "Write failed",
+    );
+
+    expect(usePoiStore.getState()).toBe(before);
   });
 });

@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { addNetworkStateListener, getNetworkStateAsync } from "expo-network";
 import { createKeyValueStorage, type KeyValueStorage } from "@/lib/keyValueStorage";
-import type { OfflineRouteInfo, RoutePoint } from "@/types";
+import type { OfflineRouteInfo, OfflineRoutePack, RoutePoint } from "@/types";
 import { poiDiscoveryCategoriesForSource } from "@/constants";
 import { getFerryCrossingsForRoute, getPOICountsBySource, getRoute } from "@/db/database";
 import {
@@ -23,7 +23,19 @@ function getStorage(): KeyValueStorage {
 function readRouteInfo(): Record<string, OfflineRouteInfo> {
   try {
     const raw = getStorage().getString("routeInfo");
-    if (raw) return JSON.parse(raw);
+    if (raw) {
+      const info = JSON.parse(raw) as Record<string, OfflineRouteInfo>;
+      for (const entry of Object.values(info)) {
+        if (entry.status === "downloading") {
+          entry.status = "error";
+          entry.error = "Download was interrupted. Please retry.";
+        } else if (entry.status === "complete" && entry.readinessVersion !== 1) {
+          entry.status = "error";
+          entry.error = "Offline map resources need verification. Please retry if incomplete.";
+        }
+      }
+      return info;
+    }
   } catch {}
   return {};
 }
@@ -62,6 +74,8 @@ interface OfflineState {
 }
 
 const downloadGenerations = new Map<string, number>();
+const activeDownloads = new Map<string, number>();
+let statusRefreshGeneration = 0;
 
 function nextDownloadGeneration(routeId: string): number {
   const next = (downloadGenerations.get(routeId) ?? 0) + 1;
@@ -126,6 +140,7 @@ export const useOfflineStore = create<OfflineState>((set, get) => ({
     if (get().routeInfo[routeId]?.status === "downloading") return;
 
     const generation = nextDownloadGeneration(routeId);
+    activeDownloads.set(routeId, generation);
     const estimated = estimateDownloadSize(points);
 
     // Persist-and-set helper for non-progress updates
@@ -173,11 +188,14 @@ export const useOfflineStore = create<OfflineState>((set, get) => ({
             },
           }));
         },
-        () => {
+        (completedBytes) => {
           updateInfo({
             status: "complete",
             percentage: 100,
+            downloadedBytes: completedBytes,
             downloadedAt: new Date().toISOString(),
+            readinessVersion: 1,
+            error: null,
           });
         },
         (error) => {
@@ -187,6 +205,8 @@ export const useOfflineStore = create<OfflineState>((set, get) => ({
     } catch (error) {
       const message = error instanceof Error ? error.message : "Download failed";
       updateInfo({ status: "error", error: message });
+    } finally {
+      if (activeDownloads.get(routeId) === generation) activeDownloads.delete(routeId);
     }
   },
 
@@ -248,24 +268,53 @@ export const useOfflineStore = create<OfflineState>((set, get) => ({
   },
 
   refreshAllStatuses: async () => {
-    const routePacks = await getAllRoutePacks();
+    const refreshGeneration = ++statusRefreshGeneration;
+    const generationsAtStart = new Map(downloadGenerations);
+    const activeAtStart = new Set(activeDownloads.keys());
+    let routePacks: OfflineRoutePack[];
+    try {
+      routePacks = await getAllRoutePacks();
+    } catch (error) {
+      // An unavailable inventory is not evidence that resources were deleted.
+      console.warn("Failed to check offline map resources:", error);
+      return;
+    }
+    if (refreshGeneration !== statusRefreshGeneration) return;
+
+    const changedDuringRefresh = (routeId: string) =>
+      activeAtStart.has(routeId) ||
+      activeDownloads.has(routeId) ||
+      generationsAtStart.get(routeId) !== downloadGenerations.get(routeId);
     const current = get().routeInfo;
     const updated = { ...current };
     let changed = false;
 
     for (const pack of routePacks) {
-      const existing = updated[pack.routeId];
-      if (existing?.status === "downloading" || existing?.status === "error") {
-        updated[pack.routeId] = {
-          ...existing,
-          status: "complete",
-          percentage: 100,
-          downloadedBytes: pack.totalBytes,
-          downloadedAt: new Date().toISOString(),
-        };
-        changed = true;
-      } else if (existing?.status === "complete" && existing.downloadedBytes !== pack.totalBytes) {
-        updated[pack.routeId] = { ...existing, downloadedBytes: pack.totalBytes };
+      if (changedDuringRefresh(pack.routeId)) continue;
+      const existing = updated[pack.routeId] ?? DEFAULT_ROUTE_INFO;
+      const tilesComplete =
+        pack.requiredResourceCount > 0 &&
+        pack.completedResourceCount === pack.requiredResourceCount;
+      const complete = tilesComplete && pack.stylePackComplete;
+      const next: OfflineRouteInfo = {
+        ...existing,
+        status: complete ? "complete" : "error",
+        percentage: complete
+          ? 100
+          : pack.requiredResourceCount > 0
+            ? Math.min(99, (pack.completedResourceCount / pack.requiredResourceCount) * 100)
+            : 0,
+        downloadedBytes: pack.totalBytes,
+        downloadedAt: complete ? (existing.downloadedAt ?? new Date().toISOString()) : null,
+        readinessVersion: complete ? 1 : undefined,
+        error: complete
+          ? null
+          : tilesComplete
+            ? "Offline map style resources are missing or incomplete. Please retry."
+            : "Map tile download is incomplete. Please retry.",
+      };
+      if (JSON.stringify(next) !== JSON.stringify(updated[pack.routeId])) {
+        updated[pack.routeId] = next;
         changed = true;
       }
     }
@@ -273,7 +322,11 @@ export const useOfflineStore = create<OfflineState>((set, get) => ({
     // Remove orphaned entries (MMKV says downloaded but Mapbox has no packs)
     const packRouteIds = new Set(routePacks.map((p) => p.routeId));
     for (const routeId of Object.keys(updated)) {
-      if (updated[routeId].status !== "idle" && !packRouteIds.has(routeId)) {
+      if (
+        !changedDuringRefresh(routeId) &&
+        updated[routeId].status !== "idle" &&
+        !packRouteIds.has(routeId)
+      ) {
         delete updated[routeId];
         changed = true;
       }

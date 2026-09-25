@@ -1,4 +1,4 @@
-import type { RoutePoint } from "@/types";
+import type { OfflineRoutePack, RoutePoint } from "@/types";
 
 /**
  * Estimate download size using the native heuristic so route screens keep the
@@ -15,7 +15,7 @@ export async function downloadRouteTiles(
   _routeId: string,
   _points: RoutePoint[],
   _onProgress: (percentage: number, completedBytes: number) => void,
-  _onComplete: () => void,
+  _onComplete: (completedBytes: number) => void,
   onError: (error: string) => void,
 ): Promise<void> {
   onError("Offline tile downloads are not available on web.");
@@ -23,6 +23,6 @@ export async function downloadRouteTiles(
 
 export async function deleteRoutePacks(_routeId: string): Promise<void> {}
 
-export async function getAllRoutePacks(): Promise<Array<{ routeId: string; totalBytes: number }>> {
+export async function getAllRoutePacks(): Promise<OfflineRoutePack[]> {
   return [];
 }

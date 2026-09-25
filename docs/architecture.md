@@ -125,6 +125,8 @@ ETA computation: for each route segment, solve `P = (Crr × m × g × cos(θ) + 
 
 - Tile downloads are explicit: route/collection detail exposes map-tile-only actions and broader "Prepare for Offline" actions
 - Native offline tile regions are downloaded along a downsampled LineString corridor
+- Downloads also retain the Outdoors style pack used by both bundled light/dark styles, including sprites and glyphs
+- Readiness requires complete native tile resource counts and a complete retained style pack; interrupted or legacy unverified downloads remain retryable after restart
 - Zoom range is 10–14 (`OFFLINE_MIN_ZOOM` / `OFFLINE_MAX_ZOOM`)
 - Size estimate is intentionally rough at ~0.5 MB/km; actual Mapbox vector-tile size varies by terrain/city density
 
@@ -136,6 +138,7 @@ ETA computation: for each route segment, solve `P = (Crr × m × g × cos(θ) + 
 - ~1–5 MB per 1000 km route corridor
 - Saved custom POIs use `source: "custom"` and store notes, Google place IDs, and Google Maps links in `tags`. They can be created from the iOS share sheet or manual coordinates, and are not removed by clearing or refetching fetched OSM/Google data.
 - Starred fetched/custom POIs are stored separately in SQLite so they persist across app restarts and can be exported.
+- Refreshing a fetched source replaces its provider data transactionally while preserving rider notes and planned-stop durations on matching POIs. A failed replacement retains the previous source data.
 
 ### Elevation Data
 
@@ -159,6 +162,15 @@ ETA computation: for each route segment, solve `P = (Crr × m × g × cos(θ) + 
 - Android source and configuration are retained for shared Expo/native compatibility, but Android behavior is not part of the supported or tested product surface.
 
 ## Key Technical Decisions
+
+### Data and UI ownership
+
+- `planningTransportFormat` owns the shared planning-file constants and pure row/byte decoding. Native and web transports retain their respective merge and replacement policies.
+- `updatePOIRiderFields` applies typed note/stop patches to the latest SQLite row in a transaction and returns the committed POI. Store callers do not replace provider tags from old UI snapshots.
+- `mapPanelActions` coordinates POI/climb selection with `panelStore` navigation. Data setters have no navigation side effects. The browser's bottom panel and sidebar are separate selections owned by that same store.
+- `useRouteDetailModel` shares route/ferry loading, cancellation, error recovery, preview layers, and riding statistics between native and browser route details.
+- `useActiveRouteLifecycle`, `useActiveRoutePosition`, and `useActiveCollectionVariants` own active-plan preparation, on-demand GPS/snapping, and variant previews. `MapView` owns rendering and camera behavior. No GPS polling is introduced.
+- Weather stores reusable forecast data separately from the route/ETA/start/stop projection. Request generations reject obsolete completions; the visible timeline is checked against the active route geometry.
 
 ### SQLite over AsyncStorage for POIs
 
@@ -213,4 +225,6 @@ Routes and stitched collections export as GPX 1.1 tracks. Starred POIs and saved
 
 ### Planning Database Transfer
 
-The browser and iOS app exchange complete planning state through `.ultra-plan.db` files. Transport version 2 includes routes, points, collections, POIs, climbs, ferries, starred state, and planning metadata; version 1 files remain importable. Import replaces the destination planning workspace. It is a file-based offline workflow rather than account synchronization, so the transfer file should be treated as a snapshot rather than mergeable or continuously synced state.
+The browser and iOS app exchange planning snapshots through `.ultra-plan.db` files. Transport version 2 includes routes, points, collections, POIs, climbs, ferries, starred state, and planning metadata; version 1 files remain importable.
+
+Browser import replaces the planning tables and derived ETA cache in one transaction on the existing database. The previous workspace remains intact if a write fails. Browser transactions share a queue per SQLite connection so overlapping imports and source refreshes cannot roll back each other's writes. Native import merges represented routes/collections into the local workspace. Fetched POIs missing locally are inserted even when the export lacks `planner_fetched_sources`; existing fetched records outside that explicit replacement scope retain their local provider fields while importing planning tags. Custom POIs are upserted. This is an explicit file transfer, not continuous account synchronization.

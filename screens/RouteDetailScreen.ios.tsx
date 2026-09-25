@@ -9,8 +9,8 @@ import { useRouteStore } from "@/store/routeStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import { usePoiStore } from "@/store/poiStore";
 import { useClimbStore } from "@/store/climbStore";
-import { useFerryStore } from "@/store/ferryStore";
-import type { RouteWithPoints, Climb, FerryCrossing } from "@/types";
+import { useRouteDetailModel } from "@/hooks/useRouteDetailModel";
+import type { Climb } from "@/types";
 import { formatDistance, formatElevation } from "@/utils/formatters";
 import { findPointIndexAtOrAfterDistance } from "@/utils/geo";
 import { resolveRouteProgress } from "@/utils/routeProgress";
@@ -25,11 +25,9 @@ import {
   projectRoutePointsForRidingProfile,
   ridingDistanceAtGeometricDistance,
   ridingDistanceBetween,
-  toDisplayFerryCrossing,
-  totalRidingDistanceMeters,
 } from "@/services/ferryCrossings";
 import ElevationProfile from "@/components/elevation/ElevationProfile";
-import RoutePreviewMap, { type RoutePreviewMapLayer } from "@/components/map/RoutePreviewMap";
+import RoutePreviewMap from "@/components/map/RoutePreviewMap";
 import StatBox from "@/components/common/StatBox";
 import DataSection from "@/components/route/DataSection";
 import AddSavedPOISheet from "@/components/poi/AddSavedPOISheet";
@@ -39,41 +37,25 @@ import { shareGPXFile } from "@/utils/gpxExportShare";
 import { measureSync } from "@/utils/perfMarks";
 import { yieldToUI } from "@/utils/yieldToUI";
 import RouteFerriesSection from "@/components/ferry/RouteFerriesSection";
-import { buildFerryAwarePreviewLayers } from "@/utils/ferryMapRoute";
+import { openPOI } from "@/services/mapPanelActions";
 
 const EMPTY_CLIMBS: Climb[] = [];
-const EMPTY_FERRIES: FerryCrossing[] = [];
 
 export default function RouteDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { width: screenWidth } = useWindowDimensions();
   const colors = useThemeColors();
 
-  const [route, setRoute] = useState<RouteWithPoints | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { route, loading, error, retry, routeFerries, displayFerries, previewLayers, ridingStats } =
+    useRouteDetailModel(id);
   const [showAddPOI, setShowAddPOI] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
 
-  const getRouteDetail = useRouteStore((s) => s.getRouteDetail);
   const snappedPosition = useRouteStore((s) => s.snappedPosition);
   const units = useSettingsStore((s) => s.units);
   const loadPOIs = usePoiStore((s) => s.loadPOIs);
   const getStarredPOIs = usePoiStore((s) => s.getStarredPOIs);
   const starredPOIIds = usePoiStore((s) => s.starredPOIIds);
-  const setSelectedPOI = usePoiStore((s) => s.setSelectedPOI);
-  const loadFerries = useFerryStore((s) => s.loadFerries);
-  const routeFerries = useFerryStore((s) =>
-    id ? (s.ferries[id] ?? EMPTY_FERRIES) : EMPTY_FERRIES,
-  );
-
-  useEffect(() => {
-    if (!id) return;
-    (async () => {
-      const detail = await getRouteDetail(id);
-      setRoute(detail);
-      setLoading(false);
-    })();
-  }, [id, getRouteDetail]);
 
   const loadClimbs = useClimbStore((s) => s.loadClimbs);
   const routeClimbs = useClimbStore((s) => (id ? (s.climbs[id] ?? EMPTY_CLIMBS) : EMPTY_CLIMBS));
@@ -82,9 +64,8 @@ export default function RouteDetailScreen() {
     if (id) {
       loadPOIs(id);
       loadClimbs(id);
-      loadFerries(id);
     }
-  }, [id, loadPOIs, loadClimbs, loadFerries]);
+  }, [id, loadPOIs, loadClimbs]);
 
   const activeRouteProgress = useMemo(
     () => resolveRouteProgress(snappedPosition, id, route?.points),
@@ -92,15 +73,6 @@ export default function RouteDetailScreen() {
   );
   const currentDistanceMeters = activeRouteProgress?.distanceAlongRouteMeters;
 
-  const ridingStats = useMemo(() => {
-    if (!route) return null;
-    const elevation = computeRidingElevationTotals(route.points, routeFerries);
-    return {
-      distance: totalRidingDistanceMeters(route.totalDistanceMeters, routeFerries),
-      ascent: elevation.ascent,
-      descent: elevation.descent,
-    };
-  }, [route, routeFerries]);
   const profilePoints = useMemo(
     () => (route ? projectRoutePointsForRidingProfile(route.points, routeFerries) : []),
     [route, routeFerries],
@@ -168,37 +140,6 @@ export default function RouteDetailScreen() {
     [routeClimbs, routeFerries],
   );
 
-  const displayFerries = useMemo(
-    () =>
-      route
-        ? routeFerries.map((crossing) =>
-            toDisplayFerryCrossing(
-              crossing,
-              crossing.startDistanceMeters,
-              crossing.endDistanceMeters,
-              0,
-              route.points,
-            ),
-          )
-        : [],
-    [route, routeFerries],
-  );
-
-  const previewLayers = useMemo<RoutePreviewMapLayer[]>(() => {
-    if (!route?.points.length) return [];
-    return buildFerryAwarePreviewLayers(
-      [
-        {
-          id: route.id,
-          cacheKey: route.id,
-          points: route.points,
-          isActive: true,
-        },
-      ],
-      displayFerries,
-    );
-  }, [displayFerries, route]);
-
   const savedPOITargets = useMemo<SavedPOITarget[]>(() => {
     if (!route) return [];
     return [{ routeId: route.id, routeName: route.name, points: route.points }];
@@ -239,7 +180,8 @@ export default function RouteDetailScreen() {
   if (!route) {
     return (
       <View className="flex-1 items-center justify-center bg-background">
-        <Text className="text-[17px] text-muted-foreground">Route not found</Text>
+        <Text className="text-[17px] text-muted-foreground">{error ?? "Route not found"}</Text>
+        {error && <Button className="mt-4" onPress={retry} label="Try again" />}
       </View>
     );
   }
@@ -283,7 +225,7 @@ export default function RouteDetailScreen() {
             currentPointIndex={currentPointIndex}
             currentDistanceMeters={currentRidingDistanceMeters}
             pois={chartPOIs}
-            onPOIPress={setSelectedPOI}
+            onPOIPress={openPOI}
             climbs={chartClimbs}
           />
         </View>

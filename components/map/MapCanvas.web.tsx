@@ -1,3 +1,4 @@
+import { openPOI } from "@/services/mapPanelActions";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { View } from "react-native";
 import Constants from "expo-constants";
@@ -934,7 +935,6 @@ function MapCanvas({
   const lastFitKey = useRef<string | null>(null);
   const renderedRouteIdsRef = useRef<string[]>([]);
   const selectedPOI = usePoiStore((s) => s.selectedPOI);
-  const setSelectedPOI = usePoiStore((s) => s.setSelectedPOI);
   const userPosition = useMapStore((s) => s.userPosition);
   const getVisiblePOIs = usePoiStore((s) => s.getVisiblePOIs);
   const getStarredPOIs = usePoiStore((s) => s.getStarredPOIs);
@@ -1722,7 +1722,7 @@ function MapCanvas({
         layers,
       });
       const poi = findPressedPOI(features, visiblePOIs);
-      if (poi) setSelectedPOI(poi);
+      if (poi) openPOI(poi);
     };
 
     for (const layer of ["poi-clusters-fill", "poi-cluster-summary-icon"]) {
@@ -1740,7 +1740,7 @@ function MapCanvas({
         if (getLayerIfAvailable(map, layer)) map.off("click", layer, handlePOIClick);
       }
     };
-  }, [mapReady, onClusterPress, setSelectedPOI, visiblePOIs]);
+  }, [mapReady, onClusterPress, visiblePOIs]);
 
   return (
     <View className="flex-1" style={{ backgroundColor: colors.background }}>

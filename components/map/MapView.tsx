@@ -1,9 +1,12 @@
+import { useActiveRouteLifecycle } from "@/hooks/useActiveRouteLifecycle";
+import { useActiveRoutePosition } from "@/hooks/useActiveRoutePosition";
+import { useActiveCollectionVariants } from "@/hooks/useActiveCollectionVariants";
+import { weatherProjectionMatchesRoute } from "@/services/weatherProjection";
 import React, { useRef, useCallback, useEffect, useState, useMemo } from "react";
 import { ActivityIndicator, View, AppState, Platform, useWindowDimensions } from "react-native";
 import { useShallow } from "zustand/react/shallow";
 import { useMapStore } from "@/store/mapStore";
 import { useRouteStore } from "@/store/routeStore";
-import { useCollectionStore } from "@/store/collectionStore";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { usePanelStore } from "@/store/panelStore";
 import { SHEET_COMPACT_RATIO } from "@/constants";
@@ -18,7 +21,6 @@ import {
   usePreparedRouteGeometries,
   type PreparedRouteGeometryRequest,
 } from "@/hooks/usePreparedRouteGeometries";
-import { GPS_STALE_THRESHOLD_MS } from "@/constants";
 import MapControls from "./MapControls";
 import MapCanvas, { type MapCanvasRouteLayer, type MapOverlayMode } from "./MapCanvas";
 import type { VariantOverlay } from "./VariantOverlayLayer";
@@ -28,21 +30,14 @@ import { displayPOIsForActiveRoute } from "@/services/activePOIs";
 import { stitchedSegmentsCacheSignature } from "@/services/relativeEtaCache";
 import { resolveActiveRouteProgress } from "@/utils/routeProgress";
 import { plannedStopsFromPOIs } from "@/services/plannedStops";
-import { distanceBucketKey, WEATHER_PROGRESS_BUCKET_METERS } from "@/utils/distanceBuckets";
-import { snapToRouteDetailed } from "@/services/routeSnapping";
-import { useActiveRouteData, getActiveRouteDataImperative } from "@/hooks/useActiveRouteData";
+import { useActiveRouteData } from "@/hooks/useActiveRouteData";
 import { usePoiStore } from "@/store/poiStore";
-import { useClimbStore } from "@/store/climbStore";
-import { useFerryStore } from "@/store/ferryStore";
 import { useEtaStore } from "@/store/etaStore";
 import { useWeatherStore } from "@/store/weatherStore";
-import { useOfflineStore } from "@/store/offlineStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import {
   collectionVariantKey,
-  loadCollectionVariantDisplayData,
   type CollectionVariantMetric,
-  type CollectionVariantOverlayGeometry,
 } from "@/services/collectionVariantGeometry";
 import { routeEndDistance } from "@/services/stitchingService";
 import {
@@ -81,14 +76,7 @@ import {
 } from "@/utils/formatters";
 import { measureSync } from "@/utils/perfMarks";
 import { pickRouteRecords } from "@/utils/routeScopedRecords";
-import { yieldToUI } from "@/utils/yieldToUI";
-import type {
-  ActiveRouteData,
-  CollectionSegmentWithRoute,
-  RoutePoint,
-  UnitSystem,
-  UserPosition,
-} from "@/types";
+import type { ActiveRouteData, CollectionSegmentWithRoute, RoutePoint, UnitSystem } from "@/types";
 import { Text } from "@/components/ui/text";
 
 interface MapCameraHandle {
@@ -105,6 +93,8 @@ interface MapCameraHandle {
     };
   }): void;
 }
+
+const EMPTY_WEATHER_TIMELINE: ReturnType<typeof useWeatherStore.getState>["timeline"] = [];
 
 const ETA_MARKER_REFRESH_MS = 5 * 60_000;
 const MARKER_VIEWPORT_BUFFER_MULTIPLIER = 1.5;
@@ -390,7 +380,6 @@ export default function MapScreen() {
   const mapStyle = useMapStyle();
   const cameraRef = useRef<MapCameraHandle | null>(null);
   const mapRef = useRef<unknown | null>(null);
-  const [hasGpsFix, setHasGpsFix] = useState(false);
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const isWeb = Platform.OS === "web";
 
@@ -398,7 +387,6 @@ export default function MapScreen() {
   const setFollowUser = useMapStore((s) => s.setFollowUser);
   const distanceMarkerMode = useMapStore((s) => s.distanceMarkerMode);
   const poiVisibility = useMapStore((s) => s.poiVisibility);
-  const refreshPosition = useMapStore((s) => s.refreshPosition);
   const persistCamera = useMapStore((s) => s.persistCamera);
   const initialCamera = useRef({
     center: useMapStore.getState().center,
@@ -418,7 +406,7 @@ export default function MapScreen() {
     initialCamera.current.zoom,
     initialCamera.current.center[1],
   );
-  const panelTab = usePanelStore((s) => s.panelTab);
+  const panelTab = usePanelStore((s) => (isWeb ? s.bottomTab : s.panelTab));
   const mapOverlayMode: MapOverlayMode =
     panelTab === "climbs" ? "climbs" : !isWeb && panelTab === "weather" ? "weather" : "normal";
   const effectivePOIVisibility = isWeb ? "all" : panelTab === "pois" ? "all" : poiVisibility;
@@ -427,47 +415,25 @@ export default function MapScreen() {
 
   const routes = useRouteStore((s) => s.routes);
   const visibleRoutePoints = useRouteStore((s) => s.visibleRoutePoints);
-  const loadRouteMetadata = useRouteStore((s) => s.loadRouteMetadata);
-  const loadRoutePoints = useRouteStore((s) => s.loadRoutePoints);
   const snappedPosition = useRouteStore((s) => s.snappedPosition);
-  const setSnappedPosition = useRouteStore((s) => s.setSnappedPosition);
-  const recordSnapHistory = useRouteStore((s) => s.recordSnapHistory);
-  const clearRouteProgress = useRouteStore((s) => s.clearRouteProgress);
-  const loadCollections = useCollectionStore((s) => s.loadCollections);
-  const getCollectionSegmentsWithRoutes = useCollectionStore(
-    (s) => s.getCollectionSegmentsWithRoutes,
-  );
-  const loadPOIs = usePoiStore((s) => s.loadPOIs);
-  const loadFerries = useFerryStore((s) => s.loadFerries);
-  const ensureRelativeETA = useEtaStore((s) => s.ensureRelativeETA);
   const cumulativeTime = useEtaStore((s) => s.cumulativeTime);
-  const powerConfig = useEtaStore((s) => s.powerConfig);
-  const fetchWeather = useWeatherStore((s) => s.fetchWeather);
-  const weatherTimeline = useWeatherStore((s) => s.timeline);
+  const storedWeatherTimeline = useWeatherStore((s) => s.timeline);
+  const weatherContext = useWeatherStore((s) => s.projectionContext);
   const weatherRouteId = useWeatherStore((s) => s.routeId);
   const weatherTemperatureMode = useSettingsStore((s) => s.weatherTemperatureDisplayMode);
   const units = useSettingsStore((s) => s.units);
-  const isConnected = useOfflineStore((s) => s.isConnected);
-  const [activeCollectionSegments, setActiveCollectionSegments] = useState<
-    CollectionSegmentWithRoute[]
-  >([]);
-  const [activeVariantOverlaysByKey, setActiveVariantOverlaysByKey] = useState<
-    Record<string, CollectionVariantOverlayGeometry>
-  >({});
-  const [activeVariantMetricsByKey, setActiveVariantMetricsByKey] = useState<
-    Record<string, CollectionVariantMetric>
-  >({});
-  const [isVariantDataPreparing, setIsVariantDataPreparing] = useState(false);
-  const [isRestoringActiveData, setIsRestoringActiveData] = useState(true);
 
   // Unified active context — works for both standalone routes and collections
   const activeData = useActiveRouteData();
   const activeRoutePoints = activeData?.points ?? null;
+  const weatherTimeline =
+    activeData && weatherProjectionMatchesRoute(weatherContext, activeData.id, activeData.points)
+      ? storedWeatherTimeline
+      : EMPTY_WEATHER_TIMELINE;
   const timing = useActiveRouteTiming(activeData);
   const activeRouteIds = useMemo(() => activeData?.routeIds ?? [], [activeData?.routeIds]);
   const allPois = usePoiStore(useShallow((s) => pickRouteRecords(s.pois, activeRouteIds)));
   const activeFerries = activeData?.ferries ?? EMPTY_ACTIVE_FERRIES;
-  const ferryRevision = useFerryStore((state) => state.revision);
   const plannedStops = useMemo(
     () =>
       measureSync("map.activePlannedStops", () =>
@@ -495,10 +461,6 @@ export default function MapScreen() {
   activeProgressDistanceRef.current = activeProgressDistanceMeters;
   const [etaMarkerRefreshMs, setEtaMarkerRefreshMs] = useState(() => Date.now());
   const [etaAnchorDistanceMeters, setEtaAnchorDistanceMeters] = useState<number | null>(null);
-  const weatherProgressBucketKey = distanceBucketKey(
-    activeProgressDistanceMeters,
-    WEATHER_PROGRESS_BUCKET_METERS,
-  );
 
   useEffect(() => {
     if (distanceMarkerMode !== "eta") return;
@@ -576,292 +538,21 @@ export default function MapScreen() {
     [etaMarkerLabels],
   );
 
-  const activeStandaloneRouteId = useMemo(
-    () => routes.find((route) => route.isActive)?.id ?? null,
-    [routes],
-  );
-
-  useEffect(() => {
-    let cancelled = false;
-
-    void (async () => {
-      try {
-        await Promise.all([loadRouteMetadata(), loadCollections()]);
-        if (cancelled) return;
-
-        const activeRouteId =
-          useRouteStore.getState().routes.find((route) => route.isActive)?.id ?? null;
-        if (activeRouteId) {
-          await loadRoutePoints([activeRouteId], { prune: true });
-        }
-      } catch (error) {
-        console.warn("Failed to restore active route:", error);
-      } finally {
-        if (!cancelled) setIsRestoringActiveData(false);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [loadCollections, loadRouteMetadata, loadRoutePoints]);
-
-  useEffect(() => {
-    if (isRestoringActiveData) return;
-    if (!activeStandaloneRouteId) return;
-    void loadRoutePoints([activeStandaloneRouteId], { prune: true });
-  }, [activeStandaloneRouteId, isRestoringActiveData, loadRoutePoints]);
-
-  useEffect(() => {
-    let cancelled = false;
-    async function loadActiveCollectionVariants() {
-      if (activeData?.type !== "collection") {
-        setActiveCollectionSegments([]);
-        setActiveVariantOverlaysByKey({});
-        setActiveVariantMetricsByKey({});
-        setIsVariantDataPreparing(false);
-        return;
-      }
-
-      setActiveCollectionSegments([]);
-      setActiveVariantOverlaysByKey({});
-      setActiveVariantMetricsByKey({});
-      setIsVariantDataPreparing(true);
-      await yieldToUI();
-      try {
-        const segments = await getCollectionSegmentsWithRoutes(activeData.id);
-        const { getFerryCrossingsForRoute, getRoutePoints } = await import("@/db/database");
-        const displayData = await loadCollectionVariantDisplayData(
-          segments,
-          powerConfig,
-          getRoutePoints,
-          {
-            shouldCancel: () => cancelled,
-            loadRouteFerries: getFerryCrossingsForRoute,
-          },
-        );
-        if (cancelled) return;
-
-        setActiveCollectionSegments(segments);
-        setActiveVariantOverlaysByKey(displayData.overlaysByKey);
-        setActiveVariantMetricsByKey(displayData.metricsByKey);
-      } finally {
-        if (!cancelled) setIsVariantDataPreparing(false);
-      }
-    }
-
-    loadActiveCollectionVariants().catch((e) => {
-      if (cancelled) return;
-      console.warn("Failed to load active collection variants:", e);
-      setActiveCollectionSegments([]);
-      setActiveVariantOverlaysByKey({});
-      setActiveVariantMetricsByKey({});
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    activeData?.id,
-    activeData?.type,
-    activeSegmentsKey,
-    ferryRevision,
-    getCollectionSegmentsWithRoutes,
-    powerConfig,
-  ]);
-
-  const loadClimbs = useClimbStore((s) => s.loadClimbs);
-  const updateCurrentClimb = useClimbStore((s) => s.updateCurrentClimb);
-  const setSelectedClimb = useClimbStore((s) => s.setSelectedClimb);
-
-  // Clear stale climb selection and progress when active route/collection geometry changes.
-  const activeContextKey = activeData ? `${activeData.id}:${activeRouteIdsKey}` : null;
-  const prevActiveGeometry = useRef({
-    contextKey: activeContextKey,
-    points: activeRoutePoints,
+  const isRestoringActiveData = useActiveRouteLifecycle({
+    activeData,
+    progressDistanceMeters: activeProgressDistanceMeters,
+    futureStartMs: timing.futureStartMs,
+    plannedStops,
+    weatherEnabled: !isWeb,
   });
-  useEffect(() => {
-    const previous = prevActiveGeometry.current;
-    if (activeContextKey !== previous.contextKey || activeRoutePoints !== previous.points) {
-      prevActiveGeometry.current = {
-        contextKey: activeContextKey,
-        points: activeRoutePoints,
-      };
-      setSelectedClimb(null);
-      clearRouteProgress();
-    }
-  }, [activeContextKey, activeRoutePoints, setSelectedClimb, clearRouteProgress]);
-
-  // Load POIs and climbs when active context changes
-  useEffect(() => {
-    if (activeRouteIds.length === 0) return;
-    for (const routeId of activeRouteIds) {
-      loadPOIs(routeId);
-      loadClimbs(routeId);
-      loadFerries(routeId);
-    }
-  }, [activeRouteIds, activeRouteIdsKey, loadPOIs, loadClimbs, loadFerries]);
-
-  useEffect(() => {
-    if (!activeData || !activeRoutePoints?.length) return;
-    void ensureRelativeETA({
-      scope: activeData.type,
-      scopeId: activeData.id,
-      points: activeRoutePoints,
-      totalDistanceMeters: activeData.totalDistanceMeters,
-      totalAscentMeters: activeData.totalAscentMeters,
-      totalDescentMeters: activeData.totalDescentMeters,
-      segmentsSignature: activeSegmentsKey,
-      ferries: activeFerries,
-    });
-    // Intentional: depend on scalar active route fields; the full activeData object churns.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    activeData?.id,
-    activeData?.type,
-    activeRoutePoints,
-    activeData?.totalDistanceMeters,
-    activeData?.totalAscentMeters,
-    activeData?.totalDescentMeters,
-    activeSegmentsKey,
-    activeFerries,
-    ensureRelativeETA,
-  ]);
-
-  // Fetch weather when active context + snapped position + ETA are available (and online)
-  useEffect(() => {
-    if (
-      !isWeb &&
-      activeData &&
-      activeRoutePoints?.length &&
-      activeRouteProgress &&
-      cumulativeTime &&
-      isConnected
-    ) {
-      measureSync("map.weatherGate", () => {
-        fetchWeather(
-          activeData.id,
-          activeRoutePoints,
-          activeRouteProgress.distanceAlongRouteMeters,
-          cumulativeTime,
-          timing.futureStartMs,
-          plannedStops,
-        );
-      });
-    }
-    // Intentional: fire on meaningful weather context changes, not every exact progress update
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    activeData?.id,
-    isWeb,
-    weatherProgressBucketKey,
-    isConnected,
-    cumulativeTime,
-    fetchWeather,
-    timing.futureStartMs,
-    plannedStopsKey,
-  ]);
-
-  const applyRouteSnap = useCallback(
-    (position: UserPosition, data: { id: string; points: RoutePoint[] }) => {
-      const routeState = useRouteStore.getState();
-      const previous = routeState.snappedPosition;
-      const snapped = snapToRouteDetailed(
-        position.latitude,
-        position.longitude,
-        data.id,
-        data.points,
-        {
-          previousPointIndex: previous?.routeId === data.id ? previous.pointIndex : undefined,
-          previousDistanceAlongRouteMeters:
-            previous?.routeId === data.id ? previous.distanceAlongRouteMeters : undefined,
-          history: routeState.snapHistory,
-          headingDegrees: position.heading,
-          speedMetersPerSecond: position.speed,
-          timestamp: position.timestamp,
-        },
-      );
-
-      if (!snapped) {
-        clearRouteProgress();
-        return;
-      }
-
-      setSnappedPosition(snapped.snappedPosition);
-
-      recordSnapHistory({
-        routeId: data.id,
-        latitude: position.latitude,
-        longitude: position.longitude,
-        timestamp: position.timestamp,
-        heading: position.heading,
-        speed: position.speed,
-        selectedCandidate: snapped.selectedCandidate,
-      });
-    },
-    [clearRouteProgress, recordSnapHistory, setSnappedPosition],
-  );
-
-  // Snap eagerly when routes load (don't wait for next GPS refresh)
-  useEffect(() => {
-    if (!activeData || !activeRoutePoints?.length) return;
-    const pos = useMapStore.getState().userPosition;
-    if (!pos) return;
-    applyRouteSnap(pos, { id: activeData.id, points: activeRoutePoints });
-    // Intentional: fire only when active id or points change; the full activeData reference isn't meaningful
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeData?.id, activeRoutePoints, applyRouteSnap]);
-
-  // Snap to route after each position refresh
-  const snapAfterRefresh = useCallback(
-    (position: UserPosition) => {
-      const data = getActiveRouteDataImperative();
-      if (data && data.points.length > 0) {
-        applyRouteSnap(position, { id: data.id, points: data.points });
-      }
-    },
-    [applyRouteSnap],
-  );
-
-  // On-demand GPS: fetch position on mount
-  useEffect(() => {
-    (async () => {
-      const position = await refreshPosition();
-      if (position) {
-        if (!hasGpsFix) setHasGpsFix(true);
-        snapAfterRefresh(position);
-      }
-    })();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Auto-refresh on app focus if position is stale
-  useEffect(() => {
-    const subscription = AppState.addEventListener("change", async (state) => {
-      if (state !== "active") return;
-      const pos = useMapStore.getState().userPosition;
-      if (!pos || Date.now() - pos.timestamp >= GPS_STALE_THRESHOLD_MS) {
-        const position = await refreshPosition();
-        if (position) {
-          if (!hasGpsFix) setHasGpsFix(true);
-          snapAfterRefresh(position);
-        }
-      }
-    });
-    return () => subscription.remove();
-  }, [refreshPosition, snapAfterRefresh, hasGpsFix]);
-
-  // Track current climb based on snapped position
-  useEffect(() => {
-    if (activeRouteProgress && activeData) {
-      updateCurrentClimb(
-        activeRouteProgress.distanceAlongRouteMeters,
-        activeData.routeIds,
-        activeData.segments,
-      );
-    }
-    // Intentional: fire on primitive id/distance changes, not on full object/array identities
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeProgressDistanceMeters, activeData?.id, updateCurrentClimb]);
+  const refreshAndSnap = useActiveRoutePosition(activeData);
+  const {
+    activeCollectionSegments,
+    activeVariantOverlaysByKey,
+    activeVariantMetricsByKey,
+    isVariantDataPreparing,
+  } = useActiveCollectionVariants(activeData);
+  const activeContextKey = activeData ? `${activeData.id}:${activeRouteIdsKey}` : null;
 
   const handlePOIClusterPress = useCallback(
     (centerCoordinate: [number, number], zoomLevel: number) => {
@@ -887,17 +578,15 @@ export default function MapScreen() {
         animationDuration: 0,
       });
     }
-    const position = await refreshPosition();
+    const position = await refreshAndSnap();
     if (position) {
-      if (!hasGpsFix) setHasGpsFix(true);
-      snapAfterRefresh(position);
       cameraRef.current?.setCamera({
         centerCoordinate: [position.longitude, position.latitude],
         animationMode: "easeTo",
         animationDuration: 500,
       });
     }
-  }, [setFollowUser, refreshPosition, snapAfterRefresh, hasGpsFix]);
+  }, [setFollowUser, refreshAndSnap]);
 
   const handleCameraChanged = useCallback(
     (state: { properties: { center: number[]; zoom: number } }) => {

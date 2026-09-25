@@ -1,10 +1,8 @@
-import {
-  deleteDatabaseAsync,
-  openDatabaseAsync,
-  type SQLiteBindValue,
-  type SQLiteDatabase,
-} from "expo-sqlite";
+import { openDatabaseAsync, type SQLiteBindValue, type SQLiteDatabase } from "expo-sqlite";
 import migrations from "../drizzle/migrations";
+import { preparePOIRefresh } from "./poiRefresh";
+import { applyPOIRiderFields } from "./poiRiderFields";
+import { withQueuedTransaction } from "./transactions.web";
 import {
   hasSupportedFerryCrossingsSchema,
   shouldPrepareFerryCrossingsSchema,
@@ -15,6 +13,7 @@ import type {
   CollectionSegment,
   FerryCrossing,
   POI,
+  POIRiderFieldsPatch,
   POICategory,
   POISource,
   Route,
@@ -28,12 +27,6 @@ import type {
 const CHUNK_SIZE = 500;
 const MIGRATIONS_TABLE = "__drizzle_migrations";
 const WEB_DATABASE_NAME = "ultra.db";
-const WEB_DATABASE_SIDE_FILES = [
-  WEB_DATABASE_NAME,
-  `${WEB_DATABASE_NAME}-journal`,
-  `${WEB_DATABASE_NAME}-wal`,
-  `${WEB_DATABASE_NAME}-shm`,
-];
 
 type RawBoolean = boolean | number;
 
@@ -289,7 +282,7 @@ async function runMigrations(database: SQLiteDatabase): Promise<void> {
   );
   const lastCreatedAt = Number(lastMigration?.created_at ?? 0);
 
-  await database.withTransactionAsync(async () => {
+  await withQueuedTransaction(database, async () => {
     for (const entry of migrations.journal.entries) {
       if (lastCreatedAt >= entry.when) continue;
 
@@ -321,7 +314,7 @@ export async function getWebSQLiteDatabase(): Promise<SQLiteDatabase> {
       // workspace, not the native source of truth.
       await database.execAsync("PRAGMA journal_mode = MEMORY;");
       await database.execAsync("PRAGMA foreign_keys = ON;");
-      await database.withTransactionAsync(() => prepareFerryCrossingsSchema(database));
+      await withQueuedTransaction(database, () => prepareFerryCrossingsSchema(database));
       await runMigrations(database);
       return database;
     })().catch((error) => {
@@ -331,28 +324,6 @@ export async function getWebSQLiteDatabase(): Promise<SQLiteDatabase> {
   }
 
   return databasePromise;
-}
-
-export async function resetWebSQLiteDatabaseStorage(): Promise<void> {
-  const currentDatabasePromise = databasePromise;
-  databasePromise = null;
-
-  if (currentDatabasePromise) {
-    try {
-      const database = await currentDatabasePromise;
-      await database.closeAsync();
-    } catch (error) {
-      console.warn("[planning-transport] Failed to close web SQLite database before reset", error);
-    }
-  }
-
-  for (const databaseName of WEB_DATABASE_SIDE_FILES) {
-    try {
-      await deleteDatabaseAsync(databaseName);
-    } catch (error) {
-      console.warn("[planning-transport] Failed to delete web SQLite file", databaseName, error);
-    }
-  }
 }
 
 async function getAll<T>(query: string, params: SQLiteBindValue[] = []): Promise<T[]> {
@@ -467,7 +438,7 @@ export async function insertRoute(
   routeClimbs: Climb[] = [],
 ): Promise<void> {
   const database = await getWebSQLiteDatabase();
-  await database.withTransactionAsync(async () => {
+  await withQueuedTransaction(database, async () => {
     await database.runAsync(
       `INSERT INTO routes (
         id, name, fileName, color, isActive, isVisible, totalDistanceMeters,
@@ -679,7 +650,7 @@ export async function deleteRoute(routeId: string): Promise<void> {
     [routeId],
   );
 
-  await database.withTransactionAsync(async () => {
+  await withQueuedTransaction(database, async () => {
     await deleteStarredPoiIds(
       database,
       poiIds.map((row) => row.id),
@@ -703,7 +674,7 @@ export async function setRoutesVisible(routeIds: string[]): Promise<void> {
 
 export async function setActiveRoute(routeId: string): Promise<void> {
   const database = await getWebSQLiteDatabase();
-  await database.withTransactionAsync(async () => {
+  await withQueuedTransaction(database, async () => {
     await database.runAsync("UPDATE collections SET isActive = 0");
     await database.runAsync("UPDATE routes SET isActive = 0");
     await database.runAsync("UPDATE routes SET isActive = 1, isVisible = 1 WHERE id = ?", [
@@ -718,7 +689,7 @@ export async function updateRouteElevationData(
   totals: { totalAscentMeters: number; totalDescentMeters: number },
 ): Promise<void> {
   const database = await getWebSQLiteDatabase();
-  await database.withTransactionAsync(async () => {
+  await withQueuedTransaction(database, async () => {
     await database.runAsync(
       "UPDATE routes SET totalAscentMeters = ?, totalDescentMeters = ? WHERE id = ?",
       [totals.totalAscentMeters, totals.totalDescentMeters, routeId],
@@ -734,40 +705,59 @@ export async function updateRouteElevationData(
 
 // --- POI CRUD ---
 
+async function insertPOIsInTransaction(database: SQLiteDatabase, newPois: POI[]): Promise<void> {
+  for (const poi of newPois) {
+    await database.runAsync(
+      `INSERT INTO pois (
+        id, sourceId, source, routeId, name, category, latitude, longitude, tags,
+        distanceFromRouteMeters, distanceAlongRouteMeters
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        name = excluded.name,
+        category = excluded.category,
+        latitude = excluded.latitude,
+        longitude = excluded.longitude,
+        tags = excluded.tags,
+        distanceFromRouteMeters = excluded.distanceFromRouteMeters,
+        distanceAlongRouteMeters = excluded.distanceAlongRouteMeters`,
+      [
+        poi.id,
+        poi.sourceId,
+        poi.source,
+        poi.routeId,
+        poi.name,
+        poi.category,
+        poi.latitude,
+        poi.longitude,
+        JSON.stringify(poi.tags),
+        poi.distanceFromRouteMeters,
+        poi.distanceAlongRouteMeters,
+      ],
+    );
+  }
+}
+
 export async function insertPOIs(newPois: POI[]): Promise<void> {
   if (newPois.length === 0) return;
-
   const database = await getWebSQLiteDatabase();
-  await database.withTransactionAsync(async () => {
-    for (const poi of newPois) {
-      await database.runAsync(
-        `INSERT INTO pois (
-          id, sourceId, source, routeId, name, category, latitude, longitude, tags,
-          distanceFromRouteMeters, distanceAlongRouteMeters
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET
-          name = excluded.name,
-          category = excluded.category,
-          latitude = excluded.latitude,
-          longitude = excluded.longitude,
-          tags = excluded.tags,
-          distanceFromRouteMeters = excluded.distanceFromRouteMeters,
-          distanceAlongRouteMeters = excluded.distanceAlongRouteMeters`,
-        [
-          poi.id,
-          poi.sourceId,
-          poi.source,
-          poi.routeId,
-          poi.name,
-          poi.category,
-          poi.latitude,
-          poi.longitude,
-          JSON.stringify(poi.tags),
-          poi.distanceFromRouteMeters,
-          poi.distanceAlongRouteMeters,
-        ],
-      );
-    }
+  await withQueuedTransaction(database, () => insertPOIsInTransaction(database, newPois));
+}
+
+/** Replace fetched data atomically, preserving rider tags and existing stars. */
+export async function replacePOIsBySource(
+  routeId: string,
+  source: "osm" | "google",
+  newPois: POI[],
+): Promise<void> {
+  const database = await getWebSQLiteDatabase();
+  await withQueuedTransaction(database, async () => {
+    const existing = await database.getAllAsync<RawPOI>(
+      "SELECT * FROM pois WHERE routeId = ? AND source = ?",
+      [routeId, source],
+    );
+    const refreshed = preparePOIRefresh(routeId, source, existing.map(normalizePOI), newPois);
+    await database.runAsync("DELETE FROM pois WHERE routeId = ? AND source = ?", [routeId, source]);
+    await insertPOIsInTransaction(database, refreshed);
   });
 }
 
@@ -803,7 +793,7 @@ export async function deletePOIsForRoute(routeId: string): Promise<void> {
     [routeId],
   );
 
-  await database.withTransactionAsync(async () => {
+  await withQueuedTransaction(database, async () => {
     await deleteStarredPoiIds(
       database,
       poiIds.map((row) => row.id),
@@ -829,7 +819,7 @@ export async function deletePOIsBySource(
       )
     : [];
 
-  await database.withTransactionAsync(async () => {
+  await withQueuedTransaction(database, async () => {
     if (options.deleteStarredItems) {
       await deleteStarredPoiIds(
         database,
@@ -840,13 +830,34 @@ export async function deletePOIsBySource(
   });
 }
 
-export async function updatePOITags(poiId: string, tags: Record<string, string>): Promise<void> {
-  await run("UPDATE pois SET tags = ? WHERE id = ?", [JSON.stringify(tags), poiId]);
+export async function updatePOIRiderFields(
+  routeId: string,
+  poiId: string,
+  patch: POIRiderFieldsPatch,
+): Promise<POI | null> {
+  const database = await getWebSQLiteDatabase();
+  let updated: POI | null = null;
+  await withQueuedTransaction(database, async () => {
+    const row = await database.getFirstAsync<RawPOI>(
+      "SELECT * FROM pois WHERE routeId = ? AND id = ?",
+      [routeId, poiId],
+    );
+    if (!row) return;
+    const poi = normalizePOI(row);
+    const tags = applyPOIRiderFields(poi.tags, patch);
+    await database.runAsync("UPDATE pois SET tags = ? WHERE routeId = ? AND id = ?", [
+      JSON.stringify(tags),
+      routeId,
+      poiId,
+    ]);
+    updated = { ...poi, tags };
+  });
+  return updated;
 }
 
 export async function deletePOI(poiId: string): Promise<void> {
   const database = await getWebSQLiteDatabase();
-  await database.withTransactionAsync(async () => {
+  await withQueuedTransaction(database, async () => {
     await database.runAsync("DELETE FROM starred_items WHERE entityType = 'poi' AND entityId = ?", [
       poiId,
     ]);
@@ -897,20 +908,22 @@ export async function setStarredItem(
   entityId: string,
   starred: boolean,
 ): Promise<void> {
-  if (starred) {
-    await run(
-      `INSERT INTO starred_items (entityType, entityId, createdAt)
-       VALUES (?, ?, ?)
-       ON CONFLICT(entityType, entityId) DO NOTHING`,
-      [entityType, entityId, new Date().toISOString()],
-    );
-    return;
-  }
-
-  await run("DELETE FROM starred_items WHERE entityType = ? AND entityId = ?", [
-    entityType,
-    entityId,
-  ]);
+  const database = await getWebSQLiteDatabase();
+  await withQueuedTransaction(database, async () => {
+    if (starred) {
+      await database.runAsync(
+        `INSERT INTO starred_items (entityType, entityId, createdAt)
+         VALUES (?, ?, ?)
+         ON CONFLICT(entityType, entityId) DO NOTHING`,
+        [entityType, entityId, new Date().toISOString()],
+      );
+    } else {
+      await database.runAsync("DELETE FROM starred_items WHERE entityType = ? AND entityId = ?", [
+        entityType,
+        entityId,
+      ]);
+    }
+  });
 }
 
 // --- Climb CRUD ---
@@ -919,7 +932,7 @@ export async function insertClimbs(newClimbs: Climb[]): Promise<void> {
   if (newClimbs.length === 0) return;
 
   const database = await getWebSQLiteDatabase();
-  await database.withTransactionAsync(async () => {
+  await withQueuedTransaction(database, async () => {
     for (const climb of newClimbs) {
       await database.runAsync(
         `INSERT INTO climbs (
@@ -1003,7 +1016,7 @@ export async function updateCollectionPlannedStart(
 
 export async function setActiveCollection(collectionId: string): Promise<void> {
   const database = await getWebSQLiteDatabase();
-  await database.withTransactionAsync(async () => {
+  await withQueuedTransaction(database, async () => {
     await database.runAsync("UPDATE routes SET isActive = 0");
     await database.runAsync("UPDATE collections SET isActive = 0");
     await database.runAsync("UPDATE collections SET isActive = 1 WHERE id = ?", [collectionId]);
@@ -1074,7 +1087,7 @@ export async function selectVariant(collectionId: string, routeId: string): Prom
   );
   if (!row) return;
 
-  await database.withTransactionAsync(async () => {
+  await withQueuedTransaction(database, async () => {
     await database.runAsync(
       "UPDATE collection_segments SET isSelected = 0 WHERE collectionId = ? AND position = ?",
       [collectionId, row.position],
@@ -1091,7 +1104,7 @@ export async function updateSegmentPositions(
   positions: { routeId: string; position: number }[],
 ): Promise<void> {
   const database = await getWebSQLiteDatabase();
-  await database.withTransactionAsync(async () => {
+  await withQueuedTransaction(database, async () => {
     for (const { routeId, position } of positions) {
       await database.runAsync(
         "UPDATE collection_segments SET position = ? WHERE collectionId = ? AND routeId = ?",

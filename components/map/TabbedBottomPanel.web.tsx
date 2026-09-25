@@ -1,11 +1,11 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect } from "react";
 import { ActivityIndicator, TouchableOpacity, View, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Activity, Clock3, MapPin, Mountain } from "lucide-react-native";
 import { Text } from "@/components/ui/text";
 import { cn } from "@/lib/cn";
 import { useThemeColors } from "@/theme";
-import { useClimbStore } from "@/store/climbStore";
+import { selectPanelTab } from "@/services/mapPanelActions";
 import { usePanelStore } from "@/store/panelStore";
 import ProfileTabContent from "./ProfileTabContent";
 import UpcomingTabContent from "./UpcomingTabContent";
@@ -37,8 +37,6 @@ const SIDEBAR_TABS = [
   { key: "pois", label: "POIs", icon: MapPin },
 ] as const;
 
-type SidebarTab = (typeof SIDEBAR_TABS)[number]["key"];
-
 interface TabbedBottomPanelProps {
   activeData: ActiveRouteData | null;
   isLoadingActiveData?: boolean;
@@ -48,12 +46,10 @@ function TabbedBottomPanel({ activeData, isLoadingActiveData = false }: TabbedBo
   const colors = useThemeColors();
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const { bottom: safeBottom } = useSafeAreaInsets();
-  const [sidebarTab, setSidebarTab] = useState<SidebarTab>("upcoming");
-  const panelTab = usePanelStore((s) => s.panelTab);
-  const setPanelTab = usePanelStore((s) => s.setPanelTab);
+  const sidebarTab = usePanelStore((s) => s.sidebarTab);
+  const bottomTab = usePanelStore((s) => s.bottomTab);
   const setPanelMode = usePanelStore((s) => s.setPanelMode);
   const setIsExpanded = usePanelStore((s) => s.setIsExpanded);
-  const setSelectedClimb = useClimbStore((s) => s.setSelectedClimb);
 
   const sidebarWidth = getWebSidebarWidth(screenWidth);
   const bottomPanelHeight = getWebBottomPanelHeight(screenHeight, safeBottom);
@@ -62,23 +58,11 @@ function TabbedBottomPanel({ activeData, isLoadingActiveData = false }: TabbedBo
     320,
     screenWidth - WEB_PANEL_MARGIN - bottomPanelRightInset - BOTTOM_RAIL_WIDTH,
   );
-  const bottomTab = panelTab === "climbs" ? "climbs" : "profile";
 
   useEffect(() => {
     setPanelMode("full-route");
     setIsExpanded(true);
   }, [setIsExpanded, setPanelMode]);
-
-  useEffect(() => {
-    if (panelTab === "weather" || panelTab === "upcoming" || panelTab === "pois") {
-      setPanelTab("profile");
-    }
-  }, [panelTab, setPanelTab]);
-
-  const handleBottomTabPress = (tab: (typeof BOTTOM_TABS)[number]["key"]) => {
-    if (tab === "climbs" && panelTab !== "climbs") setSelectedClimb(null);
-    setPanelTab(tab);
-  };
 
   return (
     <View pointerEvents="box-none" className="absolute inset-0">
@@ -108,7 +92,7 @@ function TabbedBottomPanel({ activeData, isLoadingActiveData = false }: TabbedBo
                 label={tab.label}
                 icon={tab.icon}
                 selected={sidebarTab === tab.key}
-                onPress={() => setSidebarTab(tab.key)}
+                onPress={() => selectPanelTab(tab.key, "split")}
               />
             ))}
           </View>
@@ -150,7 +134,7 @@ function TabbedBottomPanel({ activeData, isLoadingActiveData = false }: TabbedBo
                 label={tab.label}
                 icon={tab.icon}
                 selected={bottomTab === tab.key}
-                onPress={() => handleBottomTabPress(tab.key)}
+                onPress={() => selectPanelTab(tab.key, "split")}
               />
             ))}
           </View>

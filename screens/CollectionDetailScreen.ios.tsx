@@ -1,3 +1,4 @@
+import { openPOI } from "@/services/mapPanelActions";
 import React, { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import {
   View,
@@ -124,7 +125,6 @@ export default function CollectionDetailScreen() {
   const loadPOIs = usePoiStore((s) => s.loadPOIs);
   const poisByRouteId = usePoiStore((s) => s.pois);
   const starredPOIIds = usePoiStore((s) => s.starredPOIIds);
-  const setSelectedPOI = usePoiStore((s) => s.setSelectedPOI);
   const loadFerries = useFerryStore((s) => s.loadFerries);
   const allFerries = useFerryStore((s) => s.ferries);
 
@@ -871,7 +871,7 @@ export default function CollectionDetailScreen() {
                 segmentBoundaries={segmentBoundaries}
                 climbs={profileClimbs}
                 pois={profilePOIs}
-                onPOIPress={setSelectedPOI}
+                onPOIPress={openPOI}
               />
             </View>
           </>

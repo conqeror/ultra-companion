@@ -65,7 +65,7 @@ describe("offlineStore offline preparation", () => {
     offlineTilesMocks.downloadRouteTiles.mockImplementation(
       async (_routeId, _points, onProgress, onComplete) => {
         onProgress(50, 512);
-        onComplete();
+        onComplete(512);
       },
     );
 
@@ -90,7 +90,7 @@ describe("offlineStore offline preparation", () => {
     });
     offlineTilesMocks.downloadRouteTiles.mockImplementation(
       async (_routeId, _points, _onProgress, onComplete) => {
-        onComplete();
+        onComplete(0);
       },
     );
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -110,7 +110,7 @@ describe("offlineStore offline preparation", () => {
     });
     offlineTilesMocks.downloadRouteTiles.mockImplementation(
       async (_routeId, _points, _onProgress, onComplete) => {
-        onComplete();
+        onComplete(0);
       },
     );
 
@@ -149,7 +149,7 @@ describe("offlineStore offline preparation", () => {
     databaseMocks.getPOICountsBySource.mockResolvedValue({ google: 0, osm: 0 });
     offlineTilesMocks.downloadRouteTiles.mockImplementation(
       async (_routeId, _points, _onProgress, onComplete) => {
-        onComplete();
+        onComplete(0);
       },
     );
 

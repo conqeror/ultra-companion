@@ -12,7 +12,7 @@ import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useThemeColors } from "@/theme";
 import { Text } from "@/components/ui/text";
-import { useClimbStore } from "@/store/climbStore";
+import { selectPanelTab } from "@/services/mapPanelActions";
 import { useEtaStore } from "@/store/etaStore";
 import { usePanelStore } from "@/store/panelStore";
 import { SHEET_COMPACT_RATIO, SHEET_EXPANDED_RATIO } from "@/constants";
@@ -80,22 +80,12 @@ function TabbedBottomPanel({ activeData, isLoadingActiveData = false }: TabbedBo
   const dragStartY = useSharedValue(0);
 
   const panelTab = usePanelStore((s) => s.panelTab);
-  const setPanelTab = usePanelStore((s) => s.setPanelTab);
   const setIsExpanded = usePanelStore((s) => s.setIsExpanded);
   const isExpanded = usePanelStore((s) => s.isExpanded);
-  const setSelectedClimb = useClimbStore((s) => s.setSelectedClimb);
   const etaStatus = useEtaStore((s) => s.etaStatus);
   const etaProgress = useEtaStore((s) => s.etaProgress);
   const etaRouteId = useEtaStore((s) => s.routeId);
   const cumulativeTime = useEtaStore((s) => s.cumulativeTime);
-
-  const handleTabPress = React.useCallback(
-    (tab: PanelTab) => {
-      if (tab === "climbs" && panelTab !== "climbs") setSelectedClimb(null);
-      setPanelTab(tab);
-    },
-    [panelTab, setPanelTab, setSelectedClimb],
-  );
 
   const handleToggleExpanded = React.useCallback(() => {
     const nextIsExpanded = !isExpanded;
@@ -313,7 +303,7 @@ function TabbedBottomPanel({ activeData, isLoadingActiveData = false }: TabbedBo
               <TouchableOpacity
                 key={tab.key}
                 className="h-[50px] flex-1 items-center justify-center"
-                onPress={() => handleTabPress(tab.key)}
+                onPress={() => selectPanelTab(tab.key)}
                 accessibilityLabel={`${tab.label} tab`}
                 accessibilityRole="tab"
                 accessibilityState={{ selected: isActive }}

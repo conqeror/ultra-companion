@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useCallback } from "react";
+import React, { useMemo, useCallback } from "react";
 import { ActivityIndicator, ScrollView, View } from "react-native";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { Text } from "@/components/ui/text";
@@ -8,100 +8,27 @@ import { useThemeColors } from "@/theme";
 import { useRouteStore } from "@/store/routeStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import { formatDistance, formatElevation } from "@/utils/formatters";
-import type { RouteWithPoints } from "@/types";
-import RoutePreviewMap, { type RoutePreviewMapLayer } from "@/components/map/RoutePreviewMap";
+import RoutePreviewMap from "@/components/map/RoutePreviewMap";
 import DataSection from "@/components/route/DataSection";
 import RouteFerriesSection from "@/components/ferry/RouteFerriesSection";
-import { useFerryStore } from "@/store/ferryStore";
-import {
-  computeRidingElevationTotals,
-  toDisplayFerryCrossing,
-  totalRidingDistanceMeters,
-} from "@/services/ferryCrossings";
-import type { FerryCrossing } from "@/types";
-import { buildFerryAwarePreviewLayers } from "@/utils/ferryMapRoute";
-
-const EMPTY_FERRIES: FerryCrossing[] = [];
+import { useRouteDetailModel } from "@/hooks/useRouteDetailModel";
 
 export default function RouteDetailWebScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const colors = useThemeColors();
   const units = useSettingsStore((s) => s.units);
-  const getRouteDetail = useRouteStore((s) => s.getRouteDetail);
   const setActiveRoute = useRouteStore((s) => s.setActiveRoute);
-  const [route, setRoute] = useState<RouteWithPoints | null>(null);
-  const [loading, setLoading] = useState(true);
-  const loadFerries = useFerryStore((state) => state.loadFerries);
-  const routeFerries = useFerryStore((state) =>
-    id ? (state.ferries[id] ?? EMPTY_FERRIES) : EMPTY_FERRIES,
-  );
-
-  useEffect(() => {
-    let cancelled = false;
-    if (!id) return;
-    setLoading(true);
-    getRouteDetail(id)
-      .then((detail) => {
-        if (!cancelled) setRoute(detail);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [id, getRouteDetail]);
-
-  useEffect(() => {
-    if (id) void loadFerries(id);
-  }, [id, loadFerries]);
+  const { route, loading, error, retry, routeFerries, displayFerries, previewLayers, ridingStats } =
+    useRouteDetailModel(id);
 
   const screenOptions = useMemo(() => ({ title: route?.name ?? "Route" }), [route?.name]);
-  const displayFerries = useMemo(
-    () =>
-      route
-        ? routeFerries.map((crossing) =>
-            toDisplayFerryCrossing(
-              crossing,
-              crossing.startDistanceMeters,
-              crossing.endDistanceMeters,
-              0,
-              route.points,
-            ),
-          )
-        : [],
-    [route, routeFerries],
-  );
-  const previewLayers = useMemo<RoutePreviewMapLayer[]>(() => {
-    if (!route?.points.length) return [];
-    return buildFerryAwarePreviewLayers(
-      [
-        {
-          id: route.id,
-          cacheKey: route.id,
-          points: route.points,
-          isActive: true,
-        },
-      ],
-      displayFerries,
-    );
-  }, [displayFerries, route]);
 
   const handleOpenOnMap = useCallback(async () => {
     if (!route) return;
     await setActiveRoute(route.id);
     router.replace("/");
   }, [route, router, setActiveRoute]);
-
-  const ridingStats = useMemo(() => {
-    if (!route) return null;
-    const elevation = computeRidingElevationTotals(route.points, routeFerries);
-    return {
-      distance: totalRidingDistanceMeters(route.totalDistanceMeters, routeFerries),
-      ascent: elevation.ascent,
-    };
-  }, [route, routeFerries]);
 
   if (loading) {
     return (
@@ -114,7 +41,8 @@ export default function RouteDetailWebScreen() {
   if (!route) {
     return (
       <View className="flex-1 items-center justify-center bg-background">
-        <Text className="text-[17px] text-muted-foreground">Route not found</Text>
+        <Text className="text-[17px] text-muted-foreground">{error ?? "Route not found"}</Text>
+        {error && <Button className="mt-4" onPress={retry} label="Try again" />}
       </View>
     );
   }

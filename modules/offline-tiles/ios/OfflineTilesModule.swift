@@ -11,6 +11,12 @@ public class OfflineTilesModule: Module {
 
     Events("onProgress")
 
+    Function("setAccessToken") { (accessToken: String) in
+      if !accessToken.isEmpty {
+        MapboxOptions.accessToken = accessToken
+      }
+    }
+
     AsyncFunction("downloadTileRegion") { (id: String, styleURL: String, coords: [[Double]], minZoom: Int, maxZoom: Int) async throws in
       guard let styleURI = StyleURI(rawValue: styleURL) else {
         throw Exception(name: "INVALID_STYLE", description: "Invalid style URL")
@@ -27,7 +33,13 @@ public class OfflineTilesModule: Module {
       let descriptorOptions = TilesetDescriptorOptions(
         styleURI: styleURI,
         zoomRange: UInt8(minZoom)...UInt8(maxZoom),
-        tilesets: nil
+        tilesets: nil,
+        // Both bundled day/night styles use the outdoors-v12 sprites and fonts.
+        // Without this, descriptor resources are only held in the evictable cache.
+        stylePackOptions: StylePackLoadOptions(
+          glyphsRasterizationMode: .ideographsRasterizedLocally,
+          acceptExpired: true
+        )
       )
       let descriptor = self.offlineManager.createTilesetDescriptor(for: descriptorOptions)
 
@@ -69,7 +81,21 @@ public class OfflineTilesModule: Module {
     AsyncFunction("deleteTileRegion") { (id: String) async throws in
       self.activeTasks[id]?.cancel()
       self.activeTasks.removeValue(forKey: id)
-      self.tileStore.removeTileRegion(forId: id)
+      try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+        self.tileStore.removeRegion(forId: id) { result in
+          switch result {
+          case .success:
+            continuation.resume()
+          case .failure(let error):
+            // Cancelling before a download creates its region is still successful.
+            if let tileError = error as? TileRegionError, case .doesNotExist = tileError {
+              continuation.resume()
+            } else {
+              continuation.resume(throwing: error)
+            }
+          }
+        }
+      }
     }
 
     AsyncFunction("getTileRegionSize") { (id: String) async throws -> Int in
@@ -85,20 +111,32 @@ public class OfflineTilesModule: Module {
       }
     }
 
-    AsyncFunction("getAllTileRegions") { () async throws -> [[String: Any]] in
-      return await withCheckedContinuation { continuation in
+    AsyncFunction("getAllTileRegions") { (styleURL: String) async throws -> [[String: Any]] in
+      return try await withCheckedThrowingContinuation { continuation in
         self.tileStore.allTileRegions { result in
           switch result {
           case .success(let regions):
-            let items = regions.map { region -> [String: Any] in
-              return [
-                "id": region.id,
-                "completedBytes": region.completedResourceSize,
-              ]
+            self.offlineManager.allStylePacks { styleResult in
+              switch styleResult {
+              case .success(let styles):
+                let style = styles.first { $0.styleURI == styleURL }
+                let items = regions.map { region -> [String: Any] in
+                  return [
+                    "id": region.id,
+                    "completedBytes": region.completedResourceSize,
+                    "requiredResourceCount": region.requiredResourceCount,
+                    "completedResourceCount": region.completedResourceCount,
+                    "stylePackRequiredResourceCount": style?.requiredResourceCount ?? 0,
+                    "stylePackCompletedResourceCount": style?.completedResourceCount ?? 0,
+                  ]
+                }
+                continuation.resume(returning: items)
+              case .failure(let error):
+                continuation.resume(throwing: error)
+              }
             }
-            continuation.resume(returning: items)
-          case .failure:
-            continuation.resume(returning: [])
+          case .failure(let error):
+            continuation.resume(throwing: error)
           }
         }
       }

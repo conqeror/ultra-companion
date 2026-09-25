@@ -2,7 +2,7 @@
 
 Current test strategy and remaining gaps.
 
-Last reviewed: 2026-07-18
+Last reviewed: 2026-09-23
 
 ## Commands
 
@@ -15,7 +15,7 @@ Last reviewed: 2026-07-18
 
 ## Current Coverage
 
-The app has a pure-logic Vitest suite for the bug classes that TypeScript and linting cannot catch. As of this review: 60 test files, 397 tests.
+The app has a Vitest suite for the bug classes that TypeScript and linting cannot catch, including pure calculations, store behavior, and SQLite persistence regression tests. Run `npm test` for the current file and test counts. The SQLite integration tests require `node:sqlite`; they have been verified with Node.js 22.14.
 
 Covered areas:
 
@@ -29,9 +29,15 @@ Covered areas:
 - Collection stitching and stitched POI/climb/ETA coordinate behavior, exercised through the production stitching service
 - Sequential active-collection route loading and chunked collection-segment ETA totals
 - Native and web planning-database transport, validation, and replacement behavior
+- Planner import rollback on write failure, fetched POIs missing from the native destination, and POI cache reload after import
+- Fetched POI replacement preserving rider notes/planned stops and previous data on failure, including overlapping browser transactions
 - Weather service behavior and route-aware upcoming timeline helpers
+- Weather projection invalidation, offline forecast reuse, overlapping requests, and stale completion rejection
+- Shared route-detail cancellation/error recovery and ferry-adjusted presentation
+- Active-route restoration, GPS completion against the latest plan, and native/browser panel return navigation
 - Ferry schema recovery, span mapping, local OSM lookup, stored map geometry, Entur stop/departure parsing and cache behavior, riding-distance/elevation exclusion, ETA propagation, horizons, transport persistence, and Upcoming rows
 - Route, POI, offline, and ETA/climb store behavior through focused store tests
+- Offline readiness reconciliation for partial regions, missing style packs, interrupted sessions, and native enumeration errors
 
 ## Manual / Native Coverage
 
@@ -42,7 +48,9 @@ This is intentional for now: the riskiest pure logic has fast tests, while nativ
 ## Gaps To Add When Touched
 
 - More opening-hours parser edge cases for country-specific and malformed rules
-- Store recovery tests for persisted stale download/fetch state after interrupted app sessions
+- Store recovery tests for persisted stale POI fetch state after interrupted app sessions
 - Surface/descents tests when those features land
 - A small native smoke checklist for share-sheet GPX/KML import and offline tile cancel/retry
 - End-to-end native and browser smoke coverage for `.ultra-plan.db` transfer
+
+After changing native offline code, rebuild the iOS app. Check a completed download after relaunch, a cancelled/interrupted download followed by retry, and a downloaded route in airplane mode after ordinary map-cache eviction. Both bundled styles should retain labels and icons. Simulator compilation verifies SDK API compatibility but does not establish offline map availability on a device.
