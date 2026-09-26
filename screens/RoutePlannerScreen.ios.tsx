@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Alert, Linking, View } from "react-native";
 import { Stack, useNavigation, useRouter } from "expo-router";
 import { usePreventRemove } from "@react-navigation/native";
@@ -10,17 +10,26 @@ import RoutePlannerMap from "@/components/map/RoutePlannerMap";
 import { useRoutePlannerStore } from "@/store/routePlannerStore";
 import { useSettingsStore } from "@/store/settingsStore";
 import { useThemeColors } from "@/theme";
-import { formatDistance, formatElevation } from "@/utils/formatters";
 import { cn } from "@/lib/cn";
 import { ChevronDown } from "lucide-react-native";
 import BRouterProfilePicker from "@/components/route/BRouterProfilePicker";
+import RouteComparisonPanel from "@/components/route/RouteComparisonPanel";
+import { useBRouterProfileStore } from "@/store/brouterProfileStore";
 
 export default function RoutePlannerScreen() {
   const planner = useRoutePlannerStore();
   const {
     waypoints,
-    profile,
-    preview,
+    selectedProfileIds,
+    setSelectedProfileIds,
+    candidates,
+    selectedCandidateId,
+    selectCandidate,
+    loadingProfileIds,
+    alternativeLoadingProfileIds,
+    loadedAlternativeProfileIds,
+    profileErrors,
+    alternativeErrors,
     error,
     isRouting,
     isSaving,
@@ -29,8 +38,10 @@ export default function RoutePlannerScreen() {
     undo,
     reset,
     calculate,
+    loadAlternatives,
     save,
   } = planner;
+  const savedProfiles = useBRouterProfileStore((state) => state.profiles);
   const units = useSettingsStore((s) => s.units);
   const [naming, setNaming] = useState(false);
   const [choosingProfile, setChoosingProfile] = useState(false);
@@ -51,7 +62,7 @@ export default function RoutePlannerScreen() {
     if (waypoints.length < 2) return;
     const timer = setTimeout(() => void calculate(), 500);
     return () => clearTimeout(timer);
-  }, [waypoints, profile, calculate]);
+  }, [waypoints, selectedProfileIds, calculate]);
 
   useEffect(() => () => reset(), [reset]);
 
@@ -61,8 +72,21 @@ export default function RoutePlannerScreen() {
     }
   }, [savedRoute, isSaving, router]);
 
-  const canSave = preview != null && !isRouting && !isSaving;
+  const canSave =
+    selectedCandidateId != null &&
+    !isRouting &&
+    !isSaving &&
+    alternativeLoadingProfileIds.length === 0;
   const canEdit = waypoints.length > 0 && !isSaving;
+  const profileLabel = useMemo(() => {
+    const names = selectedProfileIds.map(
+      (profileId) =>
+        savedProfiles.find((profile) => profile.id === profileId)?.name ?? "Road cycling",
+    );
+    return names.length === 1 ? names[0] : `${names.length} profiles`;
+  }, [savedProfiles, selectedProfileIds]);
+  const hasRoutingErrors = Object.values(profileErrors).some(Boolean);
+  const firstRoutingError = Object.values(profileErrors).find(Boolean);
   const instruction =
     waypoints.length === 0
       ? "Tap the map to set your start."
@@ -75,7 +99,8 @@ export default function RoutePlannerScreen() {
       <Stack.Screen options={{ title: "New route", gestureEnabled: !isSaving }} />
       <RoutePlannerMap
         waypoints={waypoints}
-        points={preview?.points ?? null}
+        candidates={candidates}
+        selectedCandidateId={selectedCandidateId}
         disabled={isSaving || naming || choosingProfile}
         onAddPoint={addWaypoint}
       />
@@ -90,14 +115,14 @@ export default function RoutePlannerScreen() {
               className="flex-1 px-3"
               disabled={isSaving}
               accessibilityRole="button"
-              accessibilityLabel={`Routing profile: ${profile?.name ?? "Road cycling"}`}
+              accessibilityLabel={`Compare routing profiles: ${profileLabel}`}
               onPress={() => setChoosingProfile(true)}
             >
               <Text
                 numberOfLines={1}
                 className="flex-1 text-[15px] font-barlow-semibold text-primary"
               >
-                {profile?.name ?? "Road cycling"}
+                {profileLabel}
               </Text>
               <ChevronDown size={20} color={colors.accent} />
             </Button>
@@ -108,7 +133,7 @@ export default function RoutePlannerScreen() {
           <Text className="mt-1 text-[13px] text-muted-foreground">{instruction}</Text>
         </View>
         <View accessibilityLiveRegion="polite">
-          {isRouting || (waypoints.length >= 2 && !preview && !error) ? (
+          {isRouting || (waypoints.length >= 2 && candidates.length === 0 && !hasRoutingErrors) ? (
             <View
               className="flex-row items-center gap-2"
               accessible
@@ -116,20 +141,35 @@ export default function RoutePlannerScreen() {
               accessibilityLabel="Calculating route"
             >
               <ActivityIndicator color={colors.accent} />
-              <Text className="text-[17px] text-foreground">Calculating route…</Text>
+              <Text className="text-[17px] text-foreground">
+                Calculating{" "}
+                {loadingProfileIds.length > 0
+                  ? loadingProfileIds.length
+                  : selectedProfileIds.length}{" "}
+                {selectedProfileIds.length === 1 ? "route" : "routes"}…
+              </Text>
             </View>
-          ) : preview ? (
-            <Text className="text-[24px] font-barlow-sc-semibold text-foreground">
-              {formatDistance(preview.totalDistanceMeters, units)} · ↑{" "}
-              {formatElevation(preview.totalAscentMeters, units)}
-            </Text>
           ) : null}
-          {error && (
+          {(error || (candidates.length === 0 ? firstRoutingError : null)) && (
             <Text accessibilityRole="alert" className="text-[15px] text-destructive">
-              {error}
+              {error ?? firstRoutingError}
             </Text>
           )}
         </View>
+        {candidates.length > 0 && (
+          <RouteComparisonPanel
+            candidates={candidates}
+            selectedCandidateId={selectedCandidateId}
+            profileErrors={profileErrors}
+            alternativeErrors={alternativeErrors}
+            alternativeLoadingProfileIds={alternativeLoadingProfileIds}
+            loadedAlternativeProfileIds={loadedAlternativeProfileIds}
+            units={units}
+            onSelect={selectCandidate}
+            onLoadAlternatives={(profileId) => void loadAlternatives(profileId)}
+            onRetryFailedProfiles={() => void calculate()}
+          />
+        )}
         <View className="flex-row gap-3">
           <Button
             className={cn("flex-1", !canEdit && "opacity-50")}
@@ -149,7 +189,7 @@ export default function RoutePlannerScreen() {
             disabled={!canEdit}
             onPress={reset}
           />
-          {error && !preview ? (
+          {(error || hasRoutingErrors) && candidates.length === 0 ? (
             <Button
               className="flex-1"
               label="Retry"
@@ -179,7 +219,12 @@ export default function RoutePlannerScreen() {
           · Saved routes work offline
         </Text>
       </View>
-      <BRouterProfilePicker visible={choosingProfile} onClose={() => setChoosingProfile(false)} />
+      <BRouterProfilePicker
+        visible={choosingProfile}
+        selectedProfileIds={selectedProfileIds}
+        onChange={setSelectedProfileIds}
+        onClose={() => setChoosingProfile(false)}
+      />
       <TextPromptModal
         visible={naming}
         title="Save route"

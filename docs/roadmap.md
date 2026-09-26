@@ -2,7 +2,7 @@
 
 Current GitHub issue priority order and prioritization notes.
 
-Last reviewed: 2026-07-13
+Last reviewed: 2026-09-26
 
 ## How To Use This
 
@@ -22,50 +22,45 @@ When priorities change, update both:
 
 ### P0 - Trust And Race Readiness
 
-1. [#42 Harden route import atomicity and retry behavior](https://github.com/conqeror/ultra-companion/issues/42)
-   A reported failed import must not leave hidden partial state, and transient share/deep-link failures must remain retryable. This is a direct trust issue during race preparation.
-
-2. [#30 Improve night readability and ride-mode accessibility](https://github.com/conqeror/ultra-companion/issues/30)
+1. [#30 Improve night readability and ride-mode accessibility](https://github.com/conqeror/ultra-companion/issues/30)
    The app is feature-complete enough that readability is now the main race-readiness risk. The rider should not pay a squint tax at 2 AM.
 
 ### P1 - High-Value Next Work
 
-3. [#49 Add point-assisted ferry crossings with riding-aware metrics and Upcoming events](https://github.com/conqeror/ultra-companion/issues/49)
-   Known ferry crossings should be quick to mark during route preparation, excluded from riding distance/elevation, and visible in Upcoming without making route import depend on unreliable network detection.
+2. [#55 Compare BRouter profiles, alternatives, and elevation in route planner](https://github.com/conqeror/ultra-companion/issues/55)
+   Route choice is a high-value preparation decision. Compare profile tradeoffs and BRouter alternatives before saving, without creating temporary routes or overloading the public service.
 
-4. [#43 Restore long-route memory guarantees after planner import and for collection variants](https://github.com/conqeror/ultra-companion/issues/43)
-   Planner imports and collection variant overlays currently bypass parts of the metadata-first loading model from #18. Restore the memory guarantees before adding more long-route features.
-
-5. [#13 Detect and surface important descents for safety and cold management](https://github.com/conqeror/ultra-companion/issues/13)
+3. [#13 Detect and surface important descents for safety and cold management](https://github.com/conqeror/ultra-companion/issues/13)
    Descents matter for cold, rain, braking risk, and stop timing. This adds ultra-specific terrain awareness without new online dependencies.
 
-6. [#14 Redesign collection segment management workflow](https://github.com/conqeror/ultra-companion/issues/14)
+4. [#14 Redesign collection segment management workflow](https://github.com/conqeror/ultra-companion/issues/14)
    Collection prep is powerful but still action-heavy. Cleaner management lowers the chance of tired or rushed route-prep mistakes.
 
 ### P2 - Planned Backlog
 
-7. [#44 Consolidate stitching implementation and prune dead code](https://github.com/conqeror/ultra-companion/issues/44)
-   Remove the test-only stitching fork and confirmed dead surfaces before collection behavior evolves further.
-
-8. [#17 Polish climb management: edit outside ride view, favorites, and filters](https://github.com/conqeror/ultra-companion/issues/17)
+5. [#17 Polish climb management: edit outside ride view, favorites, and filters](https://github.com/conqeror/ultra-companion/issues/17)
    Useful polish now that ride view has enough climb context. Keep editing/planning away from the riding surface where possible.
 
-9. [#19 Add route surface type data from OSM](https://github.com/conqeror/ultra-companion/issues/19)
+6. [#19 Add route surface type data from OSM](https://github.com/conqeror/ultra-companion/issues/19)
    High planning value for gravel/rough routes, but it is a larger data/storage/rendering milestone.
 
-10. [#23 Support saved Google Places query presets along routes](https://github.com/conqeror/ultra-companion/issues/23)
-    Useful for personal chain/search preferences after saved custom POIs established the durable POI model.
+7. [#23 Support saved Google Places query presets along routes](https://github.com/conqeror/ultra-companion/issues/23)
+   Useful for personal chain/search preferences after saved custom POIs established the durable POI model.
 
 ### P3 - Opportunistic
 
-11. [#16 Add simple average-speed ETA mode](https://github.com/conqeror/ultra-companion/issues/16)
-    Still valuable for understandability, but less urgent while the current power model is working and the feature set is otherwise stable.
+8. [#16 Add simple average-speed ETA mode](https://github.com/conqeror/ultra-companion/issues/16)
+   Still valuable for understandability, but less urgent while the current power model is working and the feature set is otherwise stable.
 
-12. [#29 Explore optional Live Activity for next logistics summary](https://github.com/conqeror/ultra-companion/issues/29)
-    Worth researching after the Upcoming timeline, with battery and native complexity kept on a short leash.
+9. [#29 Explore optional Live Activity for next logistics summary](https://github.com/conqeror/ultra-companion/issues/29)
+   Worth researching after the Upcoming timeline, with battery and native complexity kept on a short leash.
 
 ## Recently Completed
 
+- [#49 Add point-assisted ferry crossings with riding-aware metrics and Upcoming events](https://github.com/conqeror/ultra-companion/issues/49)
+- [#44 Consolidate stitching implementation and prune dead code](https://github.com/conqeror/ultra-companion/issues/44)
+- [#43 Restore long-route memory guarantees after planner import and for collection variants](https://github.com/conqeror/ultra-companion/issues/43)
+- [#42 Harden route import atomicity and retry behavior](https://github.com/conqeror/ultra-companion/issues/42)
 - [#28 Upcoming ETA timeline](https://github.com/conqeror/ultra-companion/issues/28)
 - [#22 Saved custom POIs from Google Maps](https://github.com/conqeror/ultra-companion/issues/22)
 - [#18 Long route and collection performance](https://github.com/conqeror/ultra-companion/issues/18)

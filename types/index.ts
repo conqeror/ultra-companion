@@ -34,6 +34,8 @@ export interface BRouterProfile {
   content: string;
 }
 
+export type BRouterAlternativeIndex = 0 | 1 | 2 | 3;
+
 export interface RoutePoint {
   latitude: number;
   longitude: number;
@@ -295,6 +297,14 @@ export interface ParsedRoute {
   totalDistanceMeters: number;
   totalAscentMeters: number;
   totalDescentMeters: number;
+}
+
+export interface RoutePlannerCandidate {
+  id: string;
+  profileId: string | null;
+  profileName: string;
+  alternativeIndex: BRouterAlternativeIndex;
+  route: ParsedRoute;
 }
 
 // --- Phase 5: Weather ---

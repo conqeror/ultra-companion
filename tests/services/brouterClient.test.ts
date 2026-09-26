@@ -162,6 +162,17 @@ describe("BRouter", () => {
     expect(url.protocol).toBe("https:");
     expect(url.searchParams.get("profile")).toBe("fastbike");
     expect(url.searchParams.get("lonlats")).toBe("17.1,48.1|17.2,48.2");
+    expect(url.searchParams.get("alternativeidx")).toBe("0");
+  });
+
+  it("requests a specific alternative and can reuse an uploaded custom profile", async () => {
+    const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => response() });
+    vi.stubGlobal("fetch", fetch);
+    await fetchBRouterRoute(waypoints, undefined, customProfile, 3, "custom_reused");
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const url = new URL(fetch.mock.calls[0][0]);
+    expect(url.searchParams.get("profile")).toBe("custom_reused");
+    expect(url.searchParams.get("alternativeidx")).toBe("3");
   });
 
   it("does not call the provider for invalid input", async () => {

@@ -10,9 +10,11 @@ interface RouteLayerProps {
   aboveLayerID?: string;
   /** Dim the route line (e.g. when a climb highlight is shown on top) */
   dimmed?: boolean;
+  /** Optional stable line color for comparison/variant surfaces. */
+  color?: string;
 }
 
-function RouteLayer({ routeId, geoJSON, isActive, aboveLayerID, dimmed }: RouteLayerProps) {
+function RouteLayer({ routeId, geoJSON, isActive, aboveLayerID, dimmed, color }: RouteLayerProps) {
   const colors = useThemeColors();
   const isDark = colors.background === "#0E0E0C";
 
@@ -29,13 +31,13 @@ function RouteLayer({ routeId, geoJSON, isActive, aboveLayerID, dimmed }: RouteL
 
   const lineStyle = useMemo(
     () => ({
-      lineColor: isActive && !dimmed ? ACTIVE_ROUTE_COLOR : INACTIVE_ROUTE_COLOR,
+      lineColor: color ?? (isActive && !dimmed ? ACTIVE_ROUTE_COLOR : INACTIVE_ROUTE_COLOR),
       lineWidth: isActive ? (isDark ? 5.5 : 4.5) : 4,
-      lineOpacity: isActive && !dimmed ? 1 : 0.6,
+      lineOpacity: isActive && !dimmed ? 1 : color ? 0.5 : 0.6,
       lineCap: "round" as const,
       lineJoin: "round" as const,
     }),
-    [isActive, dimmed, isDark],
+    [color, isActive, dimmed, isDark],
   );
 
   if (geoJSON.geometry.coordinates.length < 2) return null;
@@ -58,6 +60,7 @@ export default React.memo(RouteLayer, (prev, next) => {
     prev.geoJSON === next.geoJSON &&
     prev.isActive === next.isActive &&
     prev.aboveLayerID === next.aboveLayerID &&
-    prev.dimmed === next.dimmed
+    prev.dimmed === next.dimmed &&
+    prev.color === next.color
   );
 });

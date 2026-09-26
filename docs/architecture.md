@@ -165,14 +165,22 @@ ETA computation: for each route segment, solve `P = (Crr × m × g × cos(θ) + 
 
 ### Online route planning (iOS)
 
-`routePlannerStore` owns an in-memory draft of ordered waypoints and its current preview.
-The iOS planner debounces point changes, calls the public BRouter HTTPS endpoint with
-the `fastbike` profile, and validates the returned GeoJSON before calculating local route
-statistics. Edits and exit cancel the current request and invalidate its generation, so
-obsolete responses cannot restore an old preview. Failures preserve selected points for retry.
+`routePlannerStore` owns an in-memory draft of ordered waypoints and a comparison set of
+candidate routes. The iOS planner debounces point/profile changes, calls the public BRouter
+HTTPS endpoint for up to three selected built-in/custom profiles, and validates each returned
+GeoJSON route before calculating local statistics. Primary profile requests settle independently,
+so one failure does not discard successful candidates. Each profile's BRouter alternatives
+(`alternativeidx=1..3`) load sequentially on demand, reuse one custom-profile upload for that
+batch, and suppress effectively duplicate geometry.
+
+Candidates share one bounded map-coordinate budget rather than each retaining a full render
+budget. Their comparison cards and selected-route preview use common distance/elevation domains,
+so elevation shapes remain visually comparable. Waypoint/profile edits and exit cancel every
+pending request and invalidate its generation, so obsolete responses cannot restore stale
+candidates. Failures preserve selected points for retry.
 Planning requires connectivity; no routing engine or routing-data downloads run on the phone.
 
-Saving passes the preview to `routeStore.saveParsedRoute`, the same atomic route/points/climbs
+Saving passes only the selected candidate to `routeStore.saveParsedRoute`, the same atomic route/points/climbs
 persistence path used by file imports. The saved route works with existing offline preparation,
 collections, ETA, POIs, and GPX export. Waypoints are not persisted for later editing. The draft
 is discarded on exit, with confirmation for unsaved points. The browser does not expose planning.
