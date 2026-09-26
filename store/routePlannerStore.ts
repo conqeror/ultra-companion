@@ -1,14 +1,39 @@
 import { create } from "zustand";
-import { fetchBRouterRoute, isRoutingWaypoint } from "@/services/brouterClient";
+import {
+  fetchBRouterRoute,
+  isRoutingWaypoint,
+  uploadBRouterProfile,
+} from "@/services/brouterClient";
+import {
+  arePlannerRoutesEffectivelySame,
+  routePlannerCandidateId,
+  routePlannerProfileKey,
+  sortPlannerCandidates,
+} from "@/services/routePlannerComparison";
 import { useRouteStore } from "@/store/routeStore";
-import type { BRouterProfile, ParsedRoute, Route, RoutingWaypoint } from "@/types";
-import { getSelectedBRouterProfile, useBRouterProfileStore } from "@/store/brouterProfileStore";
+import type {
+  BRouterAlternativeIndex,
+  BRouterProfile,
+  Route,
+  RoutePlannerCandidate,
+  RoutingWaypoint,
+} from "@/types";
+import { useBRouterProfileStore } from "@/store/brouterProfileStore";
+
+export const MAX_COMPARED_BROUTER_PROFILES = 3;
 
 interface RoutePlannerState {
-  profile: BRouterProfile | null;
-  setProfile: (profile: BRouterProfile | null) => void;
+  selectedProfileIds: (string | null)[];
+  setSelectedProfileIds: (profileIds: readonly (string | null)[]) => void;
   waypoints: RoutingWaypoint[];
-  preview: ParsedRoute | null;
+  candidates: RoutePlannerCandidate[];
+  selectedCandidateId: string | null;
+  selectCandidate: (candidateId: string) => void;
+  loadingProfileIds: (string | null)[];
+  alternativeLoadingProfileIds: (string | null)[];
+  loadedAlternativeProfileIds: (string | null)[];
+  profileErrors: Record<string, string>;
+  alternativeErrors: Record<string, string>;
   isRouting: boolean;
   isSaving: boolean;
   savedRoute: Route | null;
@@ -17,33 +42,110 @@ interface RoutePlannerState {
   undo: () => void;
   reset: () => void;
   calculate: () => Promise<void>;
+  loadAlternatives: (profileId: string | null) => Promise<void>;
   save: (name: string) => Promise<Route | null>;
+  invalidateProfiles: () => void;
 }
 
-let request: AbortController | null = null;
+const requests = new Set<AbortController>();
 let generation = 0;
 
-function cancelRequest() {
+function cancelRequests() {
   generation += 1;
-  request?.abort();
-  request = null;
+  for (const request of requests) request.abort();
+  requests.clear();
+}
+
+function initialProfileIds(): (string | null)[] {
+  return [useBRouterProfileStore.getState().selectedProfileId];
+}
+
+function normalizeProfileIds(profileIds: readonly (string | null)[]): (string | null)[] {
+  const available = new Set(
+    useBRouterProfileStore.getState().profiles.map((profile) => profile.id),
+  );
+  const seen = new Set<string>();
+  const normalized: (string | null)[] = [];
+  for (const profileId of profileIds) {
+    if (profileId !== null && !available.has(profileId)) continue;
+    const key = routePlannerProfileKey(profileId);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    normalized.push(profileId);
+    if (normalized.length === MAX_COMPARED_BROUTER_PROFILES) break;
+  }
+  return normalized.length > 0 ? normalized : [null];
+}
+
+function getProfile(profileId: string | null): BRouterProfile | null | undefined {
+  if (profileId === null) return null;
+  return useBRouterProfileStore.getState().profiles.find((profile) => profile.id === profileId);
+}
+
+function profileName(profileId: string | null): string {
+  return getProfile(profileId)?.name ?? "Road cycling";
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "Could not plan this route. Try again.";
+}
+
+function clearCandidateState() {
+  return {
+    candidates: [] as RoutePlannerCandidate[],
+    selectedCandidateId: null,
+    loadingProfileIds: [] as (string | null)[],
+    alternativeLoadingProfileIds: [] as (string | null)[],
+    loadedAlternativeProfileIds: [] as (string | null)[],
+    profileErrors: {},
+    alternativeErrors: {},
+    error: null,
+    isRouting: false,
+  };
+}
+
+async function uploadedProfileId(
+  profile: BRouterProfile | null,
+  signal: AbortSignal,
+): Promise<string | undefined> {
+  return profile ? uploadBRouterProfile(profile, signal) : undefined;
 }
 
 export const useRoutePlannerStore = create<RoutePlannerState>((set, get) => {
   const replaceWaypoints = (waypoints: RoutingWaypoint[]) => {
     if (get().isSaving || get().savedRoute) return;
-    cancelRequest();
-    set({ waypoints, preview: null, error: null, isRouting: false });
+    cancelRequests();
+    set({ waypoints, ...clearCandidateState() });
   };
+
   return {
-    profile: getSelectedBRouterProfile(),
-    setProfile: (profile) => {
-      if (get().profile === profile) return;
-      cancelRequest();
-      set({ profile, preview: null, error: null, isRouting: false });
+    selectedProfileIds: initialProfileIds(),
+    setSelectedProfileIds: (profileIds) => {
+      if (get().isSaving || get().savedRoute) return;
+      const normalized = normalizeProfileIds(profileIds);
+      const current = get().selectedProfileIds;
+      if (
+        current.length === normalized.length &&
+        current.every((profileId, index) => profileId === normalized[index])
+      ) {
+        return;
+      }
+      cancelRequests();
+      set({ selectedProfileIds: normalized, ...clearCandidateState() });
     },
     waypoints: [],
-    preview: null,
+    candidates: [],
+    selectedCandidateId: null,
+    selectCandidate: (candidateId) => {
+      if (get().candidates.some((candidate) => candidate.id === candidateId)) {
+        set({ selectedCandidateId: candidateId });
+      }
+    },
+    loadingProfileIds: [],
+    alternativeLoadingProfileIds: [],
+    loadedAlternativeProfileIds: [],
+    profileErrors: {},
+    alternativeErrors: {},
     error: null,
     isRouting: false,
     isSaving: false,
@@ -57,40 +159,210 @@ export const useRoutePlannerStore = create<RoutePlannerState>((set, get) => {
     undo: () => replaceWaypoints(get().waypoints.slice(0, -1)),
     reset: () => {
       if (get().isSaving) return;
-      cancelRequest();
-      set({ waypoints: [], preview: null, error: null, isRouting: false, savedRoute: null });
+      cancelRequests();
+      set({ waypoints: [], savedRoute: null, ...clearCandidateState() });
     },
     calculate: async () => {
-      const { waypoints, isSaving, savedRoute, profile } = get();
+      const { waypoints, isSaving, savedRoute } = get();
       if (waypoints.length < 2 || isSaving || savedRoute) return;
-      cancelRequest();
+      const selectedProfileIds = normalizeProfileIds(get().selectedProfileIds);
+      const failedProfileIds = selectedProfileIds.filter((profileId) =>
+        Boolean(get().profileErrors[routePlannerProfileKey(profileId)]),
+      );
+      const isPartialRetry = get().candidates.length > 0 && failedProfileIds.length > 0;
+      const profileIdsToLoad = isPartialRetry ? failedProfileIds : selectedProfileIds;
+      cancelRequests();
       const currentGeneration = generation;
-      request = new AbortController();
-      const signal = request.signal;
-      set({ isRouting: true, preview: null, error: null });
+      const request = new AbortController();
+      requests.add(request);
+      set((state) =>
+        isPartialRetry
+          ? {
+              isRouting: true,
+              loadingProfileIds: profileIdsToLoad,
+              profileErrors: Object.fromEntries(
+                Object.entries(state.profileErrors).filter(
+                  ([key]) =>
+                    !profileIdsToLoad.some(
+                      (profileId) => routePlannerProfileKey(profileId) === key,
+                    ),
+                ),
+              ),
+              error: null,
+            }
+          : {
+              ...clearCandidateState(),
+              isRouting: true,
+              loadingProfileIds: profileIdsToLoad,
+            },
+      );
+
+      await Promise.all(
+        profileIdsToLoad.map(async (profileId) => {
+          const profile = getProfile(profileId);
+          if (profile === undefined) return;
+          const key = routePlannerProfileKey(profileId);
+          try {
+            const providerProfileId = await uploadedProfileId(profile, request.signal);
+            const route = await fetchBRouterRoute(
+              waypoints,
+              request.signal,
+              profile,
+              0,
+              providerProfileId,
+            );
+            if (generation !== currentGeneration) return;
+            const candidate: RoutePlannerCandidate = {
+              id: routePlannerCandidateId(profileId, 0),
+              profileId,
+              profileName: profileName(profileId),
+              alternativeIndex: 0,
+              route,
+            };
+            set((state) => ({
+              candidates: sortPlannerCandidates(
+                [...state.candidates.filter((item) => item.id !== candidate.id), candidate],
+                selectedProfileIds,
+              ),
+              selectedCandidateId:
+                state.selectedCandidateId ??
+                (profileId === selectedProfileIds[0] ? candidate.id : null),
+              loadingProfileIds: state.loadingProfileIds.filter((id) => id !== profileId),
+            }));
+          } catch (error) {
+            if (generation !== currentGeneration) return;
+            set((state) => ({
+              profileErrors: { ...state.profileErrors, [key]: errorMessage(error) },
+              loadingProfileIds: state.loadingProfileIds.filter((id) => id !== profileId),
+            }));
+          }
+        }),
+      );
+
+      requests.delete(request);
+      if (generation !== currentGeneration) return;
+      set((state) => ({
+        isRouting: false,
+        loadingProfileIds: [],
+        selectedCandidateId: state.selectedCandidateId ?? state.candidates[0]?.id ?? null,
+      }));
+    },
+    loadAlternatives: async (profileId) => {
+      const { waypoints, candidates, isSaving, savedRoute, alternativeLoadingProfileIds } = get();
+      if (
+        waypoints.length < 2 ||
+        isSaving ||
+        savedRoute ||
+        alternativeLoadingProfileIds.length > 0 ||
+        !candidates.some(
+          (candidate) => candidate.profileId === profileId && candidate.alternativeIndex === 0,
+        )
+      ) {
+        return;
+      }
+      const profile = getProfile(profileId);
+      if (profile === undefined) return;
+      const currentGeneration = generation;
+      const request = new AbortController();
+      requests.add(request);
+      const key = routePlannerProfileKey(profileId);
+      set((state) => ({
+        alternativeLoadingProfileIds: [profileId],
+        alternativeErrors: { ...state.alternativeErrors, [key]: "" },
+      }));
+
+      const failures: string[] = [];
       try {
-        const preview = await fetchBRouterRoute(waypoints, signal, profile);
-        if (generation === currentGeneration) set({ preview, isRouting: false });
+        const providerProfileId = await uploadedProfileId(profile, request.signal);
+        for (const alternativeIndex of [
+          1, 2, 3,
+        ] as const satisfies readonly BRouterAlternativeIndex[]) {
+          if (generation !== currentGeneration || request.signal.aborted) break;
+          const candidateId = routePlannerCandidateId(profileId, alternativeIndex);
+          if (get().candidates.some((candidate) => candidate.id === candidateId)) continue;
+          try {
+            const route = await fetchBRouterRoute(
+              waypoints,
+              request.signal,
+              profile,
+              alternativeIndex,
+              providerProfileId,
+            );
+            if (generation !== currentGeneration) break;
+            const sameProfileCandidates = get().candidates.filter(
+              (candidate) => candidate.profileId === profileId,
+            );
+            if (
+              sameProfileCandidates.some((candidate) =>
+                arePlannerRoutesEffectivelySame(candidate.route, route),
+              )
+            ) {
+              continue;
+            }
+            const candidate: RoutePlannerCandidate = {
+              id: candidateId,
+              profileId,
+              profileName: profileName(profileId),
+              alternativeIndex,
+              route,
+            };
+            set((state) => ({
+              candidates: sortPlannerCandidates(
+                [...state.candidates, candidate],
+                state.selectedProfileIds,
+              ),
+            }));
+          } catch (error) {
+            if (generation !== currentGeneration || request.signal.aborted) break;
+            failures.push(`Alternative ${alternativeIndex}: ${errorMessage(error)}`);
+          }
+        }
       } catch (error) {
-        if (generation === currentGeneration) {
-          set({
-            isRouting: false,
-            error: error instanceof Error ? error.message : "Could not plan this route. Try again.",
-          });
+        if (generation === currentGeneration && !request.signal.aborted) {
+          failures.push(errorMessage(error));
         }
       } finally {
-        if (generation === currentGeneration) request = null;
+        requests.delete(request);
+        if (generation === currentGeneration) {
+          set((state) => ({
+            alternativeLoadingProfileIds: state.alternativeLoadingProfileIds.filter(
+              (id) => id !== profileId,
+            ),
+            alternativeErrors: {
+              ...state.alternativeErrors,
+              [key]: failures.join(" "),
+            },
+            loadedAlternativeProfileIds: state.loadedAlternativeProfileIds.includes(profileId)
+              ? state.loadedAlternativeProfileIds
+              : [...state.loadedAlternativeProfileIds, profileId],
+          }));
+        }
       }
     },
     save: async (name) => {
-      const { preview, isRouting, isSaving, savedRoute } = get();
+      const {
+        candidates,
+        selectedCandidateId,
+        isRouting,
+        isSaving,
+        savedRoute,
+        alternativeLoadingProfileIds,
+      } = get();
       if (savedRoute) return savedRoute;
-      if (!preview || isRouting || isSaving || !name.trim()) return null;
+      const selected = candidates.find((candidate) => candidate.id === selectedCandidateId);
+      if (
+        !selected ||
+        isRouting ||
+        isSaving ||
+        alternativeLoadingProfileIds.length > 0 ||
+        !name.trim()
+      )
+        return null;
       set({ isSaving: true, error: null });
       try {
         const route = await useRouteStore
           .getState()
-          .saveParsedRoute({ ...preview, name: name.trim() }, "planned-route.gpx");
+          .saveParsedRoute({ ...selected.route, name: name.trim() }, "planned-route.gpx");
         set({ savedRoute: route });
         return route;
       } catch (error) {
@@ -102,10 +374,18 @@ export const useRoutePlannerStore = create<RoutePlannerState>((set, get) => {
         set({ isSaving: false });
       }
     },
+    invalidateProfiles: () => {
+      if (get().isSaving || get().savedRoute) return;
+      cancelRequests();
+      set({
+        selectedProfileIds: normalizeProfileIds(get().selectedProfileIds),
+        ...clearCandidateState(),
+      });
+    },
   };
 });
 
-// Invalidate synchronously on selection, edits, or deletion, before an old preview can be saved.
+// Profile edits/deletions invalidate every derived candidate before it can be saved.
 useBRouterProfileStore.subscribe(() => {
-  useRoutePlannerStore.getState().setProfile(getSelectedBRouterProfile());
+  useRoutePlannerStore.getState().invalidateProfiles();
 });

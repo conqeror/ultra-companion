@@ -10,6 +10,18 @@ export const ACTIVE_ROUTE_COLOR = "#E63946";
 export const INACTIVE_ROUTE_COLOR = "#94A3B8";
 export const COLLECTION_SEGMENT_ALTERNATE_ROUTE_COLOR = "#6A4C93";
 
+/** Stable, high-contrast colors for in-memory planner comparison candidates. */
+export const ROUTE_PLANNER_CANDIDATE_COLORS = [
+  "#E63946",
+  "#457B9D",
+  "#2A9D8F",
+  "#E9C46A",
+  "#F4A261",
+  "#6A4C93",
+  "#1D3557",
+  "#264653",
+] as const;
+
 // --- Phase 2b: Bottom panel ---
 
 /** Draggable sheet snap points as fraction of screen height */

@@ -1,9 +1,34 @@
-import type { BRouterProfile, ParsedRoute, RoutingWaypoint } from "@/types";
+import type {
+  BRouterAlternativeIndex,
+  BRouterProfile,
+  ParsedRoute,
+  RoutingWaypoint,
+} from "@/types";
 import { computeRouteStats } from "@/utils/geo";
 import { validateBRouterProfile } from "@/services/brouterProfiles";
 
 const BROUTER_URL = "https://brouter.de/brouter";
 const REQUEST_TIMEOUT_MS = 60_000;
+
+function linkedRequestController(signal?: AbortSignal) {
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  signal?.addEventListener("abort", abort);
+  if (signal?.aborted) abort();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, REQUEST_TIMEOUT_MS);
+  return {
+    controller,
+    didTimeOut: () => timedOut,
+    dispose: () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", abort);
+    },
+  };
+}
 
 export function isRoutingWaypoint(value: RoutingWaypoint): boolean {
   return (
@@ -58,58 +83,85 @@ export function parseBRouterRoute(value: unknown): ParsedRoute {
   return { name: "Planned route", ...stats };
 }
 
+/** Upload a custom profile once so a comparison batch can reuse its temporary provider ID. */
+export async function uploadBRouterProfile(
+  profile: BRouterProfile,
+  signal?: AbortSignal,
+): Promise<string> {
+  validateBRouterProfile(profile.name, profile.content);
+  const request = linkedRequestController(signal);
+  try {
+    const upload = await fetch(`${BROUTER_URL}/profile`, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=UTF-8" },
+      body: profile.content,
+      signal: request.controller.signal,
+    });
+    if (!upload.ok) throw new Error("Could not upload the BRouter profile. Try again shortly.");
+    let uploaded: Record<string, unknown> | null;
+    try {
+      uploaded = record(await upload.json());
+    } catch {
+      throw new Error("BRouter could not read this profile. Check its contents in Settings.");
+    }
+    if (typeof uploaded?.error === "string" && uploaded.error) {
+      throw new Error(`BRouter rejected “${profile.name}”: ${uploaded.error.slice(0, 400)}`);
+    }
+    if (
+      typeof uploaded?.profileid !== "string" ||
+      !/^custom_[a-zA-Z0-9_-]+$/.test(uploaded.profileid)
+    ) {
+      throw new Error("BRouter returned an invalid profile response. Try again.");
+    }
+    return uploaded.profileid;
+  } catch (error) {
+    if (request.didTimeOut()) {
+      throw new Error("Uploading the BRouter profile took too long. Try again.", { cause: error });
+    }
+    if (signal?.aborted) throw error;
+    if (error instanceof TypeError) {
+      throw new Error(
+        "Could not connect to BRouter. Check your internet connection and try again.",
+        { cause: error },
+      );
+    }
+    throw error;
+  } finally {
+    request.dispose();
+  }
+}
+
 export async function fetchBRouterRoute(
   waypoints: readonly RoutingWaypoint[],
   signal?: AbortSignal,
   profile?: BRouterProfile | null,
+  alternativeIndex: BRouterAlternativeIndex = 0,
+  uploadedProfileId?: string,
 ): Promise<ParsedRoute> {
   if (waypoints.length < 2 || !waypoints.every(isRoutingWaypoint)) {
     throw new Error("Choose at least two valid points on the map.");
   }
   if (profile) validateBRouterProfile(profile.name, profile.content);
-  const controller = new AbortController();
-  const abort = () => controller.abort();
-  signal?.addEventListener("abort", abort);
-  if (signal?.aborted) abort();
-  let timedOut = false;
-  const timer = setTimeout(() => {
-    timedOut = true;
-    controller.abort();
-  }, REQUEST_TIMEOUT_MS);
+  if (![0, 1, 2, 3].includes(alternativeIndex)) {
+    throw new Error("BRouter alternative index must be between 0 and 3.");
+  }
+  if (uploadedProfileId && !/^custom_[a-zA-Z0-9_-]+$/.test(uploadedProfileId)) {
+    throw new Error("BRouter profile ID is invalid.");
+  }
+  const request = linkedRequestController(signal);
   try {
     let profileId = "fastbike";
     if (profile) {
-      // Upload the saved source each time rather than persisting temporary server IDs.
-      // This also ensures edits take effect and expired server profiles recover naturally.
-      const upload = await fetch(`${BROUTER_URL}/profile`, {
-        method: "POST",
-        headers: { "Content-Type": "text/plain;charset=UTF-8" },
-        body: profile.content,
-        signal: controller.signal,
-      });
-      if (!upload.ok) throw new Error("Could not upload the BRouter profile. Try again shortly.");
-      let uploaded: Record<string, unknown> | null;
-      try {
-        uploaded = record(await upload.json());
-      } catch {
-        throw new Error("BRouter could not read this profile. Check its contents in Settings.");
-      }
-      if (typeof uploaded?.error === "string" && uploaded.error) {
-        throw new Error(`BRouter rejected “${profile.name}”: ${uploaded.error.slice(0, 400)}`);
-      }
-      if (
-        typeof uploaded?.profileid !== "string" ||
-        !/^custom_[a-zA-Z0-9_-]+$/.test(uploaded.profileid)
-      ) {
-        throw new Error("BRouter returned an invalid profile response. Try again.");
-      }
-      profileId = uploaded.profileid;
+      // Reuse one upload within a comparison batch. Outside a batch, upload fresh
+      // source so edits take effect and expired provider IDs are never persisted.
+      profileId =
+        uploadedProfileId ?? (await uploadBRouterProfile(profile, request.controller.signal));
     }
-    if (controller.signal.aborted) throw new Error("Routing cancelled.");
+    if (request.controller.signal.aborted) throw new Error("Routing cancelled.");
     const lonlats = waypoints.map((p) => `${p.longitude},${p.latitude}`).join("|");
     const response = await fetch(
-      `${BROUTER_URL}?lonlats=${encodeURIComponent(lonlats)}&profile=${encodeURIComponent(profileId)}&alternativeidx=0&format=geojson`,
-      { signal: controller.signal },
+      `${BROUTER_URL}?lonlats=${encodeURIComponent(lonlats)}&profile=${encodeURIComponent(profileId)}&alternativeidx=${alternativeIndex}&format=geojson`,
+      { signal: request.controller.signal },
     );
     if (!response.ok) {
       throw new Error(
@@ -126,7 +178,7 @@ export async function fetchBRouterRoute(
     }
     return parseBRouterRoute(json);
   } catch (error) {
-    if (timedOut)
+    if (request.didTimeOut())
       throw new Error("Routing took too long. Try again or plan a shorter section.", {
         cause: error,
       });
@@ -139,7 +191,6 @@ export async function fetchBRouterRoute(
     }
     throw error;
   } finally {
-    clearTimeout(timer);
-    signal?.removeEventListener("abort", abort);
+    request.dispose();
   }
 }

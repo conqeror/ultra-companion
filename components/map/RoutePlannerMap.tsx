@@ -13,8 +13,13 @@ import {
 } from "@/hooks/usePreparedRouteGeometries";
 import { useMapStore } from "@/store/mapStore";
 import { useThemeColors } from "@/theme";
-import { computeBounds, MAX_ROUTE_MAP_GEOJSON_POINTS } from "@/utils/geo";
-import type { RoutePoint, RoutingWaypoint } from "@/types";
+import {
+  allocateMapCoordinateBudget,
+  computeBounds,
+  MAX_ROUTE_MAP_GEOJSON_POINTS,
+} from "@/utils/geo";
+import { routePlannerCandidateColor } from "@/services/routePlannerComparison";
+import type { RoutePlannerCandidate, RoutingWaypoint } from "@/types";
 import RouteLayer from "./RouteLayer";
 import MapLayerAnchors from "./MapLayerAnchors";
 
@@ -23,14 +28,16 @@ if (token) Mapbox.setAccessToken(token);
 
 interface RoutePlannerMapProps {
   waypoints: RoutingWaypoint[];
-  points: RoutePoint[] | null;
+  candidates: readonly RoutePlannerCandidate[];
+  selectedCandidateId: string | null;
   disabled: boolean;
   onAddPoint: (point: RoutingWaypoint) => void;
 }
 
 export default function RoutePlannerMap({
   waypoints,
-  points,
+  candidates,
+  selectedCandidateId,
   disabled,
   onAddPoint,
 }: RoutePlannerMapProps) {
@@ -43,25 +50,29 @@ export default function RoutePlannerMap({
   const mapStyle = useMapStyle();
   const [locating, setLocating] = useState(false);
   const { routeGeometryToleranceMeters, updateRouteGeometryZoom } = useRouteGeometryZoom();
-  const requests = useMemo(
-    () =>
-      points
-        ? [
-            {
-              id: "planner",
-              cacheKey: "route-planner",
-              points,
-              toleranceMeters: routeGeometryToleranceMeters,
-              maxPoints: MAX_ROUTE_MAP_GEOJSON_POINTS,
-            },
-          ]
-        : [],
-    [points, routeGeometryToleranceMeters],
-  );
+  const requests = useMemo(() => {
+    const budgets = allocateMapCoordinateBudget(
+      candidates.map((candidate) => candidate.route.points.length),
+      MAX_ROUTE_MAP_GEOJSON_POINTS,
+    );
+    return candidates.map((candidate, index) => ({
+      id: candidate.id,
+      cacheKey: `route-planner-${candidate.id}`,
+      points: candidate.route.points,
+      toleranceMeters: routeGeometryToleranceMeters,
+      maxPoints: budgets[index],
+    }));
+  }, [candidates, routeGeometryToleranceMeters]);
   const prepared = usePreparedRouteGeometries(requests);
-  const geometry =
-    requests[0] && preparedRouteGeometryMatchesSource(prepared.planner, requests[0])
-      ? prepared.planner.geoJSON
+  const selectedCandidate =
+    candidates.find((candidate) => candidate.id === selectedCandidateId) ?? candidates[0];
+  const selectedRequest = selectedCandidate
+    ? requests.find((request) => request.id === selectedCandidate.id)
+    : undefined;
+  const selectedGeometry =
+    selectedRequest &&
+    preparedRouteGeometryMatchesSource(prepared[selectedRequest.id], selectedRequest)
+      ? prepared[selectedRequest.id].geoJSON
       : null;
   const markers = useMemo<GeoJSON.FeatureCollection<GeoJSON.Point>>(
     () => ({
@@ -78,8 +89,8 @@ export default function RoutePlannerMap({
   );
 
   const fitRoute = () => {
-    if (!points?.length) return;
-    const { ne, sw } = computeBounds(points);
+    if (!selectedCandidate?.route.points.length) return;
+    const { ne, sw } = computeBounds(selectedCandidate.route.points);
     camera.current?.fitBounds(ne, sw, [55, 70, 45, 45], 300);
   };
 
@@ -128,13 +139,29 @@ export default function RoutePlannerMap({
       >
         <Camera ref={camera} defaultSettings={initialCamera.current} />
         <MapLayerAnchors key={`anchors-${mapStyle.styleKey}`} />
-        {geometry && (
+        {candidates.map((candidate) => {
+          const request = requests.find((item) => item.id === candidate.id);
+          const ready = prepared[candidate.id];
+          if (!request || !preparedRouteGeometryMatchesSource(ready, request)) return null;
+          return (
+            <RouteLayer
+              key={`route-${candidate.id}-${mapStyle.styleKey}`}
+              routeId={`planner-${candidate.id}`}
+              geoJSON={ready.geoJSON}
+              isActive={false}
+              color={routePlannerCandidateColor(candidate.id)}
+              aboveLayerID={MAP_LAYER_ANCHOR_IDS.routeLine}
+            />
+          );
+        })}
+        {selectedCandidate && selectedGeometry && (
           <RouteLayer
-            key={`route-${mapStyle.styleKey}`}
-            routeId="planner"
-            geoJSON={geometry}
+            key={`route-selected-${mapStyle.styleKey}`}
+            routeId="planner-selected"
+            geoJSON={selectedGeometry}
             isActive
-            aboveLayerID={MAP_LAYER_ANCHOR_IDS.routeLine}
+            color={routePlannerCandidateColor(selectedCandidate.id)}
+            aboveLayerID={MAP_LAYER_ANCHOR_IDS.variantLine}
           />
         )}
         <ShapeSource key={`points-${mapStyle.styleKey}`} id="planner-points" shape={markers}>
@@ -177,14 +204,14 @@ export default function RoutePlannerMap({
             <LocateFixed color={colors.textPrimary} size={24} />
           )}
         </Button>
-        {points && (
+        {selectedCandidate && (
           <Button
             variant="ghost"
             size="icon"
             className="bg-surface border border-border"
             onPress={fitRoute}
             accessibilityRole="button"
-            accessibilityLabel="Show whole planned route"
+            accessibilityLabel="Show whole selected planned route"
           >
             <Scan color={colors.textPrimary} size={24} />
           </Button>
