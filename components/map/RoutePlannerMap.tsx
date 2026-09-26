@@ -66,13 +66,14 @@ export default function RoutePlannerMap({
   const prepared = usePreparedRouteGeometries(requests);
   const selectedCandidate =
     candidates.find((candidate) => candidate.id === selectedCandidateId) ?? candidates[0];
-  const renderedCandidates = useMemo(
-    () => [
-      ...candidates.filter((candidate) => candidate.id !== selectedCandidate?.id),
-      ...(selectedCandidate ? [selectedCandidate] : []),
-    ],
-    [candidates, selectedCandidate],
-  );
+  const selectedRequest = selectedCandidate
+    ? requests.find((request) => request.id === selectedCandidate.id)
+    : undefined;
+  const selectedGeometry =
+    selectedRequest &&
+    preparedRouteGeometryMatchesSource(prepared[selectedRequest.id], selectedRequest)
+      ? prepared[selectedRequest.id].geoJSON
+      : null;
   const markers = useMemo<GeoJSON.FeatureCollection<GeoJSON.Point>>(
     () => ({
       type: "FeatureCollection",
@@ -138,7 +139,7 @@ export default function RoutePlannerMap({
       >
         <Camera ref={camera} defaultSettings={initialCamera.current} />
         <MapLayerAnchors key={`anchors-${mapStyle.styleKey}`} />
-        {renderedCandidates.map((candidate) => {
+        {candidates.map((candidate) => {
           const request = requests.find((item) => item.id === candidate.id);
           const ready = prepared[candidate.id];
           if (!request || !preparedRouteGeometryMatchesSource(ready, request)) return null;
@@ -147,12 +148,22 @@ export default function RoutePlannerMap({
               key={`route-${candidate.id}-${mapStyle.styleKey}`}
               routeId={`planner-${candidate.id}`}
               geoJSON={ready.geoJSON}
-              isActive={candidate.id === selectedCandidate?.id}
+              isActive={false}
               color={routePlannerCandidateColor(candidate.id)}
               aboveLayerID={MAP_LAYER_ANCHOR_IDS.routeLine}
             />
           );
         })}
+        {selectedCandidate && selectedGeometry && (
+          <RouteLayer
+            key={`route-selected-${mapStyle.styleKey}`}
+            routeId="planner-selected"
+            geoJSON={selectedGeometry}
+            isActive
+            color={routePlannerCandidateColor(selectedCandidate.id)}
+            aboveLayerID={MAP_LAYER_ANCHOR_IDS.variantLine}
+          />
+        )}
         <ShapeSource key={`points-${mapStyle.styleKey}`} id="planner-points" shape={markers}>
           <CircleLayer
             id="planner-point-circles"
